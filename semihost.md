@@ -25,27 +25,17 @@
 
 ### What Is This?
 
-This specification describes a **memory-mapped semihosting peripheral** - a hardware device (physical or virtual) that provides I/O services to embedded systems during development. The device uses RIFF (Resource Interchange File Format) as its communication protocol, enabling completely architecture-agnostic operation across any CPU from 8-bit to 128-bit.
+This specification describes a **memory-mapped semihosting peripheral** - a hardware device, whether physical or virtual, that provides I/O services to embedded systems during development.  This allows a new system to immediately receive file system, timekeeping, and other services, without bringing up a bunch of device drivers on that new target.
 
-### Physical Device Concept
+This device implements, more or less transparently, all the functions of the [ARM semihosting interface](https://developer.arm.com/documentation/dui0282/b/semihosting/semihosting/what-is-semihosting-) which in turn provides support for opening, reading, writing, and closing files, as well as timekeeping services.  Having these services ready and working, is very handy when bringing up a compiler, debugger, or new library on a novel target.
+
+The device uses RIFF (Resource Interchange File Format) as its communication protocol, enabling architecture-agnostic operation across any CPU from 8-bit to 128-bit.
 
 Think of this as a discrete chip on the system bus, similar to:
 - **UART (16550)** - provides serial I/O
 - **RTC (DS1307)** - provides timekeeping
-- **Semihost Device** - provides file I/O, console, and host services
 
 The device occupies a small memory-mapped register space (32 bytes) and communicates with the CPU through standard memory read/write operations.
-
-### Virtual Implementation
-
-The same device can be implemented virtually in:
-- **Emulators** (QEMU, MAME, custom simulators)
-- **Debuggers** (GDB, OpenOCD)
-- **Hardware Simulators** (Verilator, ModelSim)
-
-The specification is identical whether the device is silicon or software.
-
-### Why RIFF?
 
 Traditional semihosting uses trap instructions (BKPT, SVC, EBREAK, etc.) which:
 - Require debugger support
@@ -72,23 +62,23 @@ RIFF-based semihosting solves these problems by:
 
 ## Hardware Architecture
 
+The semihosting device presents 32 bytes of memory-mapped registers to the CPU.
+
 ### Device Register Map
 
 The semihosting device presents 32 bytes of memory-mapped registers:
 
 ```
-Offset  Size  Name         Access  Description
-------  ----  -----------  ------  -------------------------------------
-0x00    16    RIFF_PTR     RW      Pointer to RIFF buffer in guest RAM
-0x10    1     DOORBELL     W       Write any value to trigger request
-0x11    1     IRQ_STATUS   R       Interrupt status flags
-0x12    1     IRQ_ENABLE   RW      Interrupt enable mask
-0x13    1     IRQ_ACK      W       Write 1s to clear interrupt bits
-0x14    1     STATUS       R       Device status flags
-0x15    11    RESERVED     -       Reserved for future use
+Offset     Size  Name         Access  Description
+------     ----  -----------  ------  -------------------------------------
+0x00       16    RIFF_PTR     RW      Pointer to RIFF buffer in guest RAM
+0x10       1     DOORBELL     W       Write any value to trigger request
+0x11       1     IRQ_STATUS   R       Interrupt status flags
+0x12       1     IRQ_ENABLE   RW      Interrupt enable mask
+0x13       1     IRQ_ACK      W       Write 1s to clear interrupt bits
+0x14       1     STATUS       R       Device status flags
+0x15-0x20  11    RESERVED     -       Reserved for future use
 ```
-
-**Total device footprint: 32 bytes**
 
 ### Register Descriptions
 
