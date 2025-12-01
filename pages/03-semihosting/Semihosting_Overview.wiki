@@ -1,0 +1,519 @@
+= Semihosting Overview =
+
+'''Semihosting''' is a mechanism that allows programs running on embedded systems or emulators to access host services during development. The Zero Board Computer uses a '''memory-mapped semihosting peripheral''' based on the RIFF protocol to provide architecture-agnostic I/O capabilities.
+
+== What is Semihosting? ==
+
+Semihosting enables guest code (running on the target CPU) to:
+* '''Read and write files''' on the host filesystem
+* '''Output text''' to the host console
+* '''Get timing information''' from the host clock
+* '''Execute host commands''' and receive results
+* '''Access command-line arguments''' passed from the host
+* '''Exit cleanly''' with status codes
+
+These services are essential during development when:
+* Device drivers are not yet implemented
+* Operating system infrastructure is unavailable
+* Testing requires interaction with the host environment
+* File I/O is needed without implementing a filesystem
+
+Semihosting allows '''printf() to work immediately''' without UART drivers, console handling, or an operating system.
+
+== Traditional Semihosting vs. ZBC Semihosting ==
+
+=== Traditional Semihosting (ARM, RISC-V) ===
+
+Traditional semihosting implementations use '''trap instructions''' to communicate with the host:
+* ARM: <code>BKPT 0xAB</code> or <code>SVC 0x123456</code>
+* RISC-V: <code>EBREAK</code>
+* Other architectures: Various trap/interrupt instructions
+
+'''Problems with traditional semihosting:'''
+* '''Requires debugger''' - Trap instructions only work when debugger is attached
+* '''Architecture-specific''' - Different instructions for each CPU
+* '''Execution model complexity''' - Distinguishes between debug traps and semihosting traps
+* '''Limited availability''' - Only works in specific environments (debugger, emulator)
+* '''Portability issues''' - Code using trap instructions not portable across architectures
+
+=== ZBC RIFF-Based Semihosting ===
+
+ZBC semihosting solves these problems by using '''memory-mapped I/O''':
+* '''Standard memory operations''' - Uses load/store instructions available on all CPUs
+* '''No debugger required''' - Works in any execution environment
+* '''Completely architecture-agnostic''' - Same interface on all CPUs
+* '''Self-describing protocol''' - Guest declares its architecture parameters
+* '''Extensible design''' - New features can be added without breaking compatibility
+
+The device appears as a '''memory-mapped peripheral''' with 32 bytes of registers, just like a UART (16550) or RTC (DS1307) chip.
+
+== How ZBC Semihosting Works ==
+
+The semihosting peripheral uses the '''RIFF protocol''' (Resource Interchange File Format) for communication between guest and host.
+
+=== Basic Operation Flow ===
+
+# '''Guest allocates buffer''' - Creates a RIFF structure in its own RAM
+# '''Guest builds request''' - Fills RIFF buffer with configuration and syscall data
+# '''Guest writes pointer''' - Stores buffer address in RIFF_PTR device register
+# '''Guest triggers request''' - Writes to DOORBELL register to start processing
+# '''Device processes''' - Reads RIFF buffer, executes syscall on host
+# '''Device writes response''' - Overwrites request with return values in same buffer
+# '''Guest reads result''' - Examines RETN chunk in buffer for syscall results
+
+This approach keeps the '''device footprint minimal''' (32 bytes) while allowing '''variable-sized communication''' (guest controls buffer size).
+
+=== Buffer Management ===
+
+The RIFF communication buffer:
+* '''Allocated by guest''' in its own RAM (stack, heap, or static data)
+* '''Owned by guest''' - Device only accesses on request
+* '''Pointed to''' via RIFF_PTR register
+* '''Variable size''' - Guest allocates sufficient space (typically 256-1024 bytes)
+
+The buffer location is separate from device registers:
+* '''Device registers''': Fixed 32-byte region in memory map
+* '''RIFF buffer''': Guest chooses location (anywhere in RAM)
+
+This separation allows the device to have a tiny footprint while supporting large data transfers.
+
+=== Memory Location in ZBC Systems ===
+
+In ZBC systems, the semihosting device registers are located at:
+
+<pre>
+Address = reserved_start - 1536 - 32
+</pre>
+
+For 16-bit CPUs, this typically places registers at '''0xFBE0-0xFBFF''', with the RIFF buffer conventionally placed at '''0xFC00-0xFDFF''' (though guest can place buffer anywhere).
+
+See [[Memory Layout and Addressing]] for complete address calculations.
+
+== Device Registers ==
+
+The semihosting peripheral presents 32 bytes of memory-mapped registers:
+
+{| class="wikitable"
+! Offset !! Size !! Name !! Access !! Description
+|-
+| 0x00 || 16 bytes || RIFF_PTR || RW || Pointer to RIFF buffer in guest RAM
+|-
+| 0x10 || 1 byte || DOORBELL || W || Write any value to trigger request
+|-
+| 0x11 || 1 byte || IRQ_STATUS || R || Interrupt status flags
+|-
+| 0x12 || 1 byte || IRQ_ENABLE || RW || Interrupt enable mask
+|-
+| 0x13 || 1 byte || IRQ_ACK || W || Write 1s to clear interrupt bits
+|-
+| 0x14 || 1 byte || STATUS || R || Device status flags
+|-
+| 0x15 || 11 bytes || RESERVED || - || Reserved for future use
+|}
+
+=== RIFF_PTR Register ===
+
+Holds the guest memory address of the RIFF communication buffer.
+
+* '''Format''': Raw byte storage in guest's native byte order
+* '''Size''': Guest writes as many bytes as needed (2, 4, 8, or 16 bytes)
+* '''Interpretation''': Host knows CPU address width and endianness from system configuration
+
+Examples:
+* '''6502 (16-bit)''': Writes 2 bytes in little-endian order
+* '''68000 (32-bit)''': Writes 4 bytes in big-endian order
+* '''x86-64 (64-bit)''': Writes 8 bytes in little-endian order
+
+=== DOORBELL Register ===
+
+Trigger register that initiates request processing.
+
+* '''Write''': Any value (typically 0x01) starts processing
+* '''Read''': Returns undefined value (typically 0x00)
+
+After building a RIFF structure, guest writes to DOORBELL to tell device "request is ready".
+
+=== STATUS Register ===
+
+General device status flags for polling mode.
+
+* '''Bit 0: RESPONSE_READY''' - Request completed, response available
+* '''Bit 7: DEVICE_PRESENT''' - Always 1 (device exists and functional)
+* '''Bits 1-6''': Reserved (read as 0)
+
+Guest polls bit 0 to wait for completion without using interrupts.
+
+=== Interrupt Registers ===
+
+For asynchronous operation:
+
+* '''IRQ_STATUS''' (0x11) - Which interrupt conditions are active
+* '''IRQ_ENABLE''' (0x12) - Which conditions can trigger CPU interrupt
+* '''IRQ_ACK''' (0x13) - Write 1s to clear interrupt bits
+
+See [[Operation Modes]] for details on interrupt-driven operation.
+
+== RIFF Protocol Fundamentals ==
+
+RIFF (Resource Interchange File Format) is a tagged container format—the same format used by WAV audio files, AVI video files, and many other standards.
+
+=== Why RIFF? ===
+
+RIFF provides:
+* '''Tagged structure''' - Chunks have IDs identifying their type
+* '''Size information''' - Each chunk declares its data size
+* '''Self-describing''' - Parsers can skip unknown chunks
+* '''Extensible''' - New chunk types don't break old implementations
+* '''Standard format''' - Well-documented, widely used
+
+=== RIFF Structure ===
+
+A RIFF file/buffer contains:
+
+<pre>
+'RIFF' (4 bytes)           - Signature
+size (4 bytes, LE)         - Total size minus 8
+'SEMI' (4 bytes)           - Form type (semihosting)
+chunks...                  - CNFG, CALL, etc.
+</pre>
+
+Each chunk has:
+
+<pre>
+chunk_id (4 bytes)         - ASCII fourCC code
+chunk_size (4 bytes, LE)   - Data size (excludes 8-byte header)
+data (chunk_size bytes)    - Chunk-specific data
+[pad byte]                 - If size is odd, pad to even boundary
+</pre>
+
+=== Endianness Handling ===
+
+'''Critical distinction:'''
+
+* '''RIFF structure''' (chunk IDs, sizes): '''Always little-endian''' (RIFF standard)
+* '''Data values''' (syscall arguments, return values): '''Guest's native endianness'''
+
+This separation allows:
+* Standard RIFF parsing tools to work
+* Guest to use native byte order for data
+* Protocol to work on any endianness
+
+{{Note|Big-endian guests must swap bytes in RIFF structure fields (sizes) but NOT in chunk data values. Helper functions should handle this transparently.}}
+
+== RIFF Chunk Types ==
+
+=== CNFG Chunk - Configuration ===
+
+Declares guest CPU architecture parameters:
+
+<pre>
+Chunk: 'CNFG' (12 bytes total)
+  int_size   (1 byte)  - Size of integer type (2, 4, 8 bytes)
+  ptr_size   (1 byte)  - Size of pointer type (2, 4, 8, 16 bytes)
+  endianness (1 byte)  - 0=LE, 1=BE, 2=PDP
+  reserved   (1 byte)  - Must be 0x00
+</pre>
+
+'''int_size''' specifies the natural integer size:
+* 6502/Z80: 2 bytes (16-bit int)
+* 68000/ARM/i386: 4 bytes (32-bit int)
+* x86-64: 4 bytes (32-bit int, even on 64-bit CPU)
+
+'''ptr_size''' specifies pointer size:
+* 6502/Z80: 2 bytes (16-bit addressing)
+* 68000/ARM/i386: 4 bytes (32-bit addressing)
+* x86-64: 8 bytes (64-bit addressing)
+
+{{Note|int_size and ptr_size may differ. For example, x86-64 has 32-bit int but 64-bit pointers. This is correct and supported.}}
+
+The CNFG chunk is sent '''once per session''' (first request after device initialization). Device caches these values for all subsequent requests.
+
+=== CALL Chunk - Syscall Request ===
+
+Container chunk for a semihosting operation:
+
+<pre>
+Chunk: 'CALL' (variable size)
+  opcode   (1 byte)      - ARM semihosting syscall number
+  reserved (3 bytes)     - Must be 0x00
+  sub-chunks...          - PARM and DATA chunks for arguments
+</pre>
+
+'''Opcode''' is the ARM semihosting syscall number (0x01-0x31):
+* 0x01: SYS_OPEN
+* 0x05: SYS_WRITE
+* 0x06: SYS_READ
+* 0x02: SYS_CLOSE
+* (see [[Syscall Reference]] for complete list)
+
+'''Sub-chunks''' contain the syscall parameters in order.
+
+=== PARM Chunk - Parameter Value ===
+
+Represents a scalar parameter (integer, pointer):
+
+<pre>
+Chunk: 'PARM' (variable size)
+  param_type (1 byte)    - 0x01=integer, 0x02=pointer
+  reserved   (3 bytes)   - Must be 0x00
+  value      (N bytes)   - Parameter value in guest endianness
+</pre>
+
+'''Value size''':
+* Type 0x01 (integer): int_size bytes from CNFG
+* Type 0x02 (pointer): ptr_size bytes from CNFG
+
+Parameters must appear in the order expected by the syscall.
+
+=== DATA Chunk - Binary Data or String ===
+
+Represents binary data, strings, or buffer contents:
+
+<pre>
+Chunk: 'DATA' (variable size)
+  data_type (1 byte)     - 0x01=binary, 0x02=string
+  reserved  (3 bytes)    - Must be 0x00
+  payload   (N bytes)    - Actual data
+</pre>
+
+Used for:
+* '''In CALL''': Filenames, data to write, command strings
+* '''In RETN''': Data read from files or console
+
+For strings (type 0x02), payload includes null terminator.
+
+=== RETN Chunk - Return Value ===
+
+Device response containing syscall result:
+
+<pre>
+Chunk: 'RETN' (variable size)
+  result   (int_size bytes) - Return value in guest endianness
+  errno    (4 bytes, LE)    - POSIX errno (0=success)
+  sub-chunks...             - Optional DATA chunks for read operations
+</pre>
+
+'''Result field''' interpretation depends on syscall:
+* File descriptor (SYS_OPEN)
+* Byte count (SYS_READ, SYS_WRITE)
+* Status code (SYS_CLOSE)
+* Typically -1 indicates error
+
+'''Errno field''' is standard POSIX errno:
+* 0 = Success
+* 2 = ENOENT (file not found)
+* 13 = EACCES (permission denied)
+* (see errno.h for complete list)
+
+The device '''overwrites the CALL chunk''' with RETN in the same buffer location.
+
+=== ERRO Chunk - Error Response ===
+
+Written by device when request is malformed:
+
+<pre>
+Chunk: 'ERRO' (variable size)
+  error_code (2 bytes, LE)    - Error code
+  reserved   (2 bytes)        - Must be 0x00
+  message    (N bytes)        - Optional ASCII error message
+</pre>
+
+'''Error codes:'''
+* 0x01: Invalid chunk structure
+* 0x02: Malformed RIFF format
+* 0x03: Missing CNFG chunk
+* 0x04: Unsupported opcode
+* 0x05: Invalid parameter count
+
+== ARM Semihosting Compatibility ==
+
+ZBC uses '''ARM semihosting syscall numbers''' for maximum compatibility with existing toolchains.
+
+=== Supported Toolchains ===
+
+Programs using standard C libraries work immediately:
+* '''gcc''' with newlib
+* '''clang''' with picolibc
+* '''llvm-mos''' for 6502 targets
+* Any toolchain supporting ARM semihosting
+
+These toolchains compile code with semihosting backend, generating syscalls for I/O operations.
+
+=== Standard I/O Operations ===
+
+Common syscalls available:
+
+* '''SYS_OPEN''' (0x01) - Open file with mode flags
+* '''SYS_CLOSE''' (0x02) - Close file descriptor
+* '''SYS_WRITE''' (0x05) - Write data to file/stdout
+* '''SYS_READ''' (0x06) - Read data from file/stdin
+* '''SYS_WRITEC''' (0x03) - Write single character
+* '''SYS_WRITE0''' (0x04) - Write null-terminated string
+* '''SYS_READC''' (0x07) - Read single character
+* '''SYS_SEEK''' (0x0A) - Seek to file position
+* '''SYS_FLEN''' (0x0C) - Get file length
+* '''SYS_REMOVE''' (0x0E) - Delete file
+* '''SYS_RENAME''' (0x0F) - Rename file
+
+=== Timing and System Operations ===
+
+* '''SYS_CLOCK''' (0x10) - Get centiseconds since start
+* '''SYS_TIME''' (0x11) - Get seconds since Unix epoch
+* '''SYS_ELAPSED''' (0x30) - Get 64-bit tick count
+* '''SYS_TICKFREQ''' (0x31) - Get ticks per second
+* '''SYS_SYSTEM''' (0x12) - Execute host command
+* '''SYS_GET_CMDLINE''' (0x15) - Get command-line arguments
+
+=== Program Exit ===
+
+* '''SYS_EXIT''' (0x18) - Exit with status code
+* '''SYS_EXIT_EXTENDED''' (0x20) - Exit with exception info
+
+See [[Syscall Reference]] for complete documentation of all syscalls.
+
+== Operation Modes ==
+
+=== Synchronous Mode (Polling) ===
+
+Guest blocks waiting for completion:
+
+# Build RIFF request in buffer
+# Write buffer address to RIFF_PTR
+# Write to DOORBELL register
+# Poll STATUS register until bit 0 set
+# Read RETN chunk from buffer
+
+'''Advantages:'''
+* Simple to implement
+* No interrupt handler needed
+* Deterministic execution
+
+'''Disadvantages:'''
+* Guest wastes CPU cycles waiting
+* Cannot multitask during I/O
+
+See [[Synchronous Operation]] for programming examples.
+
+=== Asynchronous Mode (Interrupts) ===
+
+Guest continues work while device processes request:
+
+# Enable interrupts via IRQ_ENABLE register
+# Build RIFF request in buffer
+# Write buffer address to RIFF_PTR
+# Write to DOORBELL register
+# Continue other work or enter low-power mode
+# Device asserts interrupt when complete
+# Interrupt handler reads RETN chunk
+# Handler writes IRQ_ACK to clear interrupt
+
+'''Advantages:'''
+* Guest can multitask
+* Efficient CPU utilization
+* Suitable for operating systems
+
+'''Disadvantages:'''
+* Requires interrupt handler
+* More complex implementation
+
+See [[Asynchronous Operation]] for programming examples.
+
+{{Warning|Programs using cached memory architectures must flush data cache before triggering requests and invalidate cache before reading responses. See [[Cache Coherency]] for details.}}
+
+== Use Cases ==
+
+=== Compiler Testing ===
+
+Test code generation immediately:
+<pre>
+printf("Hello from %s!\n", "ZBC");
+</pre>
+
+This works without implementing console drivers because semihosting provides I/O.
+
+=== File I/O Testing ===
+
+Read test data, write results:
+<pre>
+FILE *f = fopen("test.dat", "r");
+fread(buffer, 1, size, f);
+fclose(f);
+</pre>
+
+No filesystem implementation needed—host provides file operations.
+
+=== Benchmarking ===
+
+Measure execution time accurately:
+<pre>
+uint64_t start = get_ticks();
+run_test();
+uint64_t elapsed = get_ticks() - start;
+printf("Test took %llu ticks\n", elapsed);
+</pre>
+
+Host provides high-resolution timing.
+
+=== Debugging ===
+
+Output trace information during development:
+<pre>
+debug_printf("Register A = 0x%02X\n", reg_a);
+</pre>
+
+No UART configuration or interrupt handling required.
+
+== Implementation Considerations ==
+
+=== Virtual vs. Physical Devices ===
+
+'''Virtual devices (emulators):'''
+* Can accept virtual addresses from guest
+* Emulator translates using guest's MMU
+* Simplifies guest software
+
+'''Physical devices (FPGA/ASIC):'''
+* Require physical addresses
+* Guest must disable MMU or use identity-mapped memory
+* Guest responsible for address translation
+
+See [[Device Registers]] for address interpretation details.
+
+=== Cache Coherency ===
+
+On CPUs with data cache:
+* '''Before DOORBELL write''': Flush data cache (ensure RIFF buffer visible to device)
+* '''Before reading RETN''': Invalidate cache (ensure fresh data from device)
+* '''Memory barriers''': Ensure DOORBELL write completes before continuing
+
+Failure to manage cache causes stale data or corruption.
+
+=== Buffer Sizing ===
+
+Recommended buffer sizes:
+* '''Minimum''': 256 bytes (handles most syscalls)
+* '''Typical''': 1024 bytes (comfortable for all operations)
+* '''Large transfers''': May need larger buffers or chunked operations
+
+== Next Steps ==
+
+Explore semihosting in detail:
+
+* [[Device Registers]] - Complete register reference
+* [[RIFF Protocol Fundamentals]] - Detailed protocol specification
+* [[Syscall Reference]] - All syscalls documented with examples
+* [[Synchronous Operation]] - Polling mode programming guide
+* [[Asynchronous Operation]] - Interrupt-driven programming guide
+* [[Example Programs]] - Working code examples
+
+== See Also ==
+
+* [[System Overview]] - Complete ZBC architecture
+* [[Memory Layout and Addressing]] - Semihosting device location
+* [[Writing Programs for ZBC]] - Development guide
+* [[Toolchain Integration]] - Compiler and library support
+
+{{ZBC Navigation}}
+
+[[Category:Semihosting]]
+[[Category:Overview]]

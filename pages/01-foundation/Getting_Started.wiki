@@ -1,0 +1,317 @@
+= Getting Started with Zero Board Computer =
+
+This guide walks you through your first steps with the Zero Board Computer (ZBC) system. We'll use MAME as the reference implementation, but these concepts apply to any ZBC-compliant system.
+
+== Prerequisites ==
+
+=== Software Requirements ===
+
+To get started with ZBC, you need:
+
+* '''A ZBC implementation''' - MAME is the reference implementation and supports hundreds of CPU architectures
+* '''A toolchain''' for your target CPU - compiler, assembler, and binutils (gcc, clang, llvm-mos, etc.)
+* '''Basic command-line familiarity''' - running commands and understanding file paths
+
+=== Installing MAME ===
+
+MAME can be obtained from:
+* Official website: https://www.mamedev.org/
+* Package managers: <code>apt install mame</code>, <code>brew install mame</code>, etc.
+* Source code: Build from https://github.com/mamedev/mame
+
+Verify installation:
+<pre>
+mame -version
+</pre>
+
+=== Alternative Implementations ===
+
+While this guide uses MAME, the concepts apply to any ZBC implementation:
+* FPGA-based hardware implementations
+* Other emulators supporting the ZBC specification
+* Custom software implementations
+
+The commands and behavior should be consistent across compliant implementations.
+
+== Quick Start: Running Your First ZBC System ==
+
+=== List Available Systems ===
+
+MAME includes ZBC implementations for many CPU architectures. To see what's available:
+
+<pre>
+mame -listfull zbc*
+</pre>
+
+This shows all ZBC systems, for example:
+<pre>
+zbcz80          Zero Board Computer (Zilog Z80)
+zbcm6502        Zero Board Computer (MOS Technology 6502)
+zbcm68000       Zero Board Computer (Motorola 68000)
+zbci386         Zero Board Computer (Intel 80386)
+zbcarm7         Zero Board Computer (ARM7 TDMI)
+...
+</pre>
+
+=== Run a ZBC System ===
+
+Start a ZBC system without loading a program:
+
+<pre>
+mame zbcz80
+</pre>
+
+You'll see the MAME window open with the MC6847 text display showing the boot screen.
+
+=== Understanding the Boot Screen ===
+
+The boot screen displays essential system information:
+
+<pre>
+Zero Board Computer
+Zilog Z80
+
+Load Address: 0x0200
+Available RAM: 63488 bytes
+Semihost: 0xFC00-0xFDFF
+Video RAM: 0xFE00-0xFEFF
+</pre>
+
+This information tells you:
+
+* '''CPU name''' - The specific processor in this ZBC system
+* '''Load address''' - Where programs are loaded into memory (0x0200 for most 16-bit CPUs)
+* '''Available RAM''' - How much memory your programs can use (from load address to semihosting buffer)
+* '''Semihost buffer''' - Address range for the semihosting I/O peripheral
+* '''Video RAM''' - Address range for the text display memory
+
+{{Note|The boot screen is automatically cleared when your program writes to video RAM. It's only visible when no program is loaded or when the loaded program hasn't accessed the display yet.}}
+
+== Loading Your First Program ==
+
+=== Creating a Simple Binary ===
+
+Let's create the simplest possible program - an infinite loop.
+
+For Z80 assembly:
+<pre>
+; loop.asm - Infinite loop at address 0x0200
+    org 0x0200
+loop:
+    jp loop
+</pre>
+
+Assemble it:
+<pre>
+z80asm -o loop.bin loop.asm
+</pre>
+
+Or for 6502:
+<pre>
+; loop.asm - Infinite loop at address 0x0200
+    .org $0200
+loop:
+    jmp loop
+</pre>
+
+Assemble it:
+<pre>
+ca65 loop.asm && ld65 -o loop.bin -t none loop.o
+</pre>
+
+=== Loading via Quickload ===
+
+The quickload mechanism loads raw binary files directly into memory:
+
+<pre>
+mame zbcz80 -quik loop.bin
+</pre>
+
+What happens:
+# MAME initializes the ZBC system
+# CPU boots and displays the boot screen
+# Quickload device detects the binary file
+# Binary is loaded into RAM at the load address (0x0200)
+# Video RAM becomes writable (was read-only for boot screen)
+# CPU continues executing from load address
+
+Your program is now running! In this case, it's just looping forever, but the CPU is executing your code.
+
+=== Alternative Quickload Syntax ===
+
+You can also use the longer form:
+
+<pre>
+mame zbcz80 -quickload loop.bin
+</pre>
+
+Both <code>-quik</code> and <code>-quickload</code> work identically.
+
+== Understanding Memory Addresses ==
+
+Different CPU architectures have different address space sizes, which affects memory layout.
+
+=== 16-bit CPUs (Z80, 6502, 8086) ===
+
+<pre>
+Address Range       Size        Purpose
+0x0000-0x01FF      512 bytes    Low memory (vectors, stack, boot code)
+0x0200-0xFBFF      63,488 bytes Available RAM
+0xFC00-0xFDFF      1,024 bytes  Semihosting buffer
+0xFE00-0xFEFF      512 bytes    Video RAM
+0xFF00-0xFFFF      256 bytes    Reserved region
+</pre>
+
+=== 32-bit CPUs (68000, ARM, i386) ===
+
+<pre>
+Address Range           Size            Purpose
+0x00000000-0x000001FF  512 bytes        Low memory
+0x00000200-0xFFFFF9FF  ~4 GB            Available RAM
+0xFFFFFA00-0xFFFFFDFF  1,024 bytes      Semihosting buffer
+0xFFFFFE00-0xFFFFFFFF  512 bytes        Video RAM
+0xFFFF0000-0xFFFFFFFF  64 KB            Reserved region
+</pre>
+
+{{Note|The load address and memory layout are calculated automatically based on the CPU's address space width. Check the boot screen for exact addresses on your target CPU.}}
+
+== Writing to the Display ==
+
+The MC6847 text display is memory-mapped, making it simple to use.
+
+=== Display Specifications ===
+
+* '''Size''': 32 columns × 16 rows = 512 characters
+* '''Character set''': Standard ASCII (0x20-0x7F)
+* '''Organization''': Row 0 at offset 0, Row 1 at offset 32, etc.
+
+=== Example: Display a Character ===
+
+Z80 assembly:
+<pre>
+; Display 'A' in top-left corner
+    ld a, 'A'
+    ld hl, 0xFE00        ; Video RAM address (16-bit CPUs)
+    ld (hl), a
+
+loop:
+    jp loop              ; Infinite loop
+</pre>
+
+6502 assembly:
+<pre>
+; Display 'A' in top-left corner
+    lda #'A'
+    sta $FE00            ; Video RAM address (16-bit CPUs)
+
+loop:
+    jmp loop             ; Infinite loop
+</pre>
+
+=== Screen Position Calculation ===
+
+To calculate the memory offset for a specific row and column:
+
+<pre>
+offset = row * 32 + column
+address = video_ram_base + offset
+</pre>
+
+For example, row 5, column 10:
+<pre>
+offset = 5 * 32 + 10 = 170 (0xAA)
+address = 0xFE00 + 0xAA = 0xFEAA
+</pre>
+
+== Using the Semihosting Plugin ==
+
+For programs that need file I/O, console output, or other host services, enable the semihosting plugin.
+
+=== Enabling Semihosting ===
+
+<pre>
+mame zbcz80 -quik program.bin -plugin semihost
+</pre>
+
+The semihosting plugin provides:
+* File I/O operations (open, read, write, close, seek)
+* Console output (character and string writes)
+* Timing services (clock, elapsed time)
+* System operations (execute host commands, get command line)
+
+See [[Semihosting Overview]] for details on using the semihosting interface from your programs.
+
+== Configuring the VSync Interrupt ==
+
+The ZBC system includes a configurable jumper (JP1) that controls how the video controller's VSync signal connects to CPU interrupts.
+
+=== Accessing JP1 Configuration ===
+
+In MAME:
+# Run your ZBC system: <code>mame zbcz80 -quik program.bin</code>
+# Press '''TAB''' to open the MAME menu
+# Navigate to '''Machine Configuration'''
+# Select '''JP1: VSync Interrupt'''
+# Choose position: '''Disabled''', '''IRQ''', or '''NMI'''
+
+=== JP1 Positions ===
+
+* '''Disabled (Default)''' - No interrupts, simplest mode for basic programs
+* '''IRQ''' - Maskable interrupts at ~60Hz, useful for timing and multitasking
+* '''NMI''' - Non-maskable interrupts at ~60Hz, guaranteed periodic execution
+
+{{Warning|If you enable IRQ or NMI mode, your program MUST provide proper interrupt handlers. Without handlers, the system will crash as interrupt return addresses pile up on the stack.}}
+
+See [[Interrupt System (JP1 Jumper)]] for programming considerations and interrupt handler requirements.
+
+== Common Issues and Solutions ==
+
+=== Boot Screen Stays Visible ===
+
+'''Cause''': Your program hasn't written to video RAM yet, or hasn't started executing.
+
+'''Solution''':
+* Verify program binary is correct size
+* Check that load address matches your program's expectations
+* Ensure program enters a loop or continues execution
+
+=== Program Doesn't Execute ===
+
+'''Cause''': Some CPUs require boot code (reset vectors, exception tables) to start executing.
+
+'''Solution''':
+* Check if your CPU has a template specialization (Z80, 6502, 68000 do)
+* CPUs without specialization may need boot code in your binary
+* Consult [[CPU Support and Initialization]] for your architecture
+
+=== Wrong Memory Addresses ===
+
+'''Cause''': Memory layout varies by CPU address space width.
+
+'''Solution''':
+* Always check the boot screen for correct addresses
+* Use formulas from [[Memory Layout and Addressing]]
+* Different CPUs have different video RAM and semihosting addresses
+
+== Next Steps ==
+
+Now that you've run your first ZBC system, explore further:
+
+* [[System Overview]] - Understand the complete system architecture
+* [[Memory Layout and Addressing]] - Master memory organization across CPUs
+* [[Video Display (MC6847)]] - Learn advanced display programming
+* [[Semihosting Overview]] - Access host services from your programs
+* [[Writing Programs for ZBC]] - Comprehensive development guide
+* [[Example Programs]] - Learn from working examples
+
+== See Also ==
+
+* [[What is Zero Board Computer]] - Complete introduction to ZBC
+* [[Quickload System]] - Details on program loading
+* [[CPU Support and Initialization]] - CPU-specific boot requirements
+
+{{ZBC Navigation}}
+
+[[Category:Overview]]
+[[Category:User Guides]]
+[[Category:Getting Started]]

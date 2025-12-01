@@ -1,0 +1,9 @@
+<div style="border: 1px solid #cccccc; background-color: #f9f9f9; padding: 10px; margin: 10px 0;">
+'''See also:'''
+{{#if:{{{1|}}}|[[{{{1}}}]]}}{{#if:{{{2|}}}|, [[{{{2}}}]]}}{{#if:{{{3|}}}|, [[{{{3}}}]]}}{{#if:{{{4|}}}|, [[{{{4}}}]]}}{{#if:{{{5|}}}|, [[{{{5}}}]]}}
+</div><noinclude>
+== Usage ==
+<pre>{{SeeAlso|Memory Layout and Addressing|Device Registers|Operation Modes}}</pre>
+
+[[Category:Templates]]
+</noinclude>
