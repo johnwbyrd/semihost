@@ -1,8 +1,5 @@
 # RIFF-Based Semihosting Device Specification
-
-**Version:** 2.0-draft
-**Date:** 2024-11-26
-**Status:** Experimental
+# Version 0.1.0
 
 ---
 
