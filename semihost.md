@@ -520,7 +520,7 @@ uint8_t riff_buffer[256];
 build_riff_request(riff_buffer, SYS_WRITE, args);
 
 // Write pointer to device (native byte order)
-*(uint32_t *)(semihost + RIFF_PTR_OFFSET) = (uint32_t)riff_buffer;
+*(uintptr_t *)(semihost + RIFF_PTR_OFFSET) = (uintptr_t)riff_buffer;
 
 // Ring doorbell
 *(uint8_t *)(semihost + DOORBELL_OFFSET) = 0x01;
@@ -531,7 +531,7 @@ while (!(*(uint8_t *)(semihost + STATUS_OFFSET) & 0x01)) {
 }
 
 // Read result from riff_buffer
-uint32_t result = read_retn_result(riff_buffer);
+uintptr_t result = read_retn_result(riff_buffer);
 ```
 
 **Characteristics:**
@@ -566,7 +566,7 @@ void irq_handler(void) {
     // Check if semihost interrupt
     if (*(uint8_t *)(semihost + IRQ_STATUS_OFFSET) & 0x01) {
         // Read result from riff_buffer
-        uint32_t result = read_retn_result(riff_buffer);
+        uintptr_t result = read_retn_result(riff_buffer);
 
         // Signal completion to application
         semihost_request_complete(result);
@@ -582,7 +582,7 @@ void do_semihost_write(void) {
     build_riff_request(riff_buffer, SYS_WRITE, args);
 
     // Submit (returns immediately)
-    *(uint32_t *)(semihost + RIFF_PTR_OFFSET) = (uint32_t)riff_buffer;
+    *(uintptr_t *)(semihost + RIFF_PTR_OFFSET) = (uintptr_t)riff_buffer;
     *(uint8_t *)(semihost + DOORBELL_OFFSET) = 0x01;
 
     // Do other work here!
