@@ -68,17 +68,15 @@ The semihosting device presents 32 bytes of memory-mapped registers to the CPU.
 
 The semihosting device presents 32 bytes of memory-mapped registers:
 
-```
-Offset     Size  Name         Access  Description
-------     ----  -----------  ------  -------------------------------------
-0x00       16    RIFF_PTR     RW      Pointer to RIFF buffer in guest RAM
-0x10       1     DOORBELL     W       Write any value to trigger request
-0x11       1     IRQ_STATUS   R       Interrupt status flags
-0x12       1     IRQ_ENABLE   RW      Interrupt enable mask
-0x13       1     IRQ_ACK      W       Write 1s to clear interrupt bits
-0x14       1     STATUS       R       Device status flags
-0x15-0x20  11    RESERVED     -       Reserved for future use
-```
+| Offset | Size | Name | Access | Description |
+|--------|------|------|--------|-------------|
+| 0x00 | 16 | RIFF_PTR | RW | Pointer to RIFF buffer in guest RAM |
+| 0x10 | 1 | DOORBELL | W | Write any value to trigger request |
+| 0x11 | 1 | IRQ_STATUS | R | Interrupt status flags |
+| 0x12 | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
+| 0x13 | 1 | IRQ_ACK | W | Write 1s to clear interrupt bits |
+| 0x14 | 1 | STATUS | R | Device status flags |
+| 0x15-0x20 | 11 | RESERVED | - | Reserved for future use |
 
 ### Register Descriptions
 
@@ -113,11 +111,9 @@ Offset     Size  Name         Access  Description
 **Purpose:** Indicates which interrupt conditions are currently active.
 
 **Bit definitions:**
-```
-Bit 0: RESPONSE_READY - Semihosting request completed
-Bit 1: ERROR          - Error occurred during processing
-Bits 2-7: Reserved (read as 0)
-```
+- Bit 0: RESPONSE_READY - Semihosting request completed
+- Bit 1: ERROR - Error occurred during processing
+- Bits 2-7: Reserved (read as 0)
 
 **Operation:** Host sets bits when events occur. Guest reads to determine interrupt cause. Bits are cleared by writing to IRQ_ACK.
 
@@ -126,11 +122,9 @@ Bits 2-7: Reserved (read as 0)
 **Purpose:** Controls which interrupt conditions can assert the CPU's interrupt line.
 
 **Bit definitions:**
-```
-Bit 0: RESPONSE_READY_EN - Enable interrupt on completion
-Bit 1: ERROR_EN          - Enable interrupt on error
-Bits 2-7: Reserved (write 0, read as 0)
-```
+- Bit 0: RESPONSE_READY_EN - Enable interrupt on completion
+- Bit 1: ERROR_EN - Enable interrupt on error
+- Bits 2-7: Reserved (write 0, read as 0)
 
 **Default:** 0x00 (all interrupts disabled, polling mode)
 
@@ -151,11 +145,9 @@ Bits 2-7: Reserved (write 0, read as 0)
 **Purpose:** General device status flags.
 
 **Bit definitions:**
-```
-Bit 0: RESPONSE_READY - Same as IRQ_STATUS bit 0 (convenience)
-Bit 7: DEVICE_PRESENT - Always 1 (device exists and is functional)
-Bits 1-6: Reserved (read as 0)
-```
+- Bit 0: RESPONSE_READY - Same as IRQ_STATUS bit 0 (convenience)
+- Bit 7: DEVICE_PRESENT - Always 1 (device exists and is functional)
+- Bits 1-6: Reserved (read as 0)
 
 **Operation:** Guest can poll STATUS register to wait for completion without enabling interrupts. Bit 0 provides same information as IRQ_STATUS for convenience.
 
@@ -163,18 +155,16 @@ Bits 1-6: Reserved (read as 0)
 
 **Key Principle:** The device registers and the RIFF buffer are **separate**.
 
-```
-Device Registers (32 bytes at device base address):
-  - RIFF_PTR, DOORBELL, IRQ_STATUS, etc.
-  - Fixed location in memory map
-  - Directly accessed by CPU
+**Device Registers** (32 bytes at device base address):
+- RIFF_PTR, DOORBELL, IRQ_STATUS, etc.
+- Fixed location in memory map
+- Directly accessed by CPU
 
-RIFF Buffer (variable size in guest RAM):
-  - Guest allocates wherever convenient
-  - Contains RIFF header + chunks
-  - Guest tells device location via RIFF_PTR
-  - Device reads/writes this buffer via memory access
-```
+**RIFF Buffer** (variable size in guest RAM):
+- Guest allocates wherever convenient
+- Contains RIFF header + chunks
+- Guest tells device location via RIFF_PTR
+- Device reads/writes this buffer via memory access
 
 **Why separate?**
 1. Device footprint stays minimal (32 bytes)
@@ -214,12 +204,7 @@ Unaligned accesses may or may not be supported based on bus protocol.
 
 **Signal:** IRQ_OUT (active high or low, implementation choice)
 
-**Behavior:**
-```
-IRQ_OUT = (IRQ_STATUS & IRQ_ENABLE) != 0
-```
-
-When any enabled interrupt condition is active, IRQ_OUT is asserted. Connect to CPU's IRQ or NMI input as appropriate for the system.
+**Behavior:** IRQ_OUT is asserted when the bitwise AND of IRQ_STATUS and IRQ_ENABLE is non-zero. When any enabled interrupt condition is active, IRQ_OUT is asserted. Connect to CPU's IRQ or NMI input as appropriate for the system.
 
 **Typical connection:**
 - Simple systems: Connect to CPU IRQ input
@@ -232,14 +217,12 @@ When any enabled interrupt condition is active, IRQ_OUT is asserted. Connect to 
 
 The device operates **synchronously** with deterministic timing:
 
-```
 1. Guest writes to DOORBELL (1 bus cycle)
 2. Device detects write (combinational or 1 clock)
 3. Device processes request (variable time, typically µs to ms)
 4. Device writes RETN chunk to guest RAM (multiple bus cycles)
 5. Device sets STATUS bit 0 (1 clock)
 6. Guest reads STATUS to detect completion (1 bus cycle per poll)
-```
 
 **Processing time:** Depends on syscall type:
 - `SYS_WRITEC`: Microseconds (write single character)
@@ -252,7 +235,6 @@ The device operates **synchronously** with deterministic timing:
 
 For interrupt-driven operation:
 
-```
 1. Guest writes IRQ_ENABLE = 0x01 (enable RESPONSE_READY interrupt)
 2. Guest writes to DOORBELL
 3. Guest continues other work (or enters low-power mode)
@@ -261,7 +243,6 @@ For interrupt-driven operation:
 6. CPU takes interrupt, guest handler runs
 7. Handler reads result from RIFF buffer
 8. Handler writes IRQ_ACK = 0x01 to clear interrupt
-```
 
 **Latency:** Interrupt assertion to handler execution depends on CPU architecture and system state (interrupt masks, current instruction, etc.).
 
@@ -284,13 +265,7 @@ The RIFF communication buffer is:
 
 RIFF (Resource Interchange File Format) is a tagged container format. The same format used by WAV, AVI, and many other standards.
 
-**Basic structure:**
-```
-'RIFF' [size:4] 'SEMI'
-  'CNFG' [chunk_size:4] [config_data]
-  'CALL' [chunk_size:4] [syscall_data]
-  'RETN' [chunk_size:4] [return_data]    // Device writes this
-```
+**Basic structure:** The RIFF container begins with the four-character code 'RIFF', followed by a 4-byte size field, followed by the form type 'SEMI'. Within the container are chunks: CNFG (configuration data), CALL (syscall data), and RETN (return data, written by the device).
 
 **RIFF compliance:**
 - Chunk IDs: 4-byte ASCII codes ('RIFF', 'CNFG', etc.)
@@ -311,60 +286,52 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 - Guest declares its endianness in CNFG chunk
 - Host interprets data values using declared endianness
 
-**Implementation note for big-endian guests:**
+**Implementation note for big-endian guests:** Guest must swap multi-byte values in RIFF headers (sizes) but NOT in chunk data. Big-endian systems will need helper functions to write little-endian values for RIFF structure fields while using native byte order for data values within chunks.
 
-Guest must swap multi-byte values in RIFF headers (sizes) but NOT in chunk data:
+### Chunk Nesting and Organization
 
-```c
-// Big-endian CPU example
-uint32_t size = 8;
-write_u32_le(&riff_buffer[4], size);  // Swap for RIFF header
+**RIFF hierarchy for semihosting:** The RIFF container with form type 'SEMI' contains: CNFG (leaf chunk for configuration), CALL (container chunk for request, which may contain PARM leaf chunks for parameters and DATA leaf chunks for buffers/strings), and RETN or ERRO (container chunks for response, which may contain DATA leaf chunks for read data).
 
-uint32_t arg0 = 0x12345678;
-write_u32_be(&call_args[0], arg0);    // Native BE for chunk data
-```
+**Nesting rules:**
+- Maximum nesting depth: 2 levels (RIFF → CALL/RETN → PARM/DATA)
+- CALL and RETN are container chunks (may contain sub-chunks)
+- PARM and DATA are leaf chunks (no sub-chunks allowed)
+- CNFG is a leaf chunk
+- Invalid: PARM inside PARM, DATA inside DATA, CALL inside CALL
 
-Helper functions for BE platforms:
-
-```c
-static inline void write_u32_le(void *ptr, uint32_t val) {
-    uint8_t *p = (uint8_t *)ptr;
-    p[0] = (val >> 0) & 0xFF;
-    p[1] = (val >> 8) & 0xFF;
-    p[2] = (val >> 16) & 0xFF;
-    p[3] = (val >> 24) & 0xFF;
-}
-
-static inline void write_u32_be(void *ptr, uint32_t val) {
-    uint8_t *p = (uint8_t *)ptr;
-    p[0] = (val >> 24) & 0xFF;
-    p[1] = (val >> 16) & 0xFF;
-    p[2] = (val >> 8) & 0xFF;
-    p[3] = (val >> 0) & 0xFF;
-}
-```
-
-For little-endian platforms, both functions do the same thing, so the overhead is zero.
+**Chunk alignment:**
+- All chunks should be naturally aligned
+- RIFF buffer should start on a word-aligned address
+- Per RIFF specification, odd-sized chunks are padded to even boundary
 
 ### CNFG Chunk - Configuration
 
-**Purpose:** Declares guest CPU architecture parameters. Must be first chunk after RIFF header.
+**Purpose:** Declares guest CPU architecture parameters.
 
-**Chunk ID:** `'CNFG'` (0x43 0x4E 0x46 0x47)
+**Chunk ID:** 'CNFG' (ASCII codes 0x43 0x4E 0x46 0x47)
 
-**Format:**
-```
-Offset  Size  Field        Description
-------  ----  -----------  ------------------------------------------
-+0x00   4     chunk_id     'CNFG'
-+0x04   4     chunk_size   4 (little-endian)
-+0x08   1     word_size    Bytes per word (1,2,4,8,16,...)
-+0x09   1     ptr_size     Bytes per pointer (may differ from word)
-+0x0A   1     endianness   0=LE, 1=BE, 2=PDP
-+0x0B   1     reserved     Must be 0x00
-```
+**Format:** The CNFG chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (value 4), followed by four data bytes: word_size (bytes per word), ptr_size (bytes per pointer, may differ from word size), endianness (0=LE, 1=BE, 2=PDP), and one reserved byte (must be 0x00).
 
 **Total chunk size:** 12 bytes (8 byte header + 4 byte data)
+
+**Field definitions:**
+
+**word_size:** Size in bytes of the natural integer type for the architecture. Represents the size of C `int` or equivalent default integer type.
+- 6502 (LLVM-MOS): 2 bytes (16-bit int)
+- ARM Cortex-M: 4 bytes (32-bit int)
+- x86-64: 4 bytes (32-bit int, even on 64-bit platforms)
+- AVR: 2 bytes (16-bit int)
+
+**ptr_size:** Size in bytes of pointer types for the architecture. Represents the size of C pointer types (`void*`, `char*`). Equals the address bus width.
+- 6502: 2 bytes (16-bit addressing)
+- ARM Cortex-M: 4 bytes (32-bit addressing)
+- x86-64: 8 bytes (64-bit addressing)
+- AVR: 2 bytes (16-bit addressing)
+
+**When word_size ≠ ptr_size:**
+- Some DSPs have 16-bit data (word_size=2) but 24-bit code pointers (ptr_size=3)
+- x86-64 has 32-bit int (word_size=4) but 64-bit pointers (ptr_size=8)
+- This distinction allows the protocol to correctly size both scalar values and addresses
 
 **Endianness values:**
 - `0` - Little Endian (LSB first): x86, ARM Cortex-M, RISC-V (typically)
@@ -372,92 +339,79 @@ Offset  Size  Field        Description
 - `2` - PDP Endian (middle-endian): PDP-11, VAX (historic)
 - `3-255` - Reserved for future use
 
-**Notes:**
-- Written once per session (or per RIFF buffer initialization)
-- Device caches these values for interpreting subsequent chunks
+**Configuration caching:**
+- CNFG chunk should be sent **once** at session start (first RIFF buffer after device initialization)
+- Device caches word_size, ptr_size, and endianness for the entire session
+- Subsequent RIFF buffers **omit** the CNFG chunk and start directly with CALL
+- To change configuration, guest must reinitialize the device or send a new CNFG chunk
 - `word_size` != `ptr_size` is valid (e.g., 16-bit words with 24-bit pointers on some DSPs)
-- Host uses these values to correctly interpret all multi-byte values in guest data
+- Host uses these cached values to correctly interpret all multi-byte values in PARM chunks
 
-**Example (32-bit little-endian ARM):**
-```
-0x43 0x4E 0x46 0x47         // 'CNFG'
-0x04 0x00 0x00 0x00         // chunk_size = 4 (LE)
-0x04                        // word_size = 4 bytes
-0x04                        // ptr_size = 4 bytes
-0x00                        // endianness = 0 (LE)
-0x00                        // reserved
-```
+### CALL Chunk - Syscall Request Container
 
-**Example (16-bit big-endian 68000):**
-```
-0x43 0x4E 0x46 0x47         // 'CNFG'
-0x04 0x00 0x00 0x00         // chunk_size = 4 (LE - note RIFF requirement!)
-0x02                        // word_size = 2 bytes
-0x04                        // ptr_size = 4 bytes (68000 has 32-bit pointers)
-0x01                        // endianness = 1 (BE)
-0x00                        // reserved
-```
+**Purpose:** Container chunk for a semihosting operation request.
 
-### CALL Chunk - Syscall Request
+**Chunk ID:** 'CALL' (ASCII codes 0x43 0x41 0x4C 0x4C)
 
-**Purpose:** Request a semihosting operation.
-
-**Chunk ID:** `'CALL'` (0x43 0x41 0x4C 0x4C)
-
-**Format:**
-```
-Offset  Size      Field      Description
-------  --------  ---------  ------------------------------------------
-+0x00   4         chunk_id   'CALL'
-+0x04   4         size       4 + ptr_size (little-endian)
-+0x08   1         opcode     ARM semihosting syscall number
-+0x09   3         reserved   Must be 0x00
-+0x0C   ptr_size  arg_ptr    Pointer to argument array in guest RAM
-```
-
-**Total chunk size:** 12 + ptr_size bytes
+**Format:** The CALL chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: opcode (1 byte, ARM semihosting syscall number), three reserved bytes (must be 0x00), and then a variable number of sub-chunks (PARM and DATA chunks for parameters).
 
 **Opcode:** ARM semihosting syscall number (0x01-0x31, see reference table)
 
-**Argument pointer (arg_ptr):**
-- Points to array in guest RAM
-- Array contains `word_size` byte elements
-- Element count depends on syscall (e.g., SYS_WRITE has 3 arguments)
-- Written in guest's native endianness (as declared in CNFG)
+**Sub-chunks:** The CALL chunk contains nested PARM and DATA chunks representing the syscall parameters. Parameters appear in the order expected by the syscall.
 
-**Example (32-bit LE system, SYS_WRITE syscall):**
-```
-0x43 0x41 0x4C 0x4C         // 'CALL'
-0x08 0x00 0x00 0x00         // chunk_size = 8 (4 + ptr_size=4) (LE)
-0x05                        // opcode = 0x05 (SYS_WRITE)
-0x00 0x00 0x00              // reserved
-0x00 0x10 0x00 0x00         // arg_ptr = 0x00001000 (LE)
-```
+### PARM Chunk - Parameter Value
 
-At address 0x1000 in guest RAM (3 arguments × 4 bytes):
-```
-0x00001000: 0x01 0x00 0x00 0x00    // arg[0] = fd = 1 (stdout)
-0x00001004: 0x00 0x20 0x00 0x00    // arg[1] = buffer_ptr = 0x2000
-0x00001008: 0x0A 0x00 0x00 0x00    // arg[2] = count = 10 bytes
-```
+**Purpose:** Represents a single scalar parameter (integer, pointer, etc.) within a CALL chunk.
 
-### RETN Chunk - Return Value
+**Chunk ID:** 'PARM' (ASCII codes 0x50 0x41 0x52 0x4D)
 
-**Purpose:** Device response containing syscall result.
+**Format:** The PARM chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (4 + value_size), followed by: param_type (1 byte parameter type code), three reserved bytes (must be 0x00), and then the parameter value in guest endianness (variable size).
 
-**Chunk ID:** `'RETN'` (0x52 0x45 0x54 0x4E)
+**Parameter types:**
+- `0x01` - Word value (size = word_size from CNFG)
+  - Used for: file descriptors, counts, modes, status codes, offsets
+  - Represents scalar integer values in the guest's natural integer size
+- `0x02` - Pointer value (size = ptr_size from CNFG)
+  - Used for: memory addresses (when needed, though most use DATA chunks instead)
+  - Sized to hold valid addresses in the guest's address space
+- `0x03-0xFF` - Reserved for future use
 
-**Format:**
-```
-Offset      Size       Field   Description
-----------  ---------  ------  ------------------------------------------
-+0x00       4          chunk_id   'RETN'
-+0x04       4          size       word_size + 4 (little-endian)
-+0x08       word_size  result     Syscall return value (guest endianness)
-+0x08+word  4          errno      POSIX errno, 0=success (little-endian)
-```
+**Value field:**
+- Size depends on param_type and CNFG settings
+- Endianness matches guest's declared endianness
+- For type 0x01 (word): value is word_size bytes
+- For type 0x02 (pointer): value is ptr_size bytes
 
-**Total chunk size:** 12 + word_size bytes
+**Note:** Parameters must appear in the order expected by the syscall.
+
+### DATA Chunk - Binary Data or String
+
+**Purpose:** Represents binary data, strings, or buffer contents within CALL or RETN chunks.
+
+**Chunk ID:** 'DATA' (ASCII codes 0x44 0x41 0x54 0x41)
+
+**Format:** The DATA chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (4 + payload_length), followed by: data_type (1 byte data type code), three reserved bytes (must be 0x00), and then the payload (actual data bytes, variable length).
+
+**Data types:**
+- `0x01` - Binary data (arbitrary bytes)
+- `0x02` - String (null-terminated ASCII/UTF-8)
+- `0x03-0xFF` - Reserved for future use
+
+**Payload:** Variable-length data. For strings (type 0x02), includes null terminator.
+
+**Padding:** If payload length is odd, chunk is padded to even byte boundary per RIFF specification.
+
+**Usage:**
+- In CALL chunks: Contains data to write (SYS_WRITE), filenames (SYS_OPEN), command strings (SYS_SYSTEM)
+- In RETN chunks: Contains data read back (SYS_READ, SYS_READC)
+
+### RETN Chunk - Return Value and Data
+
+**Purpose:** Device response containing syscall result and optional data.
+
+**Chunk ID:** 'RETN' (ASCII codes 0x52 0x45 0x54 0x4E)
+
+**Format:** The RETN chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: result (word_size bytes, syscall return value in guest endianness), errno (4 bytes, POSIX errno in little-endian, 0=success), and optional sub-chunks (DATA chunks for read operations).
 
 **Result field:**
 - Size equals `word_size` from CNFG
@@ -474,23 +428,27 @@ Offset      Size       Field   Description
 - 0 = success, no error
 - >0 = POSIX errno value (ENOENT=2, EACCES=13, etc.)
 
+**Sub-chunks:** For syscalls that return data (SYS_READ, SYS_READC), the RETN chunk contains a DATA sub-chunk with the actual bytes read.
+
 **Device behavior:** Device **overwrites** the CALL chunk with RETN chunk in the same buffer location.
 
-**Example (successful write of 10 bytes, 32-bit LE):**
-```
-0x52 0x45 0x54 0x4E         // 'RETN' (replaced 'CALL')
-0x08 0x00 0x00 0x00         // chunk_size = 8 (LE)
-0x0A 0x00 0x00 0x00         // result = 10 bytes written (LE)
-0x00 0x00 0x00 0x00         // errno = 0 (success) (LE)
-```
+### ERRO Chunk - Error Response
 
-**Example (error: file not found, 32-bit LE):**
-```
-0x52 0x45 0x54 0x4E         // 'RETN'
-0x08 0x00 0x00 0x00         // chunk_size = 8 (LE)
-0xFF 0xFF 0xFF 0xFF         // result = -1 (error) (LE)
-0x02 0x00 0x00 0x00         // errno = 2 (ENOENT) (LE)
-```
+**Purpose:** Device response when RIFF structure is malformed or request cannot be processed.
+
+**Chunk ID:** 'ERRO' (ASCII codes 0x45 0x52 0x52 0x4F)
+
+**Format:** The ERRO chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: error_code (2 bytes in little-endian), two reserved bytes (must be 0x00), and an optional ASCII error message (variable length).
+
+**Error codes:**
+- `0x01` - Invalid chunk structure
+- `0x02` - Malformed RIFF format
+- `0x03` - Missing CNFG chunk
+- `0x04` - Unsupported opcode
+- `0x05` - Invalid parameter count
+- `0x06-0xFFFF` - Reserved for future use
+
+**Device behavior:** Device writes ERRO chunk instead of RETN when it cannot parse or execute the request.
 
 ---
 
@@ -498,31 +456,23 @@ Offset      Size       Field   Description
 
 ### Synchronous Mode (Polling)
 
-**Default mode.** Guest blocks waiting for response.
+**Default mode.** Guest blocks waiting for response by polling STATUS register.
 
-**Guest code pattern:**
-```c
-// Setup (once at startup)
-volatile uint8_t *semihost = (volatile uint8_t *)SEMIHOST_BASE;
-uint8_t riff_buffer[256];
+**Operation:**
+1. Guest builds RIFF buffer with CALL chunk containing PARM/DATA sub-chunks
+2. Guest writes RIFF buffer address to RIFF_PTR register
+3. Guest writes to DOORBELL register to trigger processing
+4. Guest polls STATUS register until RESPONSE_READY bit is set
+5. Guest reads RETN chunk from RIFF buffer (device overwrites CALL with RETN)
 
-// Build RIFF request
-build_riff_request(riff_buffer, SYS_WRITE, args);
+**CACHE COHERENCY WARNING**
 
-// Write pointer to device (native byte order)
-*(uintptr_t *)(semihost + RIFF_PTR_OFFSET) = (uintptr_t)riff_buffer;
+If guest CPU has data cache, guest MUST:
+1. Flush data cache after writing RIFF buffer (before DOORBELL write)
+2. Ensure DOORBELL write completes (may need memory barrier)
+3. Invalidate cache before reading RETN chunk from buffer
 
-// Ring doorbell
-*(uint8_t *)(semihost + DOORBELL_OFFSET) = 0x01;
-
-// Poll for completion
-while (!(*(uint8_t *)(semihost + STATUS_OFFSET) & 0x01)) {
-    // Busy wait
-}
-
-// Read result from riff_buffer
-uintptr_t result = read_retn_result(riff_buffer);
-```
+Failure to do so may result in stale data or corruption.
 
 **Characteristics:**
 - Simple to implement
@@ -532,59 +482,26 @@ uintptr_t result = read_retn_result(riff_buffer);
 
 **Typical use:** Educational platforms, simple test programs, early firmware bring-up.
 
+**Concurrent request handling:**
+
+Guest MUST NOT write DOORBELL while STATUS.RESPONSE_READY is set. Device behavior is undefined if concurrent requests are issued. Device may ignore the second DOORBELL or abort the first request.
+
 ### Asynchronous Mode (Interrupt-Driven)
 
-**Optional mode.** Guest can perform other work while waiting.
+**Optional mode.** Guest can perform other work while waiting for completion interrupt.
 
-**Guest code pattern:**
-```c
-// Setup (once at startup)
-void semihost_init(void) {
-    volatile uint8_t *semihost = (volatile uint8_t *)SEMIHOST_BASE;
+**Operation:**
+1. Guest enables RESPONSE_READY interrupt via IRQ_ENABLE register
+2. Guest builds RIFF buffer and writes to RIFF_PTR
+3. Guest writes to DOORBELL and continues other work
+4. Device processes request and sets IRQ_STATUS.RESPONSE_READY
+5. Device asserts interrupt line
+6. Guest interrupt handler reads RETN chunk and acknowledges interrupt via IRQ_ACK
 
-    // Enable RESPONSE_READY interrupt
-    *(uint8_t *)(semihost + IRQ_ENABLE_OFFSET) = 0x01;
-
-    // Enable CPU interrupt handling
-    enable_irq();
-}
-
-// IRQ handler
-void irq_handler(void) {
-    volatile uint8_t *semihost = (volatile uint8_t *)SEMIHOST_BASE;
-
-    // Check if semihost interrupt
-    if (*(uint8_t *)(semihost + IRQ_STATUS_OFFSET) & 0x01) {
-        // Read result from riff_buffer
-        uintptr_t result = read_retn_result(riff_buffer);
-
-        // Signal completion to application
-        semihost_request_complete(result);
-
-        // Acknowledge interrupt
-        *(uint8_t *)(semihost + IRQ_ACK_OFFSET) = 0x01;
-    }
-}
-
-// Application code
-void do_semihost_write(void) {
-    // Build request
-    build_riff_request(riff_buffer, SYS_WRITE, args);
-
-    // Submit (returns immediately)
-    *(uintptr_t *)(semihost + RIFF_PTR_OFFSET) = (uintptr_t)riff_buffer;
-    *(uint8_t *)(semihost + DOORBELL_OFFSET) = 0x01;
-
-    // Do other work here!
-    perform_other_tasks();
-
-    // Or wait for completion
-    wait_for_semihost_completion();
-}
-```
+**Cache coherency requirements:** Same as synchronous mode - flush before DOORBELL, invalidate before reading RETN.
 
 **Characteristics:**
-- More complex to implement (requires IRQ handler)
+- More complex (requires interrupt handler)
 - Guest can multitask during I/O
 - Enables true asynchronous operation
 - Suitable for operating systems and complex applications
@@ -600,751 +517,34 @@ void do_semihost_write(void) {
 **Virtual hardware:** Emulator directly accesses guest memory structures (memory array, MMU translations, etc.).
 
 **Implications:**
-1. **Cache coherency:** If guest CPU has data cache, may need to flush before DOORBELL write
-2. **MMU transparency:** Device sees physical addresses; if guest uses virtual addresses in RIFF_PTR, MMU must translate or guest must provide physical addresses
+1. **Cache coherency:** Guest CPU MUST flush data cache after writing RIFF buffer and invalidate before reading RETN chunk (see warnings above)
+2. **MMU/Virtual addressing:** See "Address Interpretation" subsection below
 3. **Access permissions:** Device ignores memory protection (privileged access)
 
-**Example (physical device with DMA):**
-```
-1. Guest writes RIFF_PTR = 0x00001000
-2. Guest writes DOORBELL = 0x01
-3. Device bus master logic:
-   a. Reads 12 bytes from guest RAM at 0x00000000 (RIFF header)
-   b. Reads 12 bytes from guest RAM at 0x0000000C (CNFG chunk)
-   c. Reads 12+ bytes from guest RAM at 0x00000018 (CALL chunk)
-   d. Extracts arg_ptr, reads arguments from that address
-   e. Executes syscall
-   f. Writes 12+ bytes to guest RAM at 0x00000018 (RETN chunk)
-4. Device sets STATUS bit 0
-```
-
----
-
-## Guest Software Integration
-
-### Helper Library (C)
-
-**File:** `semihost_riff.h`
-
-```c
-#ifndef SEMIHOST_RIFF_H
-#define SEMIHOST_RIFF_H
-
-#include <stdint.h>
-
-// Device base address - platform specific
-#ifndef SEMIHOST_BASE
-#define SEMIHOST_BASE 0xFFFF0000UL
-#endif
-
-// Register offsets
-#define RIFF_PTR_OFFSET   0x00
-#define DOORBELL_OFFSET   0x10
-#define IRQ_STATUS_OFFSET 0x11
-#define IRQ_ENABLE_OFFSET 0x12
-#define IRQ_ACK_OFFSET    0x13
-#define STATUS_OFFSET     0x14
-
-// Status/IRQ bits
-#define STATUS_RESPONSE_READY 0x01
-#define STATUS_ERROR          0x02
-#define STATUS_DEVICE_PRESENT 0x80
-
-// ARM syscall numbers
-#define SYS_OPEN       0x01
-#define SYS_CLOSE      0x02
-#define SYS_WRITEC     0x03
-#define SYS_WRITE0     0x04
-#define SYS_WRITE      0x05
-#define SYS_READ       0x06
-#define SYS_READC      0x07
-#define SYS_ISERROR    0x08
-#define SYS_ISTTY      0x09
-#define SYS_SEEK       0x0A
-#define SYS_FLEN       0x0C
-#define SYS_TMPNAM     0x0D
-#define SYS_REMOVE     0x0E
-#define SYS_RENAME     0x0F
-#define SYS_CLOCK      0x10
-#define SYS_TIME       0x11
-#define SYS_SYSTEM     0x12
-#define SYS_ERRNO      0x13
-#define SYS_GET_CMDLINE 0x15
-#define SYS_HEAPINFO   0x16
-#define SYS_EXIT       0x18
-#define SYS_EXIT_EXTENDED 0x20
-#define SYS_ELAPSED    0x30
-#define SYS_TICKFREQ   0x31
-
-// Helper: Write 32-bit little-endian
-static inline void write_u32_le(void *ptr, uint32_t val) {
-    uint8_t *p = (uint8_t *)ptr;
-    p[0] = (val >> 0) & 0xFF;
-    p[1] = (val >> 8) & 0xFF;
-    p[2] = (val >> 16) & 0xFF;
-    p[3] = (val >> 24) & 0xFF;
-}
-
-// Helper: Read 32-bit little-endian
-static inline uint32_t read_u32_le(const void *ptr) {
-    const uint8_t *p = (const uint8_t *)ptr;
-    return p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24);
-}
-
-// Initialize semihosting device
-static inline void semihost_init(void) {
-    volatile uint8_t *dev = (volatile uint8_t *)SEMIHOST_BASE;
-
-    // Check device present
-    if (!(dev[STATUS_OFFSET] & STATUS_DEVICE_PRESENT)) {
-        return; // Device not available
-    }
-
-    // Interrupts disabled by default (polling mode)
-    dev[IRQ_ENABLE_OFFSET] = 0x00;
-}
-
-// Build RIFF header + CNFG in buffer
-static inline void semihost_init_buffer(void *buffer, size_t buf_size) {
-    uint8_t *buf = (uint8_t *)buffer;
-
-    // RIFF header
-    buf[0] = 'R'; buf[1] = 'I'; buf[2] = 'F'; buf[3] = 'F';
-    write_u32_le(buf + 4, buf_size - 8);  // Size (LE)
-    buf[8] = 'S'; buf[9] = 'E'; buf[10] = 'M'; buf[11] = 'I';
-
-    // CNFG chunk
-    buf[12] = 'C'; buf[13] = 'N'; buf[14] = 'F'; buf[15] = 'G';
-    write_u32_le(buf + 16, 4);  // Chunk size (LE)
-    buf[20] = sizeof(uintptr_t);  // word_size
-    buf[21] = sizeof(uintptr_t);  // ptr_size
-#if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
-    buf[22] = 0;  // Little endian
-#elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-    buf[22] = 1;  // Big endian
-#else
-    buf[22] = 2;  // PDP endian
-#endif
-    buf[23] = 0;  // Reserved
-}
-
-// Perform semihosting call (blocking)
-static inline uintptr_t semihost_call(uint8_t opcode, void *args) {
-    static uint8_t riff_buffer[256];
-    static int initialized = 0;
-
-    volatile uint8_t *dev = (volatile uint8_t *)SEMIHOST_BASE;
-    uint8_t *buf = riff_buffer;
-
-    // Initialize buffer on first call
-    if (!initialized) {
-        semihost_init_buffer(buf, sizeof(riff_buffer));
-        initialized = 1;
-    }
-
-    // Write CALL chunk at offset 24
-    buf[24] = 'C'; buf[25] = 'A'; buf[26] = 'L'; buf[27] = 'L';
-    write_u32_le(buf + 28, 4 + sizeof(uintptr_t));  // Chunk size (LE)
-    buf[32] = opcode;
-    buf[33] = buf[34] = buf[35] = 0;  // Reserved
-
-    // Write arg_ptr (native byte order)
-    *(uintptr_t *)(buf + 36) = (uintptr_t)args;
-
-    // Write pointer to device (native byte order)
-    *(uintptr_t *)(dev + RIFF_PTR_OFFSET) = (uintptr_t)buf;
-
-    // Ring doorbell
-    dev[DOORBELL_OFFSET] = 0x01;
-
-    // Poll for completion
-    while (!(dev[STATUS_OFFSET] & STATUS_RESPONSE_READY)) {
-        // Busy wait
-    }
-
-    // Read result (RETN chunk at offset 24, replaces CALL)
-    uintptr_t result = *(uintptr_t *)(buf + 32);
-    uint32_t err = read_u32_le(buf + 32 + sizeof(uintptr_t));
-
-    // Set errno if error occurred
-    extern int errno;
-    if (err != 0) {
-        errno = err;
-    }
-
-    return result;
-}
-
-// High-level wrappers
-static inline ssize_t semihost_write(int fd, const void *buf, size_t count) {
-    uintptr_t args[3];
-    args[0] = fd;
-    args[1] = (uintptr_t)buf;
-    args[2] = count;
-    return (ssize_t)semihost_call(SYS_WRITE, args);
-}
-
-static inline ssize_t semihost_read(int fd, void *buf, size_t count) {
-    uintptr_t args[3];
-    args[0] = fd;
-    args[1] = (uintptr_t)buf;
-    args[2] = count;
-    return (ssize_t)semihost_call(SYS_READ, args);
-}
-
-static inline int semihost_open(const char *filename, int mode, size_t len) {
-    uintptr_t args[3];
-    args[0] = (uintptr_t)filename;
-    args[1] = mode;
-    args[2] = len;
-    return (int)semihost_call(SYS_OPEN, args);
-}
-
-static inline int semihost_close(int fd) {
-    uintptr_t args[1];
-    args[0] = fd;
-    return (int)semihost_call(SYS_CLOSE, args);
-}
-
-#endif // SEMIHOST_RIFF_H
-```
-
-### Assembly Example (6502)
-
-```asm
-; Semihosting device for 6502
-; Device base: $FE00
-
-SEMIHOST_BASE = $FE00
-RIFF_PTR      = SEMIHOST_BASE + $00
-DOORBELL      = SEMIHOST_BASE + $10
-STATUS        = SEMIHOST_BASE + $14
-
-.data
-riff_buffer:  .res 256
-args:         .res 6
-
-.code
-; Write "Hello\n" to stdout
-write_hello:
-    ; Build arguments in memory
-    lda #1              ; fd = 1 (stdout)
-    sta args+0
-    lda #<hello_str
-    sta args+1
-    lda #>hello_str
-    sta args+2
-    lda #6              ; count = 6
-    sta args+3
-
-    ; Build CALL chunk in RIFF buffer (assume already initialized)
-    ; CALL chunk at offset 24
-    lda #'C'
-    sta riff_buffer+24
-    lda #'A'
-    sta riff_buffer+25
-    lda #'L'
-    sta riff_buffer+26
-    lda #'L'
-    sta riff_buffer+27
-
-    ; Chunk size = 6 (4 + ptr_size=2) (LE)
-    lda #6
-    sta riff_buffer+28
-    lda #0
-    sta riff_buffer+29
-    sta riff_buffer+30
-    sta riff_buffer+31
-
-    ; Opcode = SYS_WRITE (0x05)
-    lda #$05
-    sta riff_buffer+32
-    lda #0
-    sta riff_buffer+33
-    sta riff_buffer+34
-    sta riff_buffer+35
-
-    ; arg_ptr (2 bytes, LE)
-    lda #<args
-    sta riff_buffer+36
-    lda #>args
-    sta riff_buffer+37
-
-    ; Write RIFF_PTR (2 bytes, LE)
-    lda #<riff_buffer
-    sta RIFF_PTR+0
-    lda #>riff_buffer
-    sta RIFF_PTR+1
-
-    ; Ring doorbell
-    lda #1
-    sta DOORBELL
-
-    ; Poll for completion
-wait_loop:
-    lda STATUS
-    and #$01            ; Check RESPONSE_READY
-    beq wait_loop
-
-    ; Read result from riff_buffer+32
-    lda riff_buffer+32
-    ; Result in A (low byte of bytes written)
-
-    rts
-
-.data
-hello_str: .byte "Hello",$0A
-```
-
----
-
-## Host Implementation
-
-### Virtual Device (Emulator)
-
-**Pseudo-code for device emulation:**
-
-```c
-typedef struct {
-    uint8_t riff_ptr[16];      // RIFF_PTR register storage
-    uint8_t irq_status;        // IRQ_STATUS register
-    uint8_t irq_enable;        // IRQ_ENABLE register
-    uint8_t status;            // STATUS register
-
-    // Cached CNFG values
-    uint8_t word_size;
-    uint8_t ptr_size;
-    uint8_t endianness;
-
-    // Emulator context
-    void *guest_memory;
-    size_t memory_size;
-    int (*raise_irq)(void);
-    int (*lower_irq)(void);
-} SemihostDevice;
-
-// Initialize device
-void semihost_device_init(SemihostDevice *dev) {
-    memset(dev, 0, sizeof(*dev));
-    dev->status = 0x80;  // DEVICE_PRESENT bit
-}
-
-// Register write handler
-void semihost_write_register(SemihostDevice *dev, uint32_t offset, uint8_t value) {
-    switch (offset) {
-        case 0x00 ... 0x0F:  // RIFF_PTR
-            dev->riff_ptr[offset] = value;
-            break;
-
-        case 0x10:  // DOORBELL
-            semihost_process_request(dev);
-            break;
-
-        case 0x12:  // IRQ_ENABLE
-            dev->irq_enable = value;
-            semihost_update_irq(dev);
-            break;
-
-        case 0x13:  // IRQ_ACK
-            dev->irq_status &= ~value;  // Clear acknowledged bits
-            semihost_update_irq(dev);
-            break;
-    }
-}
-
-// Register read handler
-uint8_t semihost_read_register(SemihostDevice *dev, uint32_t offset) {
-    switch (offset) {
-        case 0x00 ... 0x0F:  // RIFF_PTR
-            return dev->riff_ptr[offset];
-
-        case 0x11:  // IRQ_STATUS
-            return dev->irq_status;
-
-        case 0x12:  // IRQ_ENABLE
-            return dev->irq_enable;
-
-        case 0x14:  // STATUS
-            return dev->status;
-
-        default:
-            return 0x00;
-    }
-}
-
-// Process semihosting request (called on DOORBELL write)
-void semihost_process_request(SemihostDevice *dev) {
-    // Decode RIFF_PTR based on emulated CPU characteristics
-    // (emulator knows CPU address width and endianness)
-    uint64_t riff_ptr = decode_riff_ptr(dev->riff_ptr);
-
-    // Validate pointer
-    if (riff_ptr >= dev->memory_size) {
-        semihost_set_error(dev);
-        return;
-    }
-
-    uint8_t *riff_buffer = (uint8_t *)dev->guest_memory + riff_ptr;
-
-    // Parse RIFF header
-    if (memcmp(riff_buffer, "RIFF", 4) != 0 ||
-        memcmp(riff_buffer + 8, "SEMI", 4) != 0) {
-        semihost_set_error(dev);
-        return;
-    }
-
-    // Parse CNFG chunk (offset 12)
-    if (memcmp(riff_buffer + 12, "CNFG", 4) != 0) {
-        semihost_set_error(dev);
-        return;
-    }
-
-    dev->word_size = riff_buffer[20];
-    dev->ptr_size = riff_buffer[21];
-    dev->endianness = riff_buffer[22];
-
-    // Parse CALL chunk (offset 24)
-    if (memcmp(riff_buffer + 24, "CALL", 4) != 0) {
-        semihost_set_error(dev);
-        return;
-    }
-
-    uint8_t opcode = riff_buffer[32];
-    uint64_t arg_ptr = read_ptr(riff_buffer + 36, dev->ptr_size, dev->endianness);
-
-    // Execute syscall
-    uint64_t result;
-    uint32_t errno_val;
-    semihost_execute_syscall(dev, opcode, arg_ptr, &result, &errno_val);
-
-    // Write RETN chunk (replacing CALL at offset 24)
-    memcpy(riff_buffer + 24, "RETN", 4);
-    write_u32_le(riff_buffer + 28, dev->word_size + 4);  // chunk_size
-    write_value(riff_buffer + 32, result, dev->word_size, dev->endianness);
-    write_u32_le(riff_buffer + 32 + dev->word_size, errno_val);
-
-    // Set completion status
-    dev->irq_status |= 0x01;  // RESPONSE_READY
-    dev->status |= 0x01;      // RESPONSE_READY
-
-    semihost_update_irq(dev);
-}
-
-// Update IRQ line state
-void semihost_update_irq(SemihostDevice *dev) {
-    if (dev->irq_status & dev->irq_enable) {
-        dev->raise_irq();
-    } else {
-        dev->lower_irq();
-    }
-}
-
-// Execute syscall
-void semihost_execute_syscall(SemihostDevice *dev, uint8_t opcode,
-                              uint64_t arg_ptr, uint64_t *result,
-                              uint32_t *errno_val) {
-    errno = 0;
-
-    switch (opcode) {
-        case 0x05: {  // SYS_WRITE
-            uint64_t args[3];
-            read_guest_args(dev, arg_ptr, args, 3);
-
-            int fd = (int)args[0];
-            uint64_t buf_ptr = args[1];
-            size_t count = (size_t)args[2];
-
-            // Read buffer from guest memory
-            uint8_t *buf = malloc(count);
-            read_guest_memory(dev, buf_ptr, buf, count);
-
-            // Perform host write
-            ssize_t written = write(fd, buf, count);
-            free(buf);
-
-            *result = (uint64_t)written;
-            *errno_val = errno;
-            break;
-        }
-
-        // ... other syscalls ...
-
-        default:
-            *result = (uint64_t)-1;
-            *errno_val = ENOSYS;
-            break;
-    }
-}
-```
-
-### Physical Device (FPGA/ASIC)
-
-**Implementation notes for hardware:**
-
-1. **State Machine:**
-   ```
-   IDLE -> WAIT_DOORBELL -> READ_RIFF -> PARSE_CNFG ->
-   PARSE_CALL -> EXECUTE_SYSCALL -> WRITE_RETN -> SET_STATUS -> IDLE
-   ```
-
-2. **Bus Master for DMA:**
-   - Implement bus master logic to read/write guest RAM
-   - Handle arbitration with CPU
-   - Support burst transfers for efficiency
-
-3. **Syscall Execution:**
-   - Forward to host via UART, SPI, JTAG, etc.
-   - Host daemon processes syscalls
-   - Return results to FPGA
-   - FPGA writes RETN chunk via DMA
-
-4. **Interrupt Logic:**
-   - Simple combinational: `IRQ_OUT = |(IRQ_STATUS & IRQ_ENABLE)`
-   - Register output to avoid glitches
-
-**Example Verilog (simplified):**
-
-```verilog
-module semihost_device (
-    input wire clk,
-    input wire rst,
-
-    // CPU bus interface
-    input wire [4:0] addr,
-    input wire [7:0] wdata,
-    output reg [7:0] rdata,
-    input wire wr_en,
-    input wire rd_en,
-
-    // DMA bus master interface
-    output reg [31:0] dma_addr,
-    output reg [7:0] dma_wdata,
-    input wire [7:0] dma_rdata,
-    output reg dma_wr,
-    output reg dma_rd,
-
-    // Interrupt output
-    output wire irq_out
-);
-
-// Registers
-reg [127:0] riff_ptr;
-reg [7:0] irq_status;
-reg [7:0] irq_enable;
-reg [7:0] status;
-
-// State machine
-typedef enum {
-    IDLE,
-    PROCESS_REQUEST
-} state_t;
-state_t state;
-
-// Register writes
-always @(posedge clk) begin
-    if (rst) begin
-        riff_ptr <= 0;
-        irq_status <= 0;
-        irq_enable <= 0;
-        status <= 8'h80;  // DEVICE_PRESENT
-        state <= IDLE;
-    end else if (wr_en) begin
-        case (addr)
-            5'h00: riff_ptr[7:0]     <= wdata;
-            5'h01: riff_ptr[15:8]    <= wdata;
-            5'h02: riff_ptr[23:16]   <= wdata;
-            5'h03: riff_ptr[31:24]   <= wdata;
-            // ... more pointer bytes ...
-
-            5'h10: state <= PROCESS_REQUEST;  // DOORBELL
-
-            5'h12: irq_enable <= wdata;
-
-            5'h13: irq_status <= irq_status & ~wdata;  // ACK
-        endcase
-    end
-end
-
-// Register reads
-always @(*) begin
-    case (addr)
-        5'h00: rdata = riff_ptr[7:0];
-        5'h01: rdata = riff_ptr[15:8];
-        // ... more pointer bytes ...
-        5'h11: rdata = irq_status;
-        5'h12: rdata = irq_enable;
-        5'h14: rdata = status;
-        default: rdata = 8'h00;
-    endcase
-end
-
-// IRQ output
-assign irq_out = |(irq_status & irq_enable);
-
-// Request processing (simplified - real implementation more complex)
-always @(posedge clk) begin
-    case (state)
-        IDLE: begin
-            // Wait for doorbell
-        end
-
-        PROCESS_REQUEST: begin
-            // DMA read RIFF buffer
-            // Parse CNFG, CALL
-            // Forward to host interface
-            // ... (implementation specific) ...
-
-            // Eventually:
-            irq_status[0] <= 1'b1;  // RESPONSE_READY
-            status[0] <= 1'b1;
-            state <= IDLE;
-        end
-    endcase
-end
-
-endmodule
-```
-
----
-
-## Complete Examples
-
-### Example 1: 16-bit System Writing "Hello\n"
-
-**System:** 16-bit CPU, little-endian, word_size=2, ptr_size=2
-
-**RIFF Buffer Layout:**
-
-```
-Offset  Content                      Description
-------  ---------------------------  -----------
-0x0000  'R' 'I' 'F' 'F'             RIFF signature
-0x0004  0x2E 0x00 0x00 0x00         Size = 46 bytes (LE)
-0x0008  'S' 'E' 'M' 'I'             Form type
-
-0x000C  'C' 'N' 'F' 'G'             Config chunk
-0x0010  0x04 0x00 0x00 0x00         Chunk size = 4 (LE)
-0x0014  0x02                        word_size = 2
-0x0015  0x02                        ptr_size = 2
-0x0016  0x00                        endianness = LE
-0x0017  0x00                        reserved
-
-0x0018  'C' 'A' 'L' 'L'             Call chunk
-0x001C  0x06 0x00 0x00 0x00         Chunk size = 6 (LE)
-0x0020  0x05                        opcode = SYS_WRITE (0x05)
-0x0021  0x00 0x00 0x00              reserved
-0x0024  0x00 0x10                   arg_ptr = 0x1000 (LE)
-```
-
-**Arguments at 0x1000 (3 words × 2 bytes):**
-
-```
-0x1000  0x01 0x00       arg[0] = fd = 1 (stdout) (LE)
-0x1002  0x00 0x20       arg[1] = buffer_ptr = 0x2000 (LE)
-0x1004  0x06 0x00       arg[2] = count = 6 bytes (LE)
-```
-
-**Buffer at 0x2000:**
-
-```
-0x2000  'H' 'e' 'l' 'l' 'o' '\n'
-```
-
-**Device Response (RETN chunk replaces CALL):**
-
-```
-0x0018  'R' 'E' 'T' 'N'             Return chunk
-0x001C  0x06 0x00 0x00 0x00         Chunk size = 6 (word_size=2 + 4) (LE)
-0x0020  0x06 0x00                   result = 6 bytes written (LE)
-0x0022  0x00 0x00 0x00 0x00         errno = 0 (success) (LE)
-```
-
-### Example 2: 32-bit Big-Endian System Opening File
-
-**System:** 32-bit 68000, big-endian, word_size=4, ptr_size=4
-
-**CNFG Chunk:**
-
-```
-0x000C  'C' 'N' 'F' 'G'
-0x0010  0x04 0x00 0x00 0x00         Chunk size = 4 (LE - RIFF requirement!)
-0x0014  0x04                        word_size = 4
-0x0015  0x04                        ptr_size = 4
-0x0016  0x01                        endianness = BE
-0x0017  0x00                        reserved
-```
-
-**CALL Chunk (SYS_OPEN for "/tmp/test.txt"):**
-
-```
-0x0018  'C' 'A' 'L' 'L'
-0x001C  0x08 0x00 0x00 0x00         Chunk size = 8 (LE)
-0x0020  0x01                        opcode = SYS_OPEN (0x01)
-0x0021  0x00 0x00 0x00              reserved
-0x0024  0x00 0x00 0x30 0x00         arg_ptr = 0x00003000 (BE - note!)
-```
-
-**Arguments at 0x3000 (BE values!):**
-
-```
-0x3000  0x00 0x00 0x40 0x00   arg[0] = filename_ptr = 0x4000 (BE)
-0x3004  0x00 0x00 0x00 0x00   arg[1] = mode = 0 (read-only) (BE)
-0x3008  0x00 0x00 0x00 0x0E   arg[2] = length = 14 (BE)
-```
-
-**String at 0x4000:**
-
-```
-0x4000  '/''t''m''p''/''t''e''s''t''.''t''x''t' 0x00 0x00
-```
-
-**RETN Chunk (Success - fd=3):**
-
-```
-0x0018  'R' 'E' 'T' 'N'
-0x001C  0x08 0x00 0x00 0x00         Chunk size = 8 (LE)
-0x0020  0x00 0x00 0x00 0x03         result = 3 (fd) (BE)
-0x0024  0x00 0x00 0x00 0x00         errno = 0 (LE - always!)
-```
-
-**Note:** The `arg_ptr` value (0x00003000) is written in BE format because it's in the CALL chunk data. However, the chunk size (0x08000000) is LE because it's part of the RIFF structure.
-
-### Example 3: 8-bit System with 16-bit Pointers
-
-**System:** 6502 (8-bit), word_size=1, ptr_size=2
-
-**CNFG:**
-
-```
-0x0014  0x01    word_size = 1
-0x0015  0x02    ptr_size = 2
-0x0016  0x00    endianness = LE
-```
-
-**CALL (SYS_WRITE, 3 bytes):**
-
-```
-0x0020  0x05                opcode = SYS_WRITE
-0x0024  0x00 0x08           arg_ptr = 0x0800 (LE, 2 bytes)
-```
-
-**Arguments at 0x0800 (1 byte words!):**
-
-```
-0x0800  0x01        arg[0] = fd = 1 (1 byte!)
-0x0801  0x00        arg[1] low = buffer_ptr low byte
-0x0802  0x09        arg[1] high = buffer_ptr high byte (ptr = 0x0900)
-0x0803  0x03        arg[2] = count = 3 (1 byte!)
-```
-
-**Note:** Arguments are 1 byte each (word_size=1), but pointers are 2 bytes (ptr_size=2). The pointer occupies two consecutive array elements.
-
-**RETN:**
-
-```
-0x0020  0x03                result = 3 bytes written (1 byte!)
-0x0021  0x00 0x00 0x00 0x00 errno = 0 (always 4 bytes LE)
-```
+**Physical device with DMA operation:** Guest writes RIFF_PTR with the buffer address, then writes DOORBELL. The device bus master logic reads the RIFF header from guest RAM, reads the CNFG chunk (first time only), reads the CALL chunk header and recursively reads PARM and DATA sub-chunks, executes the syscall, writes the RETN chunk to guest RAM (replacing CALL), and for SYS_READ appends a DATA sub-chunk with read data. Finally, the device sets STATUS bit 0 (RESPONSE_READY).
+
+### Address Interpretation
+
+**The RIFF_PTR register and pointer values in PARM chunks contain guest memory addresses. How these are interpreted depends on the implementation:**
+
+**Virtual devices (emulators):**
+- May accept virtual addresses from guest
+- Emulator translates using guest's MMU state
+- Guest can use normal pointers from its address space
+- Simplifies guest software (no address translation needed)
+
+**Physical devices (FPGA/ASIC):**
+- Require physical addresses in all pointer fields
+- Device has no access to guest's MMU translation tables
+- Guest responsibility:
+  - Disable MMU entirely, OR
+  - Provide physical addresses (translate in software), OR
+  - Use identity-mapped memory regions for RIFF buffers
+- Physical device configuration:
+  - Manual endianness configuration (DIP switches, compile-time constants, configuration registers)
+  - Cannot auto-detect guest byte order
+
+**Recommendation:** Guest software should allocate RIFF buffers in physical memory or identity-mapped regions when possible for maximum compatibility with both virtual and physical devices.
 
 ---
 
@@ -1356,51 +556,65 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 
 | Opcode | Name | Arguments | Return Value |
 |--------|------|-----------|--------------|
-| 0x01 | SYS_OPEN | (filename_ptr, mode, length) | fd or -1 |
+| 0x01 | SYS_OPEN | (filename, mode, length) | fd or -1 |
 | 0x02 | SYS_CLOSE | (fd) | 0 or -1 |
 | 0x03 | SYS_WRITEC | (char_ptr) | - |
-| 0x04 | SYS_WRITE0 | (string_ptr) | - |
-| 0x05 | SYS_WRITE | (fd, buffer_ptr, length) | bytes written or -1 |
-| 0x06 | SYS_READ | (fd, buffer_ptr, length) | bytes read or -1 |
+| 0x04 | SYS_WRITE0 | (string) | - |
+| 0x05 | SYS_WRITE | (fd, data, length) | bytes written or -1 |
+| 0x06 | SYS_READ | (fd, length) | bytes read or -1 |
 | 0x07 | SYS_READC | () | character (0-255) |
 | 0x08 | SYS_ISERROR | (status) | error code or 0 |
 | 0x09 | SYS_ISTTY | (fd) | 1 if TTY, 0 otherwise |
 | 0x0A | SYS_SEEK | (fd, position) | 0 or -1 |
 | 0x0C | SYS_FLEN | (fd) | file length or -1 |
-| 0x0D | SYS_TMPNAM | (buffer_ptr, id, length) | 0 or -1 |
-| 0x0E | SYS_REMOVE | (filename_ptr, length) | 0 or -1 |
-| 0x0F | SYS_RENAME | (old_ptr, old_len, new_ptr, new_len) | 0 or -1 |
+| 0x0D | SYS_TMPNAM | (id, length) | temp filename or -1 |
+| 0x0E | SYS_REMOVE | (filename, length) | 0 or -1 |
+| 0x0F | SYS_RENAME | (old_name, old_len, new_name, new_len) | 0 or -1 |
 | 0x10 | SYS_CLOCK | () | centiseconds since start |
 | 0x11 | SYS_TIME | () | seconds since epoch |
-| 0x12 | SYS_SYSTEM | (command_ptr, length) | exit code |
+| 0x12 | SYS_SYSTEM | (command, length) | exit code |
 | 0x13 | SYS_ERRNO | () | last errno value |
-| 0x15 | SYS_GET_CMDLINE | (buffer_ptr, length) | 0 or -1 |
-| 0x16 | SYS_HEAPINFO | (block_ptr) | - |
+| 0x15 | SYS_GET_CMDLINE | (length) | command line or -1 |
+| 0x16 | SYS_HEAPINFO | () | heap info structure |
 | 0x18 | SYS_EXIT | (status) | no return |
 | 0x20 | SYS_EXIT_EXTENDED | (exception, subcode) | no return |
 | 0x30 | SYS_ELAPSED | () | 64-bit tick count |
 | 0x31 | SYS_TICKFREQ | () | ticks per second |
 
-### Argument Passing Convention
+### Argument Encoding in RIFF Chunks
 
-All arguments passed **indirectly** via pointer to array in guest memory (matches ARM standard).
+ARM semihosting syscalls are mapped to PARM and DATA chunks:
 
-**Example: SYS_WRITE**
+**Scalar arguments** (fd, mode, length, status, etc.) → PARM chunks (type 0x01 = word)
 
-ARM standard: 3 arguments
-1. File descriptor (word)
-2. Buffer pointer (word/pointer)
-3. Length (word)
+**String/buffer arguments** (filenames, data to write, commands) → DATA chunks
 
-In RIFF protocol:
-```
-arg_ptr points to array in guest RAM:
-  [arg_ptr + 0*word_size] = fd
-  [arg_ptr + 1*word_size] = buffer_ptr
-  [arg_ptr + 2*word_size] = length
-```
+**Buffer output** (data read, command line) → DATA chunks in RETN
 
-Device reads these values, then reads `length` bytes from `buffer_ptr`.
+**Example: SYS_WRITE(fd=1, data="Hello\n", length=6)**
+
+CALL chunk contains:
+- PARM chunk: fd = 1
+- PARM chunk: length = 6
+- DATA chunk: payload = "Hello\n"
+
+**Example: SYS_READ(fd=3, length=256)**
+
+CALL chunk contains:
+- PARM chunk: fd = 3
+- PARM chunk: length = 256
+
+RETN chunk contains:
+- result = bytes_read
+- errno = 0
+- DATA chunk: payload = bytes read
+
+**Example: SYS_OPEN(filename="/tmp/test.txt", mode=0, length=14)**
+
+CALL chunk contains:
+- DATA chunk: payload = "/tmp/test.txt\0"
+- PARM chunk: mode = 0
+- PARM chunk: length = 14
 
 ### Open Mode Flags (SYS_OPEN)
 
@@ -1436,104 +650,45 @@ RIFF's chunk-based structure enables backward-compatible extensions:
 
 #### STRM - Streaming Data
 
-For large file transfers without copying entire buffer:
-
-```
-'S' 'T' 'R' 'M'
-[chunk_size]
-  call_id     [4]     // Associates with CALL
-  sequence    [4]     // Packet sequence number
-  flags       [2]     // 0x01=more, 0x02=end
-  data        [var]   // Actual data
-```
+For large file transfers without copying entire buffer. The STRM chunk contains a chunk ID, chunk size, a call_id field (4 bytes, associates with CALL), sequence number (4 bytes, packet sequence), flags (2 bytes: 0x01=more, 0x02=end), and variable-length data.
 
 **Use case:** Reading 100MB file in 4KB chunks.
 
 #### EVNT - Host-Initiated Events
 
-For host to signal guest asynchronously:
-
-```
-'E' 'V' 'N' 'T'
-[chunk_size]
-  event_type  [2]     // 0x01=signal, 0x02=timer, 0x03=host_message
-  payload     [var]
-```
+For host to signal guest asynchronously. The EVNT chunk contains a chunk ID, chunk size, an event_type field (2 bytes: 0x01=signal, 0x02=timer, 0x03=host_message), and a variable-length payload.
 
 **Use case:** Host sends Ctrl-C signal to guest application.
 
 #### ABRT - Abort Operation
 
-Cancel pending async operation:
-
-```
-'A' 'B' 'R' 'T'
-[chunk_size]
-  call_id     [4]
-  reason      [2]     // 0x01=user, 0x02=timeout, 0x03=error
-```
+Cancel pending async operation. The ABRT chunk contains a chunk ID, chunk size, a call_id field (4 bytes), and a reason code (2 bytes: 0x01=user, 0x02=timeout, 0x03=error).
 
 **Use case:** Cancel slow file operation.
 
 #### META - Device Capabilities
 
-Query device features:
-
-```
-'M' 'E' 'T' 'A'
-[chunk_size]
-  query_type  [2]     // 0x01=version, 0x02=features, 0x03=limits
-  data        [var]   // Query-specific
-```
-
-**Response from device:**
-
-```
-'M' 'E' 'T' 'A'
-[chunk_size]
-  response    [var]   // Device fills in capabilities
-```
+Query device features. The META chunk contains a chunk ID, chunk size, a query_type field (2 bytes: 0x01=version, 0x02=features, 0x03=limits), and query-specific data (variable length). The device responds with a META chunk containing a variable-length response with the requested capabilities.
 
 **Use case:** Guest queries max buffer size, supported syscalls, protocol version.
 
 ### Extended Configuration
 
-**CNFG chunk version 2:**
+**CNFG chunk version 2:** Future versions of the CNFG chunk may include additional fields: protocol_version (1 byte: 0x01 for v1, 0x02 for v2), feature_flags (4 bytes, capability bitmap), and extensions (8 bytes reserved for future use).
 
-```
-+0x00  1  word_size
-+0x01  1  ptr_size
-+0x02  1  endianness
-+0x03  1  protocol_version   // 0x01 for v1, 0x02 for v2, etc.
-+0x04  4  feature_flags      // Capability bitmap
-+0x08  8  extensions         // Reserved for future use
-```
-
-**Feature flags:**
-```
-Bit 0: ASYNC_OPS       - Supports asynchronous operations
-Bit 1: STREAMING       - Supports STRM chunks
-Bit 2: HOST_EVENTS     - Supports EVNT chunks
-Bit 3: LARGE_FILES     - Supports 64-bit file offsets
-Bit 4: EXTENDED_ERRNO  - Supports extended error codes
-Bits 5-31: Reserved
-```
+**Feature flags bitmap:**
+- Bit 0: ASYNC_OPS - Supports asynchronous operations
+- Bit 1: STREAMING - Supports STRM chunks
+- Bit 2: HOST_EVENTS - Supports EVNT chunks
+- Bit 3: LARGE_FILES - Supports 64-bit file offsets
+- Bit 4: EXTENDED_ERRNO - Supports extended error codes
+- Bits 5-31: Reserved
 
 ### Asynchronous Operations
 
-**Multi-request support:**
+**Multi-request support:** Future versions may add a call_id field to the CALL chunk, allowing the guest to submit multiple CALL chunks with different call_ids. The device would process requests in background and return RETN chunks when ready, with the guest matching RETN to CALL via call_id.
 
-1. Add `call_id` field to CALL chunk
-2. Guest can submit multiple CALL chunks (different call_ids)
-3. Device processes in background, returns RETN chunks when ready
-4. Guest matches RETN to CALL via call_id
-
-**Buffer management:**
-
-- Guest allocates multiple RIFF buffers
-- Each buffer gets unique call_id
-- Guest tracks pending operations
-- IRQ handler dispatches based on call_id
+**Buffer management:** For async operations, the guest would allocate multiple RIFF buffers, assign each buffer a unique call_id, track pending operations, and dispatch IRQ handlers based on call_id.
 
 ---
 
@@ -1564,12 +719,41 @@ Bits 5-31: Reserved
 | FourCC | Name | Direction | Size | Description |
 |--------|------|-----------|------|-------------|
 | CNFG | Configuration | Guest→Device | 12 bytes | Architecture parameters |
-| CALL | Call | Guest→Device | 12+ptr_size | Syscall request |
-| RETN | Return | Device→Guest | 12+word_size | Syscall result |
-| STRM | Stream | Bidirectional | Variable | Streaming data (future) |
+| CALL | Call (container) | Guest→Device | Variable | Syscall request with sub-chunks |
+| PARM | Parameter | Guest→Device | 12+value_size | Scalar parameter (in CALL) |
+| DATA | Data | Bidirectional | 12+payload_size | Binary/string data |
+| RETN | Return (container) | Device→Guest | Variable | Syscall result with optional DATA |
+| ERRO | Error | Device→Guest | Variable | Error response |
 | EVNT | Event | Device→Guest | Variable | Async events (future) |
 | ABRT | Abort | Bidirectional | Variable | Cancel operation (future) |
 | META | Metadata | Bidirectional | Variable | Capabilities (future) |
+
+### PARM Chunk Parameter Types
+
+| Value | Name | Size | Description |
+|-------|------|------|-------------|
+| 0x01 | Word | word_size bytes | Integer/scalar value in guest endianness |
+| 0x02 | Pointer | ptr_size bytes | Pointer value in guest endianness |
+| 0x03-0xFF | Reserved | - | Reserved for future use |
+
+### DATA Chunk Data Types
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0x01 | Binary | Arbitrary binary data |
+| 0x02 | String | Null-terminated ASCII/UTF-8 string |
+| 0x03-0xFF | Reserved | Reserved for future use |
+
+### ERRO Chunk Error Codes
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0x01 | Invalid chunk structure | Malformed chunk headers or nesting |
+| 0x02 | Malformed RIFF format | Invalid RIFF signature or structure |
+| 0x03 | Missing CNFG chunk | CNFG required but not sent |
+| 0x04 | Unsupported opcode | Syscall number not implemented |
+| 0x05 | Invalid parameter count | Wrong number of PARM/DATA chunks |
+| 0x06-0xFFFF | Reserved | Reserved for future use |
 
 ### Endianness Encoding
 
@@ -1578,47 +762,3 @@ Bits 5-31: Reserved
 | 0x00 | Little Endian | LSB first | x86, ARM, RISC-V |
 | 0x01 | Big Endian | MSB first | 68000, SPARC, PowerPC |
 | 0x02 | PDP Endian | Middle | PDP-11, VAX |
-
----
-
-## Appendix: Design Rationale
-
-### Why Separate Device Registers and RIFF Buffer?
-
-**Alternative:** Device could contain the RIFF buffer (like classic UARTs with internal FIFOs).
-
-**Why not:**
-1. **Scalability:** 8-bit CPU with 2KB RAM needs tiny buffer; 64-bit CPU with 16GB RAM can use huge buffer
-2. **Flexibility:** Guest chooses buffer location (stack, heap, static)
-3. **Simplicity:** Device stays minimal (32 bytes), easy to implement in FPGA
-4. **Consistency:** Same device works from 6502 to modern ARM
-
-### Why RIFF Header in Little-Endian?
-
-**RIFF is a Microsoft/Intel standard** - always little-endian by specification. Maintaining this:
-1. **Compatibility:** Standard RIFF parsers work
-2. **Simplicity:** One canonical format
-3. **Tooling:** Can use RIFF editors, debuggers on captures
-4. **Precedent:** WAV, AVI, WebP all use LE RIFF
-
-**Cost for BE CPUs:** Must swap chunk sizes. Minimal code (~4 instructions per chunk).
-
-### Why 16-Byte RIFF_PTR?
-
-**Future-proofing for 128-bit addressing:**
-1. Research CPUs exploring 128-bit address spaces
-2. Cryptographic processors with wide word sizes
-3. Cost is negligible (just storage), benefit is long-term viability
-4. Unused bytes simply ignored
-
-### Why errno Always 4 Bytes LE?
-
-**Consistency over flexibility:**
-1. POSIX errno values fit in 32 bits (0-255 typical range)
-2. Always LE matches RIFF structure
-3. Simplifies host implementation (no per-guest errno encoding)
-4. Size cost negligible (4 bytes vs. word_size)
-
----
-
-**End of Specification**
