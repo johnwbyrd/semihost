@@ -1,7 +1,7 @@
 # RIFF-Based Semihosting Device Specification
 
 **Version:** 2.0-draft
-**Date:** 2025-11-26
+**Date:** 2024-11-26
 **Status:** Experimental
 
 ---
@@ -51,7 +51,7 @@ RIFF-based semihosting solves these problems by:
 
 ### Key Features
 
-- **Universal**: Works with any word size (8-bit through 128-bit and beyond)
+- **Universal**: Works with any integer size (8-bit through 128-bit and beyond)
 - **Standard**: Compatible with ARM semihosting syscall numbers
 - **Simple**: Only 32 bytes of device registers
 - **Efficient**: Guest manages all buffers in its own RAM
@@ -76,7 +76,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 | 0x12 | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
 | 0x13 | 1 | IRQ_ACK | W | Write 1s to clear interrupt bits |
 | 0x14 | 1 | STATUS | R | Device status flags |
-| 0x15-0x20 | 11 | RESERVED | - | Reserved for future use |
+| 0x15-0x1F | 11 | RESERVED | - | Reserved for future use |
 
 ### Register Descriptions
 
@@ -87,6 +87,11 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 **Format:** Raw byte storage. Guest writes pointer in its native byte order using as many bytes as needed (2, 4, 8, or 16 bytes). Unused high bytes are ignored.
 
 **Host behavior:** Host knows the guest CPU's address width and endianness from emulator/system configuration. Reads the appropriate number of bytes and interprets them correctly without guessing.
+
+**Address interpretation:**
+- **Virtual devices (emulators):** May accept virtual addresses and translate using guest's MMU
+- **Physical devices (FPGA/ASIC):** Require physical addresses only (guest must disable MMU or use identity-mapped memory)
+- See [Address Interpretation](#address-interpretation) section for details
 
 **Examples:**
 - 16-bit CPU (6502): Writes 2 bytes in LE order
@@ -246,6 +251,23 @@ For interrupt-driven operation:
 
 **Latency:** Interrupt assertion to handler execution depends on CPU architecture and system state (interrupt masks, current instruction, etc.).
 
+#### Cache Coherency Requirements
+
+**CRITICAL:** If the guest CPU has data cache, proper cache management is required for correct operation.
+
+**Guest responsibilities:**
+1. **Before triggering request:** Flush data cache after writing RIFF buffer (before DOORBELL write)
+2. **Memory ordering:** Ensure DOORBELL write completes (may need memory barrier)
+3. **Before reading response:** Invalidate cache before reading RETN chunk from buffer
+
+**Why this matters:**
+- Device accesses guest RAM directly (DMA or emulator memory access)
+- Cached writes may not be visible to device without flush
+- Device writes may not be visible to CPU without invalidate
+- Failure to manage cache may result in stale data or corruption
+
+**Applies to:** Both synchronous (polling) and asynchronous (interrupt-driven) operation modes.
+
 ---
 
 ## RIFF Protocol
@@ -270,7 +292,8 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 **RIFF compliance:**
 - Chunk IDs: 4-byte ASCII codes ('RIFF', 'CNFG', etc.)
 - Sizes: 32-bit **little-endian** (RIFF standard requirement)
-- Padding: Chunks padded to even byte boundary if odd size
+- **Chunk size field:** Contains the size of the chunk data only, **excluding** the 8-byte chunk header (4-byte ID + 4-byte size)
+- Padding: Chunks padded to even byte boundary if odd size (padding byte not included in chunk_size field)
 - Form type: 'SEMI' (semihosting)
 
 ### Endianness Handling
@@ -310,13 +333,13 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 
 **Chunk ID:** 'CNFG' (ASCII codes 0x43 0x4E 0x46 0x47)
 
-**Format:** The CNFG chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (value 4), followed by four data bytes: word_size (bytes per word), ptr_size (bytes per pointer, may differ from word size), endianness (0=LE, 1=BE, 2=PDP), and one reserved byte (must be 0x00).
+**Format:** The CNFG chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (value 4), followed by four data bytes: int_size (bytes per integer), ptr_size (bytes per pointer, may differ from int size), endianness (0=LE, 1=BE, 2=PDP), and one reserved byte (must be 0x00).
 
 **Total chunk size:** 12 bytes (8 byte header + 4 byte data)
 
 **Field definitions:**
 
-**word_size:** Size in bytes of the natural integer type for the architecture. Represents the size of C `int` or equivalent default integer type.
+**int_size:** Size in bytes of the natural integer type for the architecture. Represents the size of C `int` or equivalent default integer type.
 - 6502 (LLVM-MOS): 2 bytes (16-bit int)
 - ARM Cortex-M: 4 bytes (32-bit int)
 - x86-64: 4 bytes (32-bit int, even on 64-bit platforms)
@@ -328,9 +351,9 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 - x86-64: 8 bytes (64-bit addressing)
 - AVR: 2 bytes (16-bit addressing)
 
-**When word_size ≠ ptr_size:**
-- Some DSPs have 16-bit data (word_size=2) but 24-bit code pointers (ptr_size=3)
-- x86-64 has 32-bit int (word_size=4) but 64-bit pointers (ptr_size=8)
+**When int_size ≠ ptr_size:**
+- Some DSPs have 16-bit data (int_size=2) but 24-bit code pointers (ptr_size=3)
+- x86-64 has 32-bit int (int_size=4) but 64-bit pointers (ptr_size=8)
 - This distinction allows the protocol to correctly size both scalar values and addresses
 
 **Endianness values:**
@@ -341,10 +364,10 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 
 **Configuration caching:**
 - CNFG chunk should be sent **once** at session start (first RIFF buffer after device initialization)
-- Device caches word_size, ptr_size, and endianness for the entire session
+- Device caches int_size, ptr_size, and endianness for the entire session
 - Subsequent RIFF buffers **omit** the CNFG chunk and start directly with CALL
 - To change configuration, guest must reinitialize the device or send a new CNFG chunk
-- `word_size` != `ptr_size` is valid (e.g., 16-bit words with 24-bit pointers on some DSPs)
+- `int_size` != `ptr_size` is valid (e.g., 16-bit integers with 24-bit pointers on some DSPs)
 - Host uses these cached values to correctly interpret all multi-byte values in PARM chunks
 
 ### CALL Chunk - Syscall Request Container
@@ -368,7 +391,7 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 **Format:** The PARM chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (4 + value_size), followed by: param_type (1 byte parameter type code), three reserved bytes (must be 0x00), and then the parameter value in guest endianness (variable size).
 
 **Parameter types:**
-- `0x01` - Word value (size = word_size from CNFG)
+- `0x01` - Integer value (size = int_size from CNFG)
   - Used for: file descriptors, counts, modes, status codes, offsets
   - Represents scalar integer values in the guest's natural integer size
 - `0x02` - Pointer value (size = ptr_size from CNFG)
@@ -379,7 +402,7 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 **Value field:**
 - Size depends on param_type and CNFG settings
 - Endianness matches guest's declared endianness
-- For type 0x01 (word): value is word_size bytes
+- For type 0x01 (integer): value is int_size bytes
 - For type 0x02 (pointer): value is ptr_size bytes
 
 **Note:** Parameters must appear in the order expected by the syscall.
@@ -411,10 +434,10 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 
 **Chunk ID:** 'RETN' (ASCII codes 0x52 0x45 0x54 0x4E)
 
-**Format:** The RETN chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: result (word_size bytes, syscall return value in guest endianness), errno (4 bytes, POSIX errno in little-endian, 0=success), and optional sub-chunks (DATA chunks for read operations).
+**Format:** The RETN chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: result (int_size bytes, syscall return value in guest endianness), errno (4 bytes, POSIX errno in little-endian, 0=success), and optional sub-chunks (DATA chunks for read operations).
 
 **Result field:**
-- Size equals `word_size` from CNFG
+- Size equals `int_size` from CNFG
 - Endianness equals guest's declared endianness
 - Interpretation depends on syscall:
   - File descriptor (SYS_OPEN)
@@ -441,11 +464,11 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 **Format:** The ERRO chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: error_code (2 bytes in little-endian), two reserved bytes (must be 0x00), and an optional ASCII error message (variable length).
 
 **Error codes:**
-- `0x01` - Invalid chunk structure
-- `0x02` - Malformed RIFF format
-- `0x03` - Missing CNFG chunk
-- `0x04` - Unsupported opcode
-- `0x05` - Invalid parameter count
+- `0x01` - Invalid chunk structure (incorrect nesting, wrong chunk sizes, or unrecognized chunk types)
+- `0x02` - Malformed RIFF format (missing 'RIFF' signature, missing 'SEMI' form type, or size field errors)
+- `0x03` - Missing CNFG chunk (first request after device initialization must include CNFG)
+- `0x04` - Unsupported opcode (syscall number not implemented by this device)
+- `0x05` - Invalid parameter count (wrong number of PARM or DATA chunks for the specified syscall)
 - `0x06-0xFFFF` - Reserved for future use
 
 **Device behavior:** Device writes ERRO chunk instead of RETN when it cannot parse or execute the request.
@@ -465,14 +488,7 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 4. Guest polls STATUS register until RESPONSE_READY bit is set
 5. Guest reads RETN chunk from RIFF buffer (device overwrites CALL with RETN)
 
-**CACHE COHERENCY WARNING**
-
-If guest CPU has data cache, guest MUST:
-1. Flush data cache after writing RIFF buffer (before DOORBELL write)
-2. Ensure DOORBELL write completes (may need memory barrier)
-3. Invalidate cache before reading RETN chunk from buffer
-
-Failure to do so may result in stale data or corruption.
+**Note:** See [Cache Coherency Requirements](#cache-coherency-requirements) in Hardware Architecture section for critical cache management details.
 
 **Characteristics:**
 - Simple to implement
@@ -498,7 +514,7 @@ Guest MUST NOT write DOORBELL while STATUS.RESPONSE_READY is set. Device behavio
 5. Device asserts interrupt line
 6. Guest interrupt handler reads RETN chunk and acknowledges interrupt via IRQ_ACK
 
-**Cache coherency requirements:** Same as synchronous mode - flush before DOORBELL, invalidate before reading RETN.
+**Note:** See [Cache Coherency Requirements](#cache-coherency-requirements) in Hardware Architecture section for critical cache management details.
 
 **Characteristics:**
 - More complex (requires interrupt handler)
@@ -575,7 +591,7 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 | 0x12 | SYS_SYSTEM | (command, length) | exit code |
 | 0x13 | SYS_ERRNO | () | last errno value |
 | 0x15 | SYS_GET_CMDLINE | (length) | command line or -1 |
-| 0x16 | SYS_HEAPINFO | () | heap info structure |
+| 0x16 | SYS_HEAPINFO | () | heap info structure (see ARM spec) |
 | 0x18 | SYS_EXIT | (status) | no return |
 | 0x20 | SYS_EXIT_EXTENDED | (exception, subcode) | no return |
 | 0x30 | SYS_ELAPSED | () | 64-bit tick count |
@@ -585,36 +601,36 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 
 ARM semihosting syscalls are mapped to PARM and DATA chunks:
 
-**Scalar arguments** (fd, mode, length, status, etc.) → PARM chunks (type 0x01 = word)
+**Scalar arguments** (fd, mode, length, status, etc.) → PARM chunks (type 0x01 = integer)
 
 **String/buffer arguments** (filenames, data to write, commands) → DATA chunks
 
 **Buffer output** (data read, command line) → DATA chunks in RETN
 
-**Example: SYS_WRITE(fd=1, data="Hello\n", length=6)**
+**Example: SYS_WRITE(fd=0x01, data="Hello\n", length=0x06)**
 
 CALL chunk contains:
-- PARM chunk: fd = 1
-- PARM chunk: length = 6
+- PARM chunk: fd = 0x01
 - DATA chunk: payload = "Hello\n"
+- PARM chunk: length = 0x06
 
-**Example: SYS_READ(fd=3, length=256)**
+**Example: SYS_READ(fd=0x03, length=0x100)**
 
 CALL chunk contains:
-- PARM chunk: fd = 3
-- PARM chunk: length = 256
+- PARM chunk: fd = 0x03
+- PARM chunk: length = 0x100
 
 RETN chunk contains:
 - result = bytes_read
 - errno = 0
 - DATA chunk: payload = bytes read
 
-**Example: SYS_OPEN(filename="/tmp/test.txt", mode=0, length=14)**
+**Example: SYS_OPEN(filename="/tmp/test.txt", mode=0x00, length=0x0E)**
 
 CALL chunk contains:
 - DATA chunk: payload = "/tmp/test.txt\0"
-- PARM chunk: mode = 0
-- PARM chunk: length = 14
+- PARM chunk: mode = 0x00
+- PARM chunk: length = 0x0E
 
 ### Open Mode Flags (SYS_OPEN)
 
@@ -732,7 +748,7 @@ Query device features. The META chunk contains a chunk ID, chunk size, a query_t
 
 | Value | Name | Size | Description |
 |-------|------|------|-------------|
-| 0x01 | Word | word_size bytes | Integer/scalar value in guest endianness |
+| 0x01 | Integer | int_size bytes | Integer/scalar value in guest endianness |
 | 0x02 | Pointer | ptr_size bytes | Pointer value in guest endianness |
 | 0x03-0xFF | Reserved | - | Reserved for future use |
 
