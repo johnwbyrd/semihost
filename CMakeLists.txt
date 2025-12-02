@@ -41,4 +41,5 @@ add_library(zbc_semi_host STATIC
 )
 
 # Tests
+enable_testing()
 add_subdirectory(test)

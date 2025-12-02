@@ -28,7 +28,6 @@ target_link_libraries(zbc_tests
 )
 
 # Register test with CTest
-enable_testing()
 add_test(NAME zbc_semihost_tests COMMAND zbc_tests)
 
 # Static allocation check
