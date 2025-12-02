@@ -13,6 +13,19 @@
 cmake_minimum_required(VERSION 3.10)
 project(zbc_semihost C)
 
+# Set the default build type to Release.
+# Users can override this with -DCMAKE_BUILD_TYPE=Debug or similar.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  message(STATUS "Setting build type to 'Release' as default.")
+  set(CMAKE_BUILD_TYPE "Release" CACHE STRING "Choose the type of build." FORCE)
+  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release" "MinSizeRel" "RelWithDebInfo")
+endif()
+
+# Enable debug symbols for Debug builds
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+  add_compile_options(-g)
+endif()
+
 # C standard
 set(CMAKE_C_STANDARD 90)
 set(CMAKE_C_STANDARD_REQUIRED ON)

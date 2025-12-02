@@ -19,61 +19,116 @@
  * fd 3+ are dynamically allocated FILE* handles.
  *------------------------------------------------------------------------*/
 
-#define ANSI_MAX_FILES 64
 #define ANSI_FIRST_FD 3
+#define ANSI_INITIAL_CAPACITY 64 /* Use a reasonable initial capacity */
 
-static FILE *ansi_files[ANSI_MAX_FILES];
-static int ansi_initialized = 0;
+static FILE **ansi_files_ptr = NULL;
+static int ansi_files_capacity = 0;
+static int ansi_next_fd = ANSI_FIRST_FD; /* Smallest FD is 3 */
 static int ansi_last_errno = 0;
 static clock_t ansi_start_clock;
 
+typedef struct FreeFDNode {
+    int fd;
+    struct FreeFDNode *next;
+} FreeFDNode;
+
+static FreeFDNode *ansi_free_fd_list = NULL;
+static int ansi_initialized = 0;
+
 static void ansi_init(void)
 {
-    int i;
     if (ansi_initialized) {
         return;
     }
-    for (i = 0; i < ANSI_MAX_FILES; i++) {
-        ansi_files[i] = NULL;
+
+    ansi_files_ptr = (FILE**)calloc(ANSI_INITIAL_CAPACITY, sizeof(FILE*));
+    if (ansi_files_ptr == NULL) {
+        /* Handle allocation error, though in semihosting this might be tricky */
+        exit(1); /* or some other error handling */
     }
+    ansi_files_capacity = ANSI_INITIAL_CAPACITY;
+    ansi_next_fd = ANSI_FIRST_FD;
+    ansi_free_fd_list = NULL;
+
     ansi_start_clock = clock();
     ansi_initialized = 1;
 }
 
-static int ansi_fd_to_index(int fd)
+/* Helper to resize the ansi_files_ptr array */
+static int ansi_resize_fd_array(int required_capacity)
 {
-    if (fd < ANSI_FIRST_FD) {
-        return -1; /* stdin/stdout/stderr handled specially */
+    int new_capacity;
+    FILE **new_ptr;
+    int i;
+
+    new_capacity = ansi_files_capacity;
+    if (new_capacity == 0) {
+        new_capacity = ANSI_INITIAL_CAPACITY; /* Start with initial capacity if currently 0 */
     }
-    if (fd >= ANSI_FIRST_FD + ANSI_MAX_FILES) {
-        return -1;
+    while (new_capacity < required_capacity) {
+        new_capacity *= 2;
     }
-    return fd - ANSI_FIRST_FD;
+
+    new_ptr = (FILE**)realloc(ansi_files_ptr, new_capacity * sizeof(FILE*));
+    if (new_ptr == NULL) {
+        return -1; /* realloc failed */
+    }
+
+    /* Initialize newly allocated memory to NULL */
+    for (i = ansi_files_capacity; i < new_capacity; i++) {
+        new_ptr[i] = NULL;
+    }
+
+    ansi_files_ptr = new_ptr;
+    ansi_files_capacity = new_capacity;
+    return 0;
 }
 
 static int ansi_alloc_fd(FILE *fp)
 {
-    int i;
-    for (i = 0; i < ANSI_MAX_FILES; i++) {
-        if (ansi_files[i] == NULL) {
-            ansi_files[i] = fp;
-            return i + ANSI_FIRST_FD;
+    int new_fd;
+    int idx;
+    FreeFDNode *node_to_reuse;
+
+    if (ansi_free_fd_list != NULL) {
+        /* Reuse an FD from the free list */
+        node_to_reuse = ansi_free_fd_list;
+        new_fd = node_to_reuse->fd;
+        ansi_free_fd_list = node_to_reuse->next;
+        free(node_to_reuse);
+    } else {
+        /* Allocate a new FD */
+        new_fd = ansi_next_fd++;
+    }
+
+    idx = new_fd - ANSI_FIRST_FD;
+
+    /* Ensure array has capacity for this FD */
+    if (idx >= ansi_files_capacity) {
+        if (ansi_resize_fd_array(idx + 1) != 0) {
+            return -1; /* Failed to resize */
         }
     }
-    return -1; /* No free slots */
+
+    ansi_files_ptr[idx] = fp;
+    return new_fd;
 }
 
 static FILE *ansi_get_file(int fd)
 {
-    int idx;
+    /* Handle stdin/stdout/stderr */
     if (fd == 0) return stdin;
     if (fd == 1) return stdout;
     if (fd == 2) return stderr;
-    idx = ansi_fd_to_index(fd);
-    if (idx < 0) return NULL;
-    return ansi_files[idx];
-}
 
+    /* Validate FD and array bounds */
+    if (fd < ANSI_FIRST_FD || (fd - ANSI_FIRST_FD >= ansi_files_capacity)) {
+        return NULL; /* Invalid FD or out of bounds */
+    }
+
+    return ansi_files_ptr[fd - ANSI_FIRST_FD];
+}
 /*------------------------------------------------------------------------
  * ARM semihosting open mode to fopen mode string mapping
  *------------------------------------------------------------------------*/
@@ -146,8 +201,8 @@ static int ansi_open(void *ctx, const char *path, size_t path_len, int mode)
 
 static int ansi_close(void *ctx, int fd)
 {
-    int idx;
     FILE *fp;
+    FreeFDNode *new_node;
 
     (void)ctx;
     ansi_init();
@@ -157,19 +212,33 @@ static int ansi_close(void *ctx, int fd)
         return 0; /* Silently succeed */
     }
 
-    idx = ansi_fd_to_index(fd);
-    if (idx < 0 || ansi_files[idx] == NULL) {
-        ansi_last_errno = EBADF;
+    /* Validate FD and array bounds */
+    if (fd - ANSI_FIRST_FD >= ansi_files_capacity || ansi_files_ptr[fd - ANSI_FIRST_FD] == NULL) {
+         ansi_last_errno = EBADF;
         return -1;
     }
 
-    fp = ansi_files[idx];
-    ansi_files[idx] = NULL;
+    fp = ansi_files_ptr[fd - ANSI_FIRST_FD];
 
     if (fclose(fp) != 0) {
         ansi_last_errno = errno;
         return -1;
     }
+
+    /* Mark the slot as free */
+    ansi_files_ptr[fd - ANSI_FIRST_FD] = NULL;
+
+    /* Add FD to free list */
+    new_node = (FreeFDNode *)malloc(sizeof(FreeFDNode));
+    if (new_node == NULL) {
+        /* This is a critical error, but we've already closed the file.
+         * Cannot add to free list, so this FD won't be reused.
+         * Consider logging or handling more robustly if needed. */
+        return 0; /* Still succeed for the close operation itself */
+    }
+    new_node->fd = fd;
+    new_node->next = ansi_free_fd_list;
+    ansi_free_fd_list = new_node;
 
     return 0;
 }
@@ -578,17 +647,34 @@ const zbc_backend_t *zbc_backend_ansi(void)
 void zbc_backend_ansi_cleanup(void)
 {
     int i;
+    FreeFDNode *current;
+    FreeFDNode *next;
 
     if (!ansi_initialized) {
         return;
     }
 
-    for (i = 0; i < ANSI_MAX_FILES; i++) {
-        if (ansi_files[i] != NULL) {
-            fclose(ansi_files[i]);
-            ansi_files[i] = NULL;
+    /* Close all open files */
+    if (ansi_files_ptr != NULL) {
+        for (i = 0; i < ansi_files_capacity; i++) {
+            if (ansi_files_ptr[i] != NULL) {
+                fclose(ansi_files_ptr[i]);
+                ansi_files_ptr[i] = NULL;
+            }
         }
+        free(ansi_files_ptr);
+        ansi_files_ptr = NULL;
     }
+    ansi_files_capacity = 0;
+
+    /* Free the free FD list */
+    current = ansi_free_fd_list;
+    while (current != NULL) {
+        next = current->next;
+        free(current);
+        current = next;
+    }
+    ansi_free_fd_list = NULL;
 
     ansi_initialized = 0;
 }

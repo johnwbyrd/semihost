@@ -17,11 +17,15 @@ static int tests_passed = 0;
  * Portable temp directory handling
  *------------------------------------------------------------------------*/
 
-static char g_temp_dir[512];
+#define MAX_TEMP_DIR_LEN 256
+#define MAX_FILENAME_LEN 128
+
+static char g_temp_dir[MAX_TEMP_DIR_LEN];
 
 static void init_temp_dir(void)
 {
     const char *tmp;
+    size_t len;
 
     /* Try standard environment variables */
     tmp = getenv("TMPDIR");
@@ -34,20 +38,31 @@ static void init_temp_dir(void)
     if (!tmp) tmp = "/tmp";
 #endif
 
-    strncpy(g_temp_dir, tmp, sizeof(g_temp_dir) - 1);
-    g_temp_dir[sizeof(g_temp_dir) - 1] = '\0';
+    len = strlen(tmp);
+    if (len >= MAX_TEMP_DIR_LEN) {
+        len = MAX_TEMP_DIR_LEN - 1;
+    }
+    memcpy(g_temp_dir, tmp, len);
+    g_temp_dir[len] = '\0';
 }
 
-static void make_temp_path(char *buf, size_t buf_size, const char *filename)
+static int make_temp_path(char *buf, size_t buf_size, const char *filename)
 {
     size_t dir_len = strlen(g_temp_dir);
+    size_t file_len = strlen(filename);
+    size_t total = dir_len + 1 + file_len + 1;  /* dir + sep + filename + nul */
+
+    if (total > buf_size) {
+        buf[0] = '\0';
+        return -1;
+    }
 
 #ifdef _WIN32
-    snprintf(buf, buf_size, "%s\\%s", g_temp_dir, filename);
+    sprintf(buf, "%s\\%s", g_temp_dir, filename);
 #else
-    snprintf(buf, buf_size, "%s/%s", g_temp_dir, filename);
+    sprintf(buf, "%s/%s", g_temp_dir, filename);
 #endif
-    (void)dir_len;
+    return 0;
 }
 
 #define TEST_ASSERT(cond, msg) do { \
@@ -68,6 +83,41 @@ static void make_temp_path(char *buf, size_t buf_size, const char *filename)
         printf("PASS\n"); \
     } \
 } while(0)
+
+/*------------------------------------------------------------------------
+ * Stress test constants and helpers
+ *------------------------------------------------------------------------*/
+
+#define STRESS_FILE_COUNT_SMALL  70   /* Just past initial 64 capacity */
+#define STRESS_FILE_COUNT_MEDIUM 150  /* Past 128, triggers second resize */
+
+/* First available FD after stdin/stdout/stderr */
+#define ANSI_FIRST_FD 3
+
+static int make_indexed_temp_path(char *buf, size_t buf_size,
+                                  const char *prefix, int index)
+{
+    char filename[MAX_FILENAME_LEN];
+    sprintf(filename, "%s_%04d.tmp", prefix, index);
+    return make_temp_path(buf, buf_size, filename);
+}
+
+static void cleanup_temp_files(const zbc_backend_t *be, void *ctx,
+                               int *fds, int fds_count,
+                               const char *prefix, int close_first)
+{
+    int i;
+    char path[512];
+
+    for (i = 0; i < fds_count; i++) {
+        if (close_first && fds[i] >= 0) {
+            be->close(ctx, fds[i]);
+            fds[i] = -1;
+        }
+        make_indexed_temp_path(path, sizeof(path), prefix, i);
+        be->remove(ctx, path, strlen(path));
+    }
+}
 
 /*------------------------------------------------------------------------
  * Test: Open, Write, Close, Open, Read, Verify, Close, Remove
@@ -412,6 +462,398 @@ static int test_errno(void)
 }
 
 /*------------------------------------------------------------------------
+ * Stress Test: Open many files to trigger capacity growth (64->128->256)
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_capacity_growth(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int fds[STRESS_FILE_COUNT_MEDIUM];
+    char path[512];
+    int i;
+    int opened_count;
+
+    /* Initialize FD array */
+    for (i = 0; i < STRESS_FILE_COUNT_MEDIUM; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open 150 files - exceeds 64 initial + 128 first resize */
+    opened_count = 0;
+    for (i = 0; i < STRESS_FILE_COUNT_MEDIUM; i++) {
+        make_indexed_temp_path(path, sizeof(path), "stress_cap", i);
+        fds[i] = be->open(ctx, path, strlen(path), 4); /* SH_OPEN_W */
+
+        if (fds[i] < 0) {
+            /* May hit system limit - record how many we opened */
+            printf("(system limit at %d) ", i);
+            break;
+        }
+
+        /* FDs should be >= ANSI_FIRST_FD (3) */
+        TEST_ASSERT(fds[i] >= ANSI_FIRST_FD, "fd should be >= 3");
+        opened_count++;
+    }
+
+    /* Verify we got past the first resize boundary (64) */
+    TEST_ASSERT(opened_count > 64, "should open more than 64 files");
+
+    /* Cleanup: close all and remove files */
+    cleanup_temp_files(be, ctx, fds, opened_count, "stress_cap", 1);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: Verify FDs are reused in LIFO order from free list
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_lifo_reuse(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    char path[512];
+    int fds[10];
+    int reused_fd;
+    int i;
+    int last_closed_fd;
+
+    /* Initialize */
+    for (i = 0; i < 10; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open 10 files */
+    for (i = 0; i < 10; i++) {
+        make_indexed_temp_path(path, sizeof(path), "lifo", i);
+        fds[i] = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(fds[i] >= 0, "open failed");
+    }
+
+    /* Close file at index 9 (last opened), remember its FD */
+    last_closed_fd = fds[9];
+    make_indexed_temp_path(path, sizeof(path), "lifo", 9);
+    be->close(ctx, fds[9]);
+    be->remove(ctx, path, strlen(path));
+    fds[9] = -1;
+
+    /* Open a new file - should reuse the just-closed FD (LIFO) */
+    make_indexed_temp_path(path, sizeof(path), "lifo_new", 0);
+    reused_fd = be->open(ctx, path, strlen(path), 4);
+    TEST_ASSERT(reused_fd >= 0, "reopen failed");
+    TEST_ASSERT(reused_fd == last_closed_fd,
+                "LIFO: new open should reuse last closed FD");
+
+    /* Cleanup */
+    be->close(ctx, reused_fd);
+    be->remove(ctx, path, strlen(path));
+
+    for (i = 0; i < 9; i++) {
+        if (fds[i] >= 0) {
+            be->close(ctx, fds[i]);
+        }
+        make_indexed_temp_path(path, sizeof(path), "lifo", i);
+        be->remove(ctx, path, strlen(path));
+    }
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: All simultaneously open FDs are unique
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_uniqueness(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int fds[STRESS_FILE_COUNT_SMALL];
+    char path[512];
+    int i, j;
+    int opened_count;
+
+    /* Initialize */
+    for (i = 0; i < STRESS_FILE_COUNT_SMALL; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open files */
+    opened_count = 0;
+    for (i = 0; i < STRESS_FILE_COUNT_SMALL; i++) {
+        make_indexed_temp_path(path, sizeof(path), "uniq", i);
+        fds[i] = be->open(ctx, path, strlen(path), 4);
+        if (fds[i] < 0) {
+            break; /* System limit reached */
+        }
+        opened_count++;
+    }
+
+    TEST_ASSERT(opened_count > 0, "should open at least one file");
+
+    /* Check all FDs are unique */
+    for (i = 0; i < opened_count; i++) {
+        for (j = i + 1; j < opened_count; j++) {
+            TEST_ASSERT(fds[i] != fds[j], "duplicate FD found");
+        }
+    }
+
+    /* Cleanup */
+    cleanup_temp_files(be, ctx, fds, opened_count, "uniq", 1);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: Interleaved open/close operations
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_interleaved_ops(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int fds[20];
+    char path[512];
+    int new_fd;
+    int i;
+
+    /* Initialize */
+    for (i = 0; i < 20; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open 20 files */
+    for (i = 0; i < 20; i++) {
+        make_indexed_temp_path(path, sizeof(path), "intlv", i);
+        fds[i] = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(fds[i] >= 0, "open failed");
+    }
+
+    /* Close every other file (0, 2, 4, ..., 18) */
+    for (i = 0; i < 20; i += 2) {
+        be->close(ctx, fds[i]);
+        make_indexed_temp_path(path, sizeof(path), "intlv", i);
+        be->remove(ctx, path, strlen(path));
+        fds[i] = -1;
+    }
+
+    /* Open 5 new files - should reuse FDs from free list */
+    for (i = 0; i < 5; i++) {
+        make_indexed_temp_path(path, sizeof(path), "intlv_new", i);
+        new_fd = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(new_fd >= 0, "reopen failed");
+
+        /* Store in previously emptied slot */
+        fds[i * 2] = new_fd;
+    }
+
+    /* Close remaining odd-indexed files */
+    for (i = 1; i < 20; i += 2) {
+        if (fds[i] >= 0) {
+            be->close(ctx, fds[i]);
+            make_indexed_temp_path(path, sizeof(path), "intlv", i);
+            be->remove(ctx, path, strlen(path));
+            fds[i] = -1;
+        }
+    }
+
+    /* Open more files - free list should have entries */
+    for (i = 0; i < 10; i++) {
+        make_indexed_temp_path(path, sizeof(path), "intlv_final", i);
+        new_fd = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(new_fd >= 0, "final open failed");
+        be->close(ctx, new_fd);
+        be->remove(ctx, path, strlen(path));
+    }
+
+    /* Final cleanup of remaining open files */
+    for (i = 0; i < 20; i++) {
+        if (fds[i] >= 0) {
+            be->close(ctx, fds[i]);
+            fds[i] = -1;
+        }
+    }
+
+    /* Remove any remaining "intlv_new" files */
+    for (i = 0; i < 5; i++) {
+        make_indexed_temp_path(path, sizeof(path), "intlv_new", i);
+        be->remove(ctx, path, strlen(path));
+    }
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: All allocated FDs can perform actual I/O
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_io_functional(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int fds[STRESS_FILE_COUNT_SMALL];
+    char path[512];
+    char write_buf[32];
+    char read_buf[32];
+    int i;
+    int opened_count;
+    int result;
+    int len;
+
+    /* Initialize */
+    for (i = 0; i < STRESS_FILE_COUNT_SMALL; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open files for read/write */
+    opened_count = 0;
+    for (i = 0; i < STRESS_FILE_COUNT_SMALL; i++) {
+        make_indexed_temp_path(path, sizeof(path), "io_func", i);
+        fds[i] = be->open(ctx, path, strlen(path), 6); /* SH_OPEN_W_PLUS */
+        if (fds[i] < 0) {
+            break;
+        }
+        opened_count++;
+    }
+
+    TEST_ASSERT(opened_count >= 64, "should open at least 64 files");
+
+    /* Write unique data to each file */
+    for (i = 0; i < opened_count; i++) {
+        sprintf(write_buf, "file_%04d_data", i);
+        result = be->write(ctx, fds[i], write_buf, strlen(write_buf));
+        TEST_ASSERT(result == 0, "write failed");
+    }
+
+    /* Seek to start and read back each file */
+    for (i = 0; i < opened_count; i++) {
+        result = be->seek(ctx, fds[i], 0);
+        TEST_ASSERT(result == 0, "seek failed");
+
+        memset(read_buf, 0, sizeof(read_buf));
+        sprintf(write_buf, "file_%04d_data", i);
+        len = (int)strlen(write_buf);
+
+        result = be->read(ctx, fds[i], read_buf, len);
+        TEST_ASSERT(result == 0, "read failed");
+        TEST_ASSERT(memcmp(read_buf, write_buf, len) == 0, "data mismatch");
+    }
+
+    /* Verify flen works on all files */
+    for (i = 0; i < opened_count; i++) {
+        sprintf(write_buf, "file_%04d_data", i);
+        len = be->flen(ctx, fds[i]);
+        TEST_ASSERT(len == (int)strlen(write_buf), "flen incorrect");
+    }
+
+    /* Cleanup */
+    cleanup_temp_files(be, ctx, fds, opened_count, "io_func", 1);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: Exact capacity boundary behavior (63, 64, 65)
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_at_boundary(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int fds[66];
+    char path[512];
+    int i;
+
+    /* Initialize */
+    for (i = 0; i < 66; i++) {
+        fds[i] = -1;
+    }
+
+    /* Open exactly 64 files (indices 0-63) */
+    for (i = 0; i < 64; i++) {
+        make_indexed_temp_path(path, sizeof(path), "boundary", i);
+        fds[i] = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(fds[i] >= 0, "open failed before boundary");
+    }
+
+    /* Open file 65 - should trigger resize from 64 to 128 */
+    make_indexed_temp_path(path, sizeof(path), "boundary", 64);
+    fds[64] = be->open(ctx, path, strlen(path), 4);
+    TEST_ASSERT(fds[64] >= 0, "resize should allow file 65");
+
+    /* Open one more to confirm resize worked */
+    make_indexed_temp_path(path, sizeof(path), "boundary", 65);
+    fds[65] = be->open(ctx, path, strlen(path), 4);
+    TEST_ASSERT(fds[65] >= 0, "post-resize open should work");
+
+    /* Cleanup */
+    cleanup_temp_files(be, ctx, fds, 66, "boundary", 1);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Stress Test: Close all files, verify FDs are properly recycled
+ *------------------------------------------------------------------------*/
+
+static int test_stress_fd_reuse_after_close_all(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = NULL;
+    int first_batch_fds[50];
+    int second_batch_fds[50];
+    char path[512];
+    int i, j;
+    int reused_count;
+
+    /* Initialize */
+    for (i = 0; i < 50; i++) {
+        first_batch_fds[i] = -1;
+        second_batch_fds[i] = -1;
+    }
+
+    /* Open 50 files */
+    for (i = 0; i < 50; i++) {
+        make_indexed_temp_path(path, sizeof(path), "reuse1", i);
+        first_batch_fds[i] = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(first_batch_fds[i] >= 0, "first batch open failed");
+    }
+
+    /* Close all 50 files */
+    for (i = 0; i < 50; i++) {
+        be->close(ctx, first_batch_fds[i]);
+        make_indexed_temp_path(path, sizeof(path), "reuse1", i);
+        be->remove(ctx, path, strlen(path));
+    }
+
+    /* Reopen 50 files - should reuse FDs from free list */
+    for (i = 0; i < 50; i++) {
+        make_indexed_temp_path(path, sizeof(path), "reuse2", i);
+        second_batch_fds[i] = be->open(ctx, path, strlen(path), 4);
+        TEST_ASSERT(second_batch_fds[i] >= 0, "second batch open failed");
+    }
+
+    /* Count how many FDs were reused (should be all 50) */
+    reused_count = 0;
+    for (i = 0; i < 50; i++) {
+        for (j = 0; j < 50; j++) {
+            if (second_batch_fds[i] == first_batch_fds[j]) {
+                reused_count++;
+                break;
+            }
+        }
+    }
+
+    /* All FDs should be reused */
+    TEST_ASSERT(reused_count == 50, "all FDs should be reused");
+
+    /* Cleanup */
+    cleanup_temp_files(be, ctx, second_batch_fds, 50, "reuse2", 1);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
  * Main
  *------------------------------------------------------------------------*/
 
@@ -431,6 +873,15 @@ void run_ansi_backend_tests(void)
     RUN_TEST(rename);
     RUN_TEST(partial_read);
     RUN_TEST(errno);
+
+    printf("\n--- FD Stress Tests ---\n");
+    RUN_TEST(stress_fd_lifo_reuse);
+    RUN_TEST(stress_fd_uniqueness);
+    RUN_TEST(stress_fd_at_boundary);
+    RUN_TEST(stress_fd_interleaved_ops);
+    RUN_TEST(stress_fd_reuse_after_close_all);
+    RUN_TEST(stress_fd_io_functional);
+    RUN_TEST(stress_fd_capacity_growth);
 
     printf("\nANSI Backend: %d/%d tests passed\n", tests_passed, tests_run);
 

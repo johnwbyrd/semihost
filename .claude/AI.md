@@ -12,6 +12,7 @@ Read before making changes.
 5. Propose the host chasing pointers in guest memory — all data goes through RIFF chunks
 6. Use C99+ features — this is C90 strict (no `//` comments, no `inline`, no VLAs)
 7. Allocate memory in core libraries — caller provides all buffers
+8. Consider "backwards compatibility."  Writing to support imaginary existing users is an antifeature.
 
 ### Always
 1. Read int_size, ptr_size, endianness from CNFG chunk; marshal data accordingly
@@ -20,6 +21,7 @@ Read before making changes.
 4. Test mentally: "Would this work on 6502? 8051? ARM64? Windows x64?"
 5. Return errors via return values, not global errno
 6. Use `zbc_` prefix for all library functions
+7. Rewrite code in the simplest, cleanest, most elegant fashion possible
 
 ## Why RIFF Marshalling?
 
