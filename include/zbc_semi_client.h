@@ -22,28 +22,28 @@ extern "C" {
 
 /* Size of native int type in bytes */
 #ifndef ZBC_CLIENT_INT_SIZE
-#define ZBC_CLIENT_INT_SIZE  sizeof(int)
+#define ZBC_CLIENT_INT_SIZE sizeof(int)
 #endif
 
 /* Size of pointer type in bytes */
 #ifndef ZBC_CLIENT_PTR_SIZE
-#define ZBC_CLIENT_PTR_SIZE  sizeof(void *)
+#define ZBC_CLIENT_PTR_SIZE sizeof(void *)
 #endif
 
 /* Endianness detection */
 #ifndef ZBC_CLIENT_ENDIANNESS
 #if defined(__BYTE_ORDER__)
-#  if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-#    define ZBC_CLIENT_ENDIANNESS  ZBC_ENDIAN_BIG
-#  elif __BYTE_ORDER__ == __ORDER_PDP_ENDIAN__
-#    define ZBC_CLIENT_ENDIANNESS  ZBC_ENDIAN_PDP
-#  else
-#    define ZBC_CLIENT_ENDIANNESS  ZBC_ENDIAN_LITTLE
-#  endif
-#elif defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
-#  define ZBC_CLIENT_ENDIANNESS  ZBC_ENDIAN_BIG
+#if __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#define ZBC_CLIENT_ENDIANNESS ZBC_ENDIAN_BIG
+#elif __BYTE_ORDER__ == __ORDER_PDP_ENDIAN__
+#define ZBC_CLIENT_ENDIANNESS ZBC_ENDIAN_PDP
 #else
-#  define ZBC_CLIENT_ENDIANNESS  ZBC_ENDIAN_LITTLE
+#define ZBC_CLIENT_ENDIANNESS ZBC_ENDIAN_LITTLE
+#endif
+#elif defined(__BIG_ENDIAN__) || defined(_BIG_ENDIAN)
+#define ZBC_CLIENT_ENDIANNESS ZBC_ENDIAN_BIG
+#else
+#define ZBC_CLIENT_ENDIANNESS ZBC_ENDIAN_LITTLE
 #endif
 #endif
 
@@ -55,11 +55,11 @@ extern "C" {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_client_state {
-    volatile uint8_t *dev_base;  /* Device register base address */
-    uint8_t cnfg_sent;           /* Non-zero if CNFG chunk already sent */
-    uint8_t int_size;            /* Cached: sizeof(int) */
-    uint8_t ptr_size;            /* Cached: sizeof(void*) */
-    uint8_t endianness;          /* Cached: native byte order */
+  volatile uint8_t *dev_base; /* Device register base address */
+  uint8_t cnfg_sent;          /* Non-zero if CNFG chunk already sent */
+  uint8_t int_size;           /* Cached: sizeof(int) */
+  uint8_t ptr_size;           /* Cached: sizeof(void*) */
+  uint8_t endianness;         /* Cached: native byte order */
 } zbc_client_state_t;
 
 /*------------------------------------------------------------------------
@@ -70,11 +70,11 @@ typedef struct zbc_client_state {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_builder {
-    uint8_t *buf;          /* Buffer start */
-    size_t   capacity;     /* Total buffer capacity */
-    size_t   offset;       /* Current write position */
-    size_t   call_offset;  /* Offset where CALL chunk started (for patching) */
-    int      error;        /* Sticky error code (0 = OK) */
+  uint8_t *buf;       /* Buffer start */
+  size_t capacity;    /* Total buffer capacity */
+  size_t offset;      /* Current write position */
+  size_t call_offset; /* Offset where CALL chunk started (for patching) */
+  int error;          /* Sticky error code (0 = OK) */
 } zbc_builder_t;
 
 /*------------------------------------------------------------------------
@@ -84,12 +84,12 @@ typedef struct zbc_builder {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_response {
-    long            result;      /* Syscall return value (native int) */
-    int             error_code;  /* errno value (0 = success) */
-    const uint8_t  *data;        /* Pointer to DATA chunk payload, or NULL */
-    size_t          data_size;   /* Size of data payload in bytes */
-    int             is_error;    /* Non-zero if ERRO chunk received */
-    uint16_t        proto_error; /* ERRO chunk error code if is_error */
+  long result;          /* Syscall return value (native int) */
+  int error_code;       /* errno value (0 = success) */
+  const uint8_t *data;  /* Pointer to DATA chunk payload, or NULL */
+  size_t data_size;     /* Size of data payload in bytes */
+  int is_error;         /* Non-zero if ERRO chunk received */
+  uint16_t proto_error; /* ERRO chunk error code if is_error */
 } zbc_response_t;
 
 /*------------------------------------------------------------------------
@@ -97,10 +97,10 @@ typedef struct zbc_response {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_heapinfo {
-    void *heap_base;
-    void *heap_limit;
-    void *stack_base;
-    void *stack_limit;
+  void *heap_base;
+  void *heap_limit;
+  void *stack_base;
+  void *stack_limit;
 } zbc_heapinfo_t;
 
 /*========================================================================
@@ -163,10 +163,8 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state);
  *
  * Call this before allocating buffer to ensure sufficient space.
  */
-int zbc_calc_buffer_size(const zbc_client_state_t *state,
-                         uint8_t opcode,
-                         size_t write_size,
-                         size_t read_size);
+int zbc_calc_buffer_size(const zbc_client_state_t *state, uint8_t opcode,
+                         size_t write_size, size_t read_size);
 
 /*========================================================================
  * Low-Level Builder Functions
@@ -186,9 +184,7 @@ int zbc_calc_buffer_size(const zbc_client_state_t *state,
  *
  * Writes RIFF header and CNFG chunk (if not already sent).
  */
-int zbc_builder_start(zbc_builder_t *builder,
-                      uint8_t *buf,
-                      size_t capacity,
+int zbc_builder_start(zbc_builder_t *builder, uint8_t *buf, size_t capacity,
                       zbc_client_state_t *state);
 
 /**
@@ -226,8 +222,7 @@ int zbc_builder_add_parm_uint(zbc_builder_t *builder, unsigned long value);
  * @param size     Size of data in bytes
  * @return         ZBC_OK or error code
  */
-int zbc_builder_add_data_binary(zbc_builder_t *builder,
-                                const void *data,
+int zbc_builder_add_data_binary(zbc_builder_t *builder, const void *data,
                                 size_t size);
 
 /**
@@ -267,9 +262,7 @@ int zbc_builder_finish(zbc_builder_t *builder, size_t *out_size);
  * Writes buffer address to RIFF_PTR, triggers DOORBELL, polls STATUS
  * until RESPONSE_READY is set. Device overwrites CALL with RETN in buffer.
  */
-int zbc_client_submit_poll(zbc_client_state_t *state,
-                           void *buf,
-                           size_t size);
+int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size);
 
 /*========================================================================
  * Response Parsing
@@ -286,10 +279,8 @@ int zbc_client_submit_poll(zbc_client_state_t *state,
  * Extracts result value, errno, and optional DATA chunk from RETN.
  * If device returned ERRO, sets is_error flag and proto_error code.
  */
-int zbc_parse_response(zbc_response_t *response,
-                       const uint8_t *buf,
-                       size_t capacity,
-                       const zbc_client_state_t *state);
+int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
+                       size_t capacity, const zbc_client_state_t *state);
 
 /*========================================================================
  * High-Level Syscall Functions
@@ -308,8 +299,7 @@ int zbc_parse_response(zbc_response_t *response,
  * @param mode      Open mode (SH_OPEN_*)
  * @return          File descriptor (>= 0) or negative error code
  */
-int zbc_sys_open(zbc_client_state_t *state,
-                 void *buf, size_t buf_size,
+int zbc_sys_open(zbc_client_state_t *state, void *buf, size_t buf_size,
                  const char *pathname, int mode);
 
 /**
@@ -321,8 +311,7 @@ int zbc_sys_open(zbc_client_state_t *state,
  * @param fd        File descriptor to close
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_close(zbc_client_state_t *state,
-                  void *buf, size_t buf_size,
+int zbc_sys_close(zbc_client_state_t *state, void *buf, size_t buf_size,
                   int fd);
 
 /**
@@ -336,9 +325,8 @@ int zbc_sys_close(zbc_client_state_t *state,
  * @param count     Number of bytes to read
  * @return          Number of bytes read (>= 0) or negative error code
  */
-long zbc_sys_read(zbc_client_state_t *state,
-                  void *buf, size_t buf_size,
-                  int fd, void *dest, size_t count);
+long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
+                  void *dest, size_t count);
 
 /**
  * Write to a file.
@@ -351,8 +339,7 @@ long zbc_sys_read(zbc_client_state_t *state,
  * @param count     Number of bytes to write
  * @return          Number of bytes written (>= 0) or negative error code
  */
-long zbc_sys_write(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+long zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
                    int fd, const void *src, size_t count);
 
 /**
@@ -364,8 +351,7 @@ long zbc_sys_write(zbc_client_state_t *state,
  * @param c         Character to write
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_writec(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_writec(zbc_client_state_t *state, void *buf, size_t buf_size,
                    char c);
 
 /**
@@ -377,8 +363,7 @@ int zbc_sys_writec(zbc_client_state_t *state,
  * @param str       String to write (null-terminated)
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_write0(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_write0(zbc_client_state_t *state, void *buf, size_t buf_size,
                    const char *str);
 
 /**
@@ -389,8 +374,7 @@ int zbc_sys_write0(zbc_client_state_t *state,
  * @param buf_size  Size of buffer
  * @return          Character read (0-255) or negative error code
  */
-int zbc_sys_readc(zbc_client_state_t *state,
-                  void *buf, size_t buf_size);
+int zbc_sys_readc(zbc_client_state_t *state, void *buf, size_t buf_size);
 
 /**
  * Check if a value represents an error.
@@ -401,8 +385,7 @@ int zbc_sys_readc(zbc_client_state_t *state,
  * @param status    Status value to check
  * @return          Non-zero if error, zero if not error, negative on lib error
  */
-int zbc_sys_iserror(zbc_client_state_t *state,
-                    void *buf, size_t buf_size,
+int zbc_sys_iserror(zbc_client_state_t *state, void *buf, size_t buf_size,
                     long status);
 
 /**
@@ -414,8 +397,7 @@ int zbc_sys_iserror(zbc_client_state_t *state,
  * @param fd        File descriptor
  * @return          1 if TTY, 0 if not TTY, negative on error
  */
-int zbc_sys_istty(zbc_client_state_t *state,
-                  void *buf, size_t buf_size,
+int zbc_sys_istty(zbc_client_state_t *state, void *buf, size_t buf_size,
                   int fd);
 
 /**
@@ -428,9 +410,8 @@ int zbc_sys_istty(zbc_client_state_t *state,
  * @param pos       Absolute byte position
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_seek(zbc_client_state_t *state,
-                 void *buf, size_t buf_size,
-                 int fd, unsigned long pos);
+int zbc_sys_seek(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
+                 unsigned long pos);
 
 /**
  * Get file length.
@@ -441,8 +422,7 @@ int zbc_sys_seek(zbc_client_state_t *state,
  * @param fd        File descriptor
  * @return          File length (>= 0) or negative error code
  */
-long zbc_sys_flen(zbc_client_state_t *state,
-                  void *buf, size_t buf_size,
+long zbc_sys_flen(zbc_client_state_t *state, void *buf, size_t buf_size,
                   int fd);
 
 /**
@@ -456,8 +436,7 @@ long zbc_sys_flen(zbc_client_state_t *state,
  * @param maxpath   Size of pathname buffer
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_tmpnam(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_tmpnam(zbc_client_state_t *state, void *buf, size_t buf_size,
                    char *pathname, int id, int maxpath);
 
 /**
@@ -469,8 +448,7 @@ int zbc_sys_tmpnam(zbc_client_state_t *state,
  * @param pathname  File path to remove
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_remove(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_remove(zbc_client_state_t *state, void *buf, size_t buf_size,
                    const char *pathname);
 
 /**
@@ -483,8 +461,7 @@ int zbc_sys_remove(zbc_client_state_t *state,
  * @param new_path  New filename
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_rename(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_rename(zbc_client_state_t *state, void *buf, size_t buf_size,
                    const char *old_path, const char *new_path);
 
 /**
@@ -495,8 +472,8 @@ int zbc_sys_rename(zbc_client_state_t *state,
  * @param buf_size  Size of buffer
  * @return          Centiseconds since program start, or negative error
  */
-unsigned long zbc_sys_clock(zbc_client_state_t *state,
-                            void *buf, size_t buf_size);
+unsigned long zbc_sys_clock(zbc_client_state_t *state, void *buf,
+                            size_t buf_size);
 
 /**
  * Get current time in seconds since epoch.
@@ -506,8 +483,8 @@ unsigned long zbc_sys_clock(zbc_client_state_t *state,
  * @param buf_size  Size of buffer
  * @return          Seconds since 1970-01-01 00:00:00 UTC, or negative error
  */
-unsigned long zbc_sys_time(zbc_client_state_t *state,
-                           void *buf, size_t buf_size);
+unsigned long zbc_sys_time(zbc_client_state_t *state, void *buf,
+                           size_t buf_size);
 
 /**
  * Execute a system command.
@@ -518,8 +495,7 @@ unsigned long zbc_sys_time(zbc_client_state_t *state,
  * @param command   Command string to execute
  * @return          Command exit status, or negative error code
  */
-int zbc_sys_system(zbc_client_state_t *state,
-                   void *buf, size_t buf_size,
+int zbc_sys_system(zbc_client_state_t *state, void *buf, size_t buf_size,
                    const char *command);
 
 /**
@@ -530,8 +506,7 @@ int zbc_sys_system(zbc_client_state_t *state,
  * @param buf_size  Size of buffer
  * @return          Last errno value, or negative on library error
  */
-int zbc_sys_errno(zbc_client_state_t *state,
-                  void *buf, size_t buf_size);
+int zbc_sys_errno(zbc_client_state_t *state, void *buf, size_t buf_size);
 
 /**
  * Get command line arguments.
@@ -543,8 +518,7 @@ int zbc_sys_errno(zbc_client_state_t *state,
  * @param max_size  Size of dest buffer
  * @return          Length of command line, or negative error code
  */
-int zbc_sys_get_cmdline(zbc_client_state_t *state,
-                        void *buf, size_t buf_size,
+int zbc_sys_get_cmdline(zbc_client_state_t *state, void *buf, size_t buf_size,
                         char *dest, int max_size);
 
 /**
@@ -556,8 +530,7 @@ int zbc_sys_get_cmdline(zbc_client_state_t *state,
  * @param info      Structure to receive heap/stack info
  * @return          0 on success, negative error code on failure
  */
-int zbc_sys_heapinfo(zbc_client_state_t *state,
-                     void *buf, size_t buf_size,
+int zbc_sys_heapinfo(zbc_client_state_t *state, void *buf, size_t buf_size,
                      zbc_heapinfo_t *info);
 
 /**
@@ -571,8 +544,7 @@ int zbc_sys_heapinfo(zbc_client_state_t *state,
  *
  * Does not return.
  */
-void zbc_sys_exit(zbc_client_state_t *state,
-                  void *buf, size_t buf_size,
+void zbc_sys_exit(zbc_client_state_t *state, void *buf, size_t buf_size,
                   unsigned long exception, unsigned long subcode);
 
 /**
@@ -585,9 +557,8 @@ void zbc_sys_exit(zbc_client_state_t *state,
  *
  * Does not return.
  */
-void zbc_sys_exit_extended(zbc_client_state_t *state,
-                           void *buf, size_t buf_size,
-                           unsigned long code);
+void zbc_sys_exit_extended(zbc_client_state_t *state, void *buf,
+                           size_t buf_size, unsigned long code);
 
 /**
  * Get 64-bit elapsed tick count.
@@ -601,8 +572,7 @@ void zbc_sys_exit_extended(zbc_client_state_t *state,
  *
  * Returns 64-bit value split into two 32-bit parts for portability.
  */
-int zbc_sys_elapsed(zbc_client_state_t *state,
-                    void *buf, size_t buf_size,
+int zbc_sys_elapsed(zbc_client_state_t *state, void *buf, size_t buf_size,
                     uint32_t *low, uint32_t *high);
 
 /**
@@ -613,8 +583,8 @@ int zbc_sys_elapsed(zbc_client_state_t *state,
  * @param buf_size  Size of buffer
  * @return          Ticks per second, or negative error code
  */
-unsigned long zbc_sys_tickfreq(zbc_client_state_t *state,
-                               void *buf, size_t buf_size);
+unsigned long zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
+                               size_t buf_size);
 
 #ifdef __cplusplus
 }

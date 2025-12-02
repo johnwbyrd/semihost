@@ -22,47 +22,48 @@ extern "C" {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_host_mem_ops {
-    /**
-     * Read a single byte from guest memory.
-     *
-     * @param addr     Guest memory address (64-bit to handle any arch)
-     * @param context  User-provided context pointer
-     * @return         Byte value at address
-     */
-    uint8_t (*read_u8)(uint64_t addr, void *context);
+  /**
+   * Read a single byte from guest memory.
+   *
+   * @param addr     Guest memory address (64-bit to handle any arch)
+   * @param context  User-provided context pointer
+   * @return         Byte value at address
+   */
+  uint8_t (*read_u8)(uint64_t addr, void *context);
 
-    /**
-     * Write a single byte to guest memory.
-     *
-     * @param addr     Guest memory address
-     * @param value    Byte value to write
-     * @param context  User-provided context pointer
-     */
-    void (*write_u8)(uint64_t addr, uint8_t value, void *context);
+  /**
+   * Write a single byte to guest memory.
+   *
+   * @param addr     Guest memory address
+   * @param value    Byte value to write
+   * @param context  User-provided context pointer
+   */
+  void (*write_u8)(uint64_t addr, uint8_t value, void *context);
 
-    /**
-     * Read a block of bytes from guest memory.
-     *
-     * @param dest     Destination buffer in host memory
-     * @param addr     Guest memory address
-     * @param size     Number of bytes to read
-     * @param context  User-provided context pointer
-     *
-     * If NULL, library will use read_u8 in a loop.
-     */
-    void (*read_block)(void *dest, uint64_t addr, size_t size, void *context);
+  /**
+   * Read a block of bytes from guest memory.
+   *
+   * @param dest     Destination buffer in host memory
+   * @param addr     Guest memory address
+   * @param size     Number of bytes to read
+   * @param context  User-provided context pointer
+   *
+   * If NULL, library will use read_u8 in a loop.
+   */
+  void (*read_block)(void *dest, uint64_t addr, size_t size, void *context);
 
-    /**
-     * Write a block of bytes to guest memory.
-     *
-     * @param addr     Guest memory address
-     * @param src      Source buffer in host memory
-     * @param size     Number of bytes to write
-     * @param context  User-provided context pointer
-     *
-     * If NULL, library will use write_u8 in a loop.
-     */
-    void (*write_block)(uint64_t addr, const void *src, size_t size, void *context);
+  /**
+   * Write a block of bytes to guest memory.
+   *
+   * @param addr     Guest memory address
+   * @param src      Source buffer in host memory
+   * @param size     Number of bytes to write
+   * @param context  User-provided context pointer
+   *
+   * If NULL, library will use write_u8 in a loop.
+   */
+  void (*write_block)(uint64_t addr, const void *src, size_t size,
+                      void *context);
 
 } zbc_host_mem_ops_t;
 
@@ -72,29 +73,29 @@ typedef struct zbc_host_mem_ops {
  * Passed to syscall handlers with parsed parameters from the CALL chunk.
  *------------------------------------------------------------------------*/
 
-#define ZBC_HOST_MAX_PARMS  8
-#define ZBC_HOST_MAX_DATA   4
+#define ZBC_HOST_MAX_PARMS 8
+#define ZBC_HOST_MAX_DATA 4
 
 struct zbc_host_state;
 
 typedef struct zbc_syscall_ctx {
-    /* Back-pointer to host state */
-    struct zbc_host_state *state;
+  /* Back-pointer to host state */
+  struct zbc_host_state *state;
 
-    /* User-provided handler context */
-    void *user_context;
+  /* User-provided handler context */
+  void *user_context;
 
-    /* Parsed PARM chunks */
-    int      parm_count;
-    int64_t  parms[ZBC_HOST_MAX_PARMS];
+  /* Parsed PARM chunks */
+  int parm_count;
+  int64_t parms[ZBC_HOST_MAX_PARMS];
 
-    /* Parsed DATA chunks */
-    int      data_count;
-    struct {
-        uint8_t   type;     /* ZBC_DATA_TYPE_* */
-        size_t    size;     /* Payload size (excludes type/reserved) */
-        uint8_t  *data;     /* Pointer into work buffer */
-    } data[ZBC_HOST_MAX_DATA];
+  /* Parsed DATA chunks */
+  int data_count;
+  struct {
+    uint8_t type;  /* ZBC_DATA_TYPE_* */
+    size_t size;   /* Payload size (excludes type/reserved) */
+    uint8_t *data; /* Pointer into work buffer */
+  } data[ZBC_HOST_MAX_DATA];
 
 } zbc_syscall_ctx_t;
 
@@ -104,20 +105,20 @@ typedef struct zbc_syscall_ctx {
  * Handler fills this to specify the response.
  *------------------------------------------------------------------------*/
 
-#define ZBC_HOST_MAX_RESULT_PARMS  4
+#define ZBC_HOST_MAX_RESULT_PARMS 4
 
 typedef struct zbc_syscall_result {
-    int64_t   result;     /* Return value (written in guest endianness) */
-    int32_t   error;      /* errno value (0 = success) */
+  int64_t result; /* Return value (written in guest endianness) */
+  int32_t error;  /* errno value (0 = success) */
 
-    /* Return data (DATA chunk) - for reads, get_cmdline, etc. */
-    void     *data;       /* Pointer to return data, or NULL */
-    size_t    data_size;  /* Size of return data in bytes */
+  /* Return data (DATA chunk) - for reads, get_cmdline, etc. */
+  void *data;       /* Pointer to return data, or NULL */
+  size_t data_size; /* Size of return data in bytes */
 
-    /* Return parameters (PARM chunks) - for heapinfo */
-    int       parm_count;                            /* Number of PARM chunks to return */
-    uint8_t   parm_types[ZBC_HOST_MAX_RESULT_PARMS]; /* ZBC_PARM_TYPE_* for each */
-    uint64_t  parm_values[ZBC_HOST_MAX_RESULT_PARMS];/* Values to return */
+  /* Return parameters (PARM chunks) - for heapinfo */
+  int parm_count; /* Number of PARM chunks to return */
+  uint8_t parm_types[ZBC_HOST_MAX_RESULT_PARMS]; /* ZBC_PARM_TYPE_* for each */
+  uint64_t parm_values[ZBC_HOST_MAX_RESULT_PARMS]; /* Values to return */
 } zbc_syscall_result_t;
 
 /*------------------------------------------------------------------------
@@ -145,30 +146,30 @@ typedef int (*zbc_syscall_handler_t)(zbc_syscall_ctx_t *ctx,
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_host_handlers {
-    zbc_syscall_handler_t sys_open;           /* 0x01 */
-    zbc_syscall_handler_t sys_close;          /* 0x02 */
-    zbc_syscall_handler_t sys_writec;         /* 0x03 */
-    zbc_syscall_handler_t sys_write0;         /* 0x04 */
-    zbc_syscall_handler_t sys_write;          /* 0x05 */
-    zbc_syscall_handler_t sys_read;           /* 0x06 */
-    zbc_syscall_handler_t sys_readc;          /* 0x07 */
-    zbc_syscall_handler_t sys_iserror;        /* 0x08 */
-    zbc_syscall_handler_t sys_istty;          /* 0x09 */
-    zbc_syscall_handler_t sys_seek;           /* 0x0A */
-    zbc_syscall_handler_t sys_flen;           /* 0x0C */
-    zbc_syscall_handler_t sys_tmpnam;         /* 0x0D */
-    zbc_syscall_handler_t sys_remove;         /* 0x0E */
-    zbc_syscall_handler_t sys_rename;         /* 0x0F */
-    zbc_syscall_handler_t sys_clock;          /* 0x10 */
-    zbc_syscall_handler_t sys_time;           /* 0x11 */
-    zbc_syscall_handler_t sys_system;         /* 0x12 */
-    zbc_syscall_handler_t sys_errno;          /* 0x13 */
-    zbc_syscall_handler_t sys_get_cmdline;    /* 0x15 */
-    zbc_syscall_handler_t sys_heapinfo;       /* 0x16 */
-    zbc_syscall_handler_t sys_exit;           /* 0x18 */
-    zbc_syscall_handler_t sys_exit_extended;  /* 0x20 */
-    zbc_syscall_handler_t sys_elapsed;        /* 0x30 */
-    zbc_syscall_handler_t sys_tickfreq;       /* 0x31 */
+  zbc_syscall_handler_t sys_open;          /* 0x01 */
+  zbc_syscall_handler_t sys_close;         /* 0x02 */
+  zbc_syscall_handler_t sys_writec;        /* 0x03 */
+  zbc_syscall_handler_t sys_write0;        /* 0x04 */
+  zbc_syscall_handler_t sys_write;         /* 0x05 */
+  zbc_syscall_handler_t sys_read;          /* 0x06 */
+  zbc_syscall_handler_t sys_readc;         /* 0x07 */
+  zbc_syscall_handler_t sys_iserror;       /* 0x08 */
+  zbc_syscall_handler_t sys_istty;         /* 0x09 */
+  zbc_syscall_handler_t sys_seek;          /* 0x0A */
+  zbc_syscall_handler_t sys_flen;          /* 0x0C */
+  zbc_syscall_handler_t sys_tmpnam;        /* 0x0D */
+  zbc_syscall_handler_t sys_remove;        /* 0x0E */
+  zbc_syscall_handler_t sys_rename;        /* 0x0F */
+  zbc_syscall_handler_t sys_clock;         /* 0x10 */
+  zbc_syscall_handler_t sys_time;          /* 0x11 */
+  zbc_syscall_handler_t sys_system;        /* 0x12 */
+  zbc_syscall_handler_t sys_errno;         /* 0x13 */
+  zbc_syscall_handler_t sys_get_cmdline;   /* 0x15 */
+  zbc_syscall_handler_t sys_heapinfo;      /* 0x16 */
+  zbc_syscall_handler_t sys_exit;          /* 0x18 */
+  zbc_syscall_handler_t sys_exit_extended; /* 0x20 */
+  zbc_syscall_handler_t sys_elapsed;       /* 0x30 */
+  zbc_syscall_handler_t sys_tickfreq;      /* 0x31 */
 } zbc_host_handlers_t;
 
 /*------------------------------------------------------------------------
@@ -179,26 +180,26 @@ typedef struct zbc_host_handlers {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_host_state {
-    /* Guest configuration (from CNFG chunk) */
-    uint8_t  int_size;       /* Guest sizeof(int) */
-    uint8_t  ptr_size;       /* Guest sizeof(void*) */
-    uint8_t  endianness;     /* Guest byte order */
-    uint8_t  cnfg_received;  /* Non-zero if CNFG has been parsed */
+  /* Guest configuration (from CNFG chunk) */
+  uint8_t int_size;      /* Guest sizeof(int) */
+  uint8_t ptr_size;      /* Guest sizeof(void*) */
+  uint8_t endianness;    /* Guest byte order */
+  uint8_t cnfg_received; /* Non-zero if CNFG has been parsed */
 
-    /* Memory access callbacks */
-    zbc_host_mem_ops_t mem_ops;
-    void *mem_context;
+  /* Memory access callbacks */
+  zbc_host_mem_ops_t mem_ops;
+  void *mem_context;
 
-    /* Syscall handlers */
-    zbc_host_handlers_t handlers;
-    void *handler_context;
+  /* Syscall handlers */
+  zbc_host_handlers_t handlers;
+  void *handler_context;
 
-    /* Work buffer for RIFF parsing */
-    uint8_t *work_buf;
-    size_t   work_buf_size;
+  /* Work buffer for RIFF parsing */
+  uint8_t *work_buf;
+  size_t work_buf_size;
 
-    /* Last errno value (for SYS_ERRNO) */
-    int32_t  last_errno;
+  /* Last errno value (for SYS_ERRNO) */
+  int32_t last_errno;
 
 } zbc_host_state_t;
 
@@ -218,11 +219,8 @@ typedef struct zbc_host_state {
  * Must be called before any other host functions.
  * The work_buf must remain valid for the lifetime of the state.
  */
-void zbc_host_init(zbc_host_state_t *state,
-                   const zbc_host_mem_ops_t *mem_ops,
-                   void *mem_context,
-                   uint8_t *work_buf,
-                   size_t work_buf_size);
+void zbc_host_init(zbc_host_state_t *state, const zbc_host_mem_ops_t *mem_ops,
+                   void *mem_context, uint8_t *work_buf, size_t work_buf_size);
 
 /**
  * Set all syscall handlers at once.
@@ -234,8 +232,7 @@ void zbc_host_init(zbc_host_state_t *state,
  * NULL handlers in the vtable will use default (failing) handlers.
  */
 void zbc_host_set_handlers(zbc_host_state_t *state,
-                           const zbc_host_handlers_t *handlers,
-                           void *context);
+                           const zbc_host_handlers_t *handlers, void *context);
 
 /**
  * Set a single syscall handler.
@@ -244,8 +241,7 @@ void zbc_host_set_handlers(zbc_host_state_t *state,
  * @param opcode   Syscall opcode (SH_SYS_*)
  * @param handler  Handler function (NULL for default)
  */
-void zbc_host_set_handler(zbc_host_state_t *state,
-                          uint8_t opcode,
+void zbc_host_set_handler(zbc_host_state_t *state, uint8_t opcode,
                           zbc_syscall_handler_t handler);
 
 /**
@@ -307,7 +303,8 @@ int64_t zbc_host_read_int(const zbc_host_state_t *state, const uint8_t *buf);
  * @param buf    Buffer to write to
  * @param value  Value to write
  */
-void zbc_host_write_int(const zbc_host_state_t *state, uint8_t *buf, int64_t value);
+void zbc_host_write_int(const zbc_host_state_t *state, uint8_t *buf,
+                        int64_t value);
 
 /**
  * Read a pointer from guest-endian buffer.
@@ -325,7 +322,8 @@ uint64_t zbc_host_read_ptr(const zbc_host_state_t *state, const uint8_t *buf);
  * @param buf    Buffer to write to
  * @param value  Value to write
  */
-void zbc_host_write_ptr(const zbc_host_state_t *state, uint8_t *buf, uint64_t value);
+void zbc_host_write_ptr(const zbc_host_state_t *state, uint8_t *buf,
+                        uint64_t value);
 
 /*========================================================================
  * Guest Memory Access Helpers
@@ -341,9 +339,7 @@ void zbc_host_write_ptr(const zbc_host_state_t *state, uint8_t *buf, uint64_t va
  * @param addr   Guest memory address
  * @param size   Number of bytes to read
  */
-void zbc_host_read_guest(zbc_host_state_t *state,
-                         void *dest,
-                         uint64_t addr,
+void zbc_host_read_guest(zbc_host_state_t *state, void *dest, uint64_t addr,
                          size_t size);
 
 /**
@@ -354,10 +350,8 @@ void zbc_host_read_guest(zbc_host_state_t *state,
  * @param src    Source buffer (host memory)
  * @param size   Number of bytes to write
  */
-void zbc_host_write_guest(zbc_host_state_t *state,
-                          uint64_t addr,
-                          const void *src,
-                          size_t size);
+void zbc_host_write_guest(zbc_host_state_t *state, uint64_t addr,
+                          const void *src, size_t size);
 
 #ifdef __cplusplus
 }

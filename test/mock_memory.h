@@ -18,10 +18,10 @@ extern "C" {
  *------------------------------------------------------------------------*/
 
 typedef struct mock_memory {
-    uint8_t *data;       /* Memory buffer */
-    size_t   size;       /* Buffer size */
-    int      read_count; /* Number of read operations */
-    int      write_count;/* Number of write operations */
+  uint8_t *data;   /* Memory buffer */
+  size_t size;     /* Buffer size */
+  int read_count;  /* Number of read operations */
+  int write_count; /* Number of write operations */
 } mock_memory_t;
 
 /*------------------------------------------------------------------------
@@ -31,7 +31,8 @@ typedef struct mock_memory {
 uint8_t mock_mem_read_u8(uint64_t addr, void *ctx);
 void mock_mem_write_u8(uint64_t addr, uint8_t val, void *ctx);
 void mock_mem_read_block(void *dest, uint64_t addr, size_t size, void *ctx);
-void mock_mem_write_block(uint64_t addr, const void *src, size_t size, void *ctx);
+void mock_mem_write_block(uint64_t addr, const void *src, size_t size,
+                          void *ctx);
 
 /*------------------------------------------------------------------------
  * Helper functions

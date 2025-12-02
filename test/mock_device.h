@@ -19,24 +19,24 @@ extern "C" {
  *------------------------------------------------------------------------*/
 
 typedef struct mock_device {
-    /* Simulated register space */
-    uint8_t regs[ZBC_REG_SIZE];
+  /* Simulated register space */
+  uint8_t regs[ZBC_REG_SIZE];
 
-    /* Pointer captured from RIFF_PTR register (native pointer) */
-    uint8_t *riff_buf;
+  /* Pointer captured from RIFF_PTR register (native pointer) */
+  uint8_t *riff_buf;
 
-    /* Host library state for processing requests */
-    zbc_host_state_t host_state;
+  /* Host library state for processing requests */
+  zbc_host_state_t host_state;
 
-    /* Work buffer for host processing */
-    uint8_t work_buf[4096];
+  /* Work buffer for host processing */
+  uint8_t work_buf[4096];
 
-    /* Counters */
-    int doorbell_count;
-    int process_count;
+  /* Counters */
+  int doorbell_count;
+  int process_count;
 
-    /* Custom response handler (optional) */
-    void (*custom_handler)(struct mock_device *dev);
+  /* Custom response handler (optional) */
+  void (*custom_handler)(struct mock_device *dev);
 
 } mock_device_t;
 
@@ -72,7 +72,8 @@ void mock_device_set_handler(mock_device_t *dev, uint8_t opcode,
  *------------------------------------------------------------------------*/
 
 /* Simple handler that returns a fixed value */
-int mock_handler_return_42(zbc_syscall_ctx_t *ctx, zbc_syscall_result_t *result);
+int mock_handler_return_42(zbc_syscall_ctx_t *ctx,
+                           zbc_syscall_result_t *result);
 
 /* Handler that echoes data back */
 int mock_handler_echo(zbc_syscall_ctx_t *ctx, zbc_syscall_result_t *result);
