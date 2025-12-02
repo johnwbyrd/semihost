@@ -19,6 +19,14 @@
 #include <string.h>
 
 /*------------------------------------------------------------------------
+ * Doorbell callback for testing
+ *------------------------------------------------------------------------*/
+
+static void doorbell_hook(void *ctx) {
+    mock_device_doorbell((mock_device_t *)ctx);
+}
+
+/*------------------------------------------------------------------------
  * Helper: Set up client pointing to mock device
  *------------------------------------------------------------------------*/
 
@@ -26,6 +34,8 @@ static void setup_roundtrip(zbc_client_state_t *client, mock_device_t *dev)
 {
     mock_device_init(dev);
     zbc_client_init(client, dev->regs);
+    client->doorbell_callback = doorbell_hook;
+    client->doorbell_ctx = dev;
 }
 
 /*------------------------------------------------------------------------
@@ -348,6 +358,116 @@ static void test_roundtrip_time(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: zbc_semihost() - SYS_CLOSE via low-level entry point
+ *------------------------------------------------------------------------*/
+
+static void test_semihost_close(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t args[1];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    /* Set up ARM-style param block: {fd} */
+    args[0] = 5; /* fd = 5 */
+
+    /* Call zbc_semihost() */
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_CLOSE, (uintptr_t)args);
+
+    /* Dummy backend returns 0 for close */
+    TEST_ASSERT_EQ((int)result, 0);
+
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: zbc_semihost() - SYS_OPEN via low-level entry point
+ *------------------------------------------------------------------------*/
+
+static void test_semihost_open(void)
+{
+    GUARDED_BUF(buf, 512);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    const char *filename = "test.txt";
+    uintptr_t args[3];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    /* Set up ARM-style param block: {path_ptr, mode, path_len} */
+    args[0] = (uintptr_t)filename;
+    args[1] = SH_OPEN_R;
+    args[2] = strlen(filename);
+
+    /* Call zbc_semihost() */
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_OPEN, (uintptr_t)args);
+
+    /* Dummy backend returns fd = 3 */
+    TEST_ASSERT_EQ((int)result, 3);
+
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: zbc_semihost() - SYS_WRITE via low-level entry point
+ *------------------------------------------------------------------------*/
+
+static void test_semihost_write(void)
+{
+    GUARDED_BUF(buf, 512);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    const char *data = "Hello";
+    uintptr_t args[3];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    /* Set up ARM-style param block: {fd, buf_ptr, count} */
+    args[0] = 1; /* fd = stdout */
+    args[1] = (uintptr_t)data;
+    args[2] = 5;
+
+    /* Call zbc_semihost() */
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_WRITE, (uintptr_t)args);
+
+    /* Dummy backend returns 0 (bytes not written = 0 means all written) */
+    TEST_ASSERT_EQ((int)result, 0);
+
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: zbc_semihost() - SYS_TIME via low-level entry point (no params)
+ *------------------------------------------------------------------------*/
+
+static void test_semihost_time(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    /* SYS_TIME has no parameters */
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_TIME, 0);
+
+    /* Dummy backend returns 0 for time */
+    TEST_ASSERT_EQ((int)result, 0);
+
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
  * Run all roundtrip tests
  *------------------------------------------------------------------------*/
 
@@ -361,6 +481,15 @@ void run_roundtrip_tests(void)
     RUN_TEST(roundtrip_heapinfo);
     RUN_TEST(roundtrip_open);
     RUN_TEST(roundtrip_time);
+
+    END_SUITE();
+
+    BEGIN_SUITE("zbc_semihost() Low-Level Entry Point");
+
+    RUN_TEST(semihost_close);
+    RUN_TEST(semihost_open);
+    RUN_TEST(semihost_write);
+    RUN_TEST(semihost_time);
 
     END_SUITE();
 }

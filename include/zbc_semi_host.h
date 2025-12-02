@@ -187,9 +187,9 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr);
  * state: Host state (for endianness and int_size info)
  * buf: Buffer containing value (int_size bytes)
  *
- * Returns: Integer value (sign-extended to long)
+ * Returns: Integer value (sign-extended to int)
  */
-long zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf);
+int zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf);
 
 /*
  * Write an integer to guest-endian buffer.
@@ -199,7 +199,7 @@ long zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf);
  * value: Value to write
  */
 void zbc_host_write_int(const zbc_host_state_t *state, unsigned char *buf,
-                        long value);
+                        int value);
 
 /*
  * Read a pointer from guest-endian buffer.

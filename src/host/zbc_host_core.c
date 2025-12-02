@@ -121,19 +121,19 @@ void zbc_host_write_guest(zbc_host_state_t *state, uint64_t addr,
  * Value Conversion
  *========================================================================*/
 
-long zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf)
+int zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf)
 {
-    uint64_t value = 0;
+    unsigned int value = 0;
     size_t size;
     size_t i;
-    uint64_t sign_bit;
+    unsigned int sign_bit;
 
     if (!state || !buf) {
         return 0;
     }
 
     size = state->int_size;
-    if (size == 0 || size > 8) {
+    if (size == 0 || size > sizeof(int)) {
         return 0;
     }
 
@@ -149,7 +149,7 @@ long zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf)
         /* PDP endian */
         for (i = 0; i < size; i += 2) {
             if (i + 1 < size) {
-                value = (value << 16) | ((uint64_t)buf[i] << 8) | buf[i + 1];
+                value = (value << 16) | ((unsigned int)buf[i] << 8) | buf[i + 1];
             } else {
                 value = (value << 8) | buf[i];
             }
@@ -157,18 +157,18 @@ long zbc_host_read_int(const zbc_host_state_t *state, const unsigned char *buf)
     }
 
     /* Sign extend */
-    if (size < 8) {
-        sign_bit = (uint64_t)1 << (size * 8 - 1);
+    if (size < sizeof(int)) {
+        sign_bit = 1U << (size * 8 - 1);
         if (value & sign_bit) {
-            value |= ~(((uint64_t)1 << (size * 8)) - 1);
+            value |= ~((1U << (size * 8)) - 1);
         }
     }
 
-    return (long)value;
+    return (int)value;
 }
 
 void zbc_host_write_int(const zbc_host_state_t *state, unsigned char *buf,
-                        long value)
+                        int value)
 {
     uint64_t uval;
     size_t size;
@@ -399,7 +399,7 @@ static int write_retn(zbc_host_state_t *state, uint64_t addr,
         if (parm_is_ptr) {
             zbc_host_write_ptr(state, parm_buf + 12, parm_values[p]);
         } else {
-            zbc_host_write_int(state, parm_buf + 12, (long)parm_values[p]);
+            zbc_host_write_int(state, parm_buf + 12, (int)parm_values[p]);
         }
 
         zbc_host_write_guest(state, addr + offset + write_offset, parm_buf,
@@ -452,7 +452,7 @@ static int write_retn(zbc_host_state_t *state, uint64_t addr,
 typedef struct parsed_call {
     unsigned char opcode;
     int parm_count;
-    long parms[MAX_PARMS];
+    int parms[MAX_PARMS];
     int data_count;
     struct {
         unsigned char type;
@@ -474,7 +474,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
     parsed_call_t call;
     const zbc_backend_t *be;
     void *ctx;
-    long result;
+    int result;
     int err;
 
     if (!state || !state->work_buf || !state->mem_ops.read_u8 || !state->backend) {
@@ -833,7 +833,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
             result = be->get_cmdline(ctx, (char *)cmd_buf, maxlen);
             if (result >= 0) {
                 size_t len = strlen((char *)cmd_buf) + 1;
-                return write_retn(state, riff_addr, (long)len, 0, cmd_buf, len, NULL, 0, 0);
+                return write_retn(state, riff_addr, (int)len, 0, cmd_buf, len, NULL, 0, 0);
             }
             err = be->get_errno ? be->get_errno(ctx) : ENOSYS;
         } else {

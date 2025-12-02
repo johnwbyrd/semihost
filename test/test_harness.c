@@ -22,12 +22,12 @@ void test_fail(const char *file, int line, const char *expr) {
   printf("    Assertion: %s\n", expr);
 }
 
-void test_fail_eq(const char *file, int line, const char *a_expr, long a_val,
-                  const char *b_expr, long b_val) {
+void test_fail_eq(const char *file, int line, const char *a_expr, int a_val,
+                  const char *b_expr, int b_val) {
   g_test_passed = 0;
   printf("\n    FAILED at %s:%d\n", file, line);
   printf("    Expected: %s == %s\n", a_expr, b_expr);
-  printf("    Got: %ld vs %ld\n", a_val, b_val);
+  printf("    Got: %d vs %d\n", a_val, b_val);
 }
 
 void test_fail_mem(const char *file, int line, const char *a_expr,

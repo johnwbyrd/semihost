@@ -60,6 +60,9 @@ typedef struct zbc_client_state {
   uint8_t int_size;           /* Cached: sizeof(int) */
   uint8_t ptr_size;           /* Cached: sizeof(void*) */
   uint8_t endianness;         /* Cached: native byte order */
+  /* Test hook: called when doorbell is triggered. NULL in production. */
+  void (*doorbell_callback)(void *ctx);
+  void *doorbell_ctx;
 } zbc_client_state_t;
 
 /*------------------------------------------------------------------------
@@ -84,7 +87,7 @@ typedef struct zbc_builder {
  *------------------------------------------------------------------------*/
 
 typedef struct zbc_response {
-  long result;          /* Syscall return value (native int) */
+  int result;           /* Syscall return value */
   int error_code;       /* errno value (0 = success) */
   const uint8_t *data;  /* Pointer to DATA chunk payload, or NULL */
   size_t data_size;     /* Size of data payload in bytes */
@@ -203,7 +206,7 @@ int zbc_builder_begin_call(zbc_builder_t *builder, uint8_t opcode);
  * @param value    Integer value (will be written in int_size bytes)
  * @return         ZBC_OK or error code
  */
-int zbc_builder_add_parm_int(zbc_builder_t *builder, long value);
+int zbc_builder_add_parm_int(zbc_builder_t *builder, int value);
 
 /**
  * Add a PARM chunk with unsigned integer value.
@@ -212,7 +215,7 @@ int zbc_builder_add_parm_int(zbc_builder_t *builder, long value);
  * @param value    Unsigned integer value
  * @return         ZBC_OK or error code
  */
-int zbc_builder_add_parm_uint(zbc_builder_t *builder, unsigned long value);
+int zbc_builder_add_parm_uint(zbc_builder_t *builder, unsigned int value);
 
 /**
  * Add a DATA chunk with binary data.
@@ -283,6 +286,34 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
                        size_t capacity, const zbc_client_state_t *state);
 
 /*========================================================================
+ * Low-Level Semihosting Entry Point (for picolibc integration)
+ *========================================================================*/
+
+/**
+ * Low-level semihosting entry point for picolibc integration.
+ *
+ * This function matches the signature needed by picolibc's sys_semihost()
+ * and handles marshalling ARM-style parameter blocks into RIFF format.
+ *
+ * @param state         Initialized client state
+ * @param riff_buf      Buffer for RIFF request/response
+ * @param riff_buf_size Size of buffer
+ * @param op            ARM semihosting opcode (SH_SYS_*)
+ * @param param         Pointer to ARM-style parameter block (cast to uintptr_t)
+ * @return              Syscall result (interpretation depends on opcode)
+ *
+ * Parameter block format varies by opcode (see ARM semihosting spec):
+ * - SYS_OPEN:  {path_ptr, mode, path_len}  (3 x uintptr_t)
+ * - SYS_WRITE: {fd, buf_ptr, count}        (3 x uintptr_t)
+ * - SYS_READ:  {fd, buf_ptr, count}        (3 x uintptr_t)
+ * - etc.
+ *
+ * The param block uses uintptr_t-sized fields (like picolibc's sh_param_t).
+ */
+uintptr_t zbc_semihost(zbc_client_state_t *state, uint8_t *riff_buf,
+                       size_t riff_buf_size, uintptr_t op, uintptr_t param);
+
+/*========================================================================
  * High-Level Syscall Functions
  *
  * Each function builds the request, submits it, and parses the response.
@@ -325,8 +356,8 @@ int zbc_sys_close(zbc_client_state_t *state, void *buf, size_t buf_size,
  * @param count     Number of bytes to read
  * @return          Number of bytes read (>= 0) or negative error code
  */
-long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
-                  void *dest, size_t count);
+int zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
+                 void *dest, size_t count);
 
 /**
  * Write to a file.
@@ -339,8 +370,8 @@ long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
  * @param count     Number of bytes to write
  * @return          Number of bytes written (>= 0) or negative error code
  */
-long zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
-                   int fd, const void *src, size_t count);
+int zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
+                  int fd, const void *src, size_t count);
 
 /**
  * Write a single character to debug output.
@@ -386,7 +417,7 @@ int zbc_sys_readc(zbc_client_state_t *state, void *buf, size_t buf_size);
  * @return          Non-zero if error, zero if not error, negative on lib error
  */
 int zbc_sys_iserror(zbc_client_state_t *state, void *buf, size_t buf_size,
-                    long status);
+                    int status);
 
 /**
  * Check if file descriptor is a TTY.
@@ -411,7 +442,7 @@ int zbc_sys_istty(zbc_client_state_t *state, void *buf, size_t buf_size,
  * @return          0 on success, negative error code on failure
  */
 int zbc_sys_seek(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
-                 unsigned long pos);
+                 unsigned int pos);
 
 /**
  * Get file length.
@@ -422,8 +453,8 @@ int zbc_sys_seek(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
  * @param fd        File descriptor
  * @return          File length (>= 0) or negative error code
  */
-long zbc_sys_flen(zbc_client_state_t *state, void *buf, size_t buf_size,
-                  int fd);
+int zbc_sys_flen(zbc_client_state_t *state, void *buf, size_t buf_size,
+                 int fd);
 
 /**
  * Get temporary filename.
@@ -472,8 +503,8 @@ int zbc_sys_rename(zbc_client_state_t *state, void *buf, size_t buf_size,
  * @param buf_size  Size of buffer
  * @return          Centiseconds since program start, or negative error
  */
-unsigned long zbc_sys_clock(zbc_client_state_t *state, void *buf,
-                            size_t buf_size);
+unsigned int zbc_sys_clock(zbc_client_state_t *state, void *buf,
+                           size_t buf_size);
 
 /**
  * Get current time in seconds since epoch.
@@ -483,8 +514,8 @@ unsigned long zbc_sys_clock(zbc_client_state_t *state, void *buf,
  * @param buf_size  Size of buffer
  * @return          Seconds since 1970-01-01 00:00:00 UTC, or negative error
  */
-unsigned long zbc_sys_time(zbc_client_state_t *state, void *buf,
-                           size_t buf_size);
+unsigned int zbc_sys_time(zbc_client_state_t *state, void *buf,
+                          size_t buf_size);
 
 /**
  * Execute a system command.
@@ -545,7 +576,7 @@ int zbc_sys_heapinfo(zbc_client_state_t *state, void *buf, size_t buf_size,
  * Does not return.
  */
 void zbc_sys_exit(zbc_client_state_t *state, void *buf, size_t buf_size,
-                  unsigned long exception, unsigned long subcode);
+                  unsigned int exception, unsigned int subcode);
 
 /**
  * Exit with extended status.
@@ -558,7 +589,7 @@ void zbc_sys_exit(zbc_client_state_t *state, void *buf, size_t buf_size,
  * Does not return.
  */
 void zbc_sys_exit_extended(zbc_client_state_t *state, void *buf,
-                           size_t buf_size, unsigned long code);
+                           size_t buf_size, unsigned int code);
 
 /**
  * Get 64-bit elapsed tick count.
@@ -583,8 +614,8 @@ int zbc_sys_elapsed(zbc_client_state_t *state, void *buf, size_t buf_size,
  * @param buf_size  Size of buffer
  * @return          Ticks per second, or negative error code
  */
-unsigned long zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
-                               size_t buf_size);
+unsigned int zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
+                              size_t buf_size);
 
 #ifdef __cplusplus
 }

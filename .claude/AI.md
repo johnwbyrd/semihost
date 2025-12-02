@@ -288,12 +288,12 @@ The client provides a single entry point compatible with picolibc's `sys_semihos
  * submits to the device, and unmarshals any returned data back
  * to buffers referenced in the param block.
  */
-long zbc_semihost(
+uintptr_t zbc_semihost(
     zbc_client_state_t *state,
     unsigned char *riff_buf,
     size_t riff_buf_size,
-    unsigned long op,
-    void *param
+    uintptr_t op,
+    uintptr_t param
 );
 ```
 
@@ -341,7 +341,8 @@ From ARM semihosting spec (and picolibc usage):
 - No designated initializers for arrays
 - No variable-length arrays
 - No `restrict` keyword
-- Use `unsigned long` not `uint32_t` where possible for max portability
+- Use `unsigned int` not `uint32_t` where possible for max portability
+- NEVER use `long` - it's not portable!
 
 ---
 

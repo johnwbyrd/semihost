@@ -29,8 +29,8 @@ extern int g_tests_failed;
  *------------------------------------------------------------------------*/
 
 void test_fail(const char *file, int line, const char *expr);
-void test_fail_eq(const char *file, int line, const char *a_expr, long a_val,
-                  const char *b_expr, long b_val);
+void test_fail_eq(const char *file, int line, const char *a_expr, int a_val,
+                  const char *b_expr, int b_val);
 void test_fail_mem(const char *file, int line, const char *a_expr,
                    const char *b_expr, size_t n);
 
@@ -44,8 +44,8 @@ void test_fail_mem(const char *file, int line, const char *a_expr,
 
 #define TEST_ASSERT_EQ(a, b)                                                   \
   do {                                                                         \
-    long _a = (long)(a);                                                       \
-    long _b = (long)(b);                                                       \
+    int _a = (int)(a);                                                         \
+    int _b = (int)(b);                                                         \
     if (_a != _b) {                                                            \
       test_fail_eq(__FILE__, __LINE__, #a, _a, #b, _b);                        \
       return;                                                                  \
@@ -54,8 +54,8 @@ void test_fail_mem(const char *file, int line, const char *a_expr,
 
 #define TEST_ASSERT_NEQ(a, b)                                                  \
   do {                                                                         \
-    long _a = (long)(a);                                                       \
-    long _b = (long)(b);                                                       \
+    int _a = (int)(a);                                                         \
+    int _b = (int)(b);                                                         \
     if (_a == _b) {                                                            \
       test_fail_eq(__FILE__, __LINE__, #a " != " #b, _a, "equal", _b);         \
       return;                                                                  \

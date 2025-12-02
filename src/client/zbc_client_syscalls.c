@@ -62,7 +62,7 @@ static int exec_syscall_noargs(zbc_client_state_t *state, void *buf,
  *------------------------------------------------------------------------*/
 
 static int exec_syscall_1int(zbc_client_state_t *state, void *buf,
-                             size_t buf_size, uint8_t opcode, long arg,
+                             size_t buf_size, uint8_t opcode, int arg,
                              zbc_response_t *response) {
   zbc_builder_t builder;
   size_t riff_size;
@@ -133,7 +133,7 @@ int zbc_sys_open(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)pathlen);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)pathlen);
   if (rc < 0)
     return rc;
 
@@ -168,8 +168,8 @@ int zbc_sys_close(zbc_client_state_t *state, void *buf, size_t buf_size,
   return (int)response.result;
 }
 
-long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
-                  void *dest, size_t count) {
+int zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
+                 void *dest, size_t count) {
   zbc_builder_t builder;
   zbc_response_t response;
   size_t riff_size;
@@ -192,7 +192,7 @@ long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)count);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)count);
   if (rc < 0)
     return rc;
 
@@ -226,8 +226,8 @@ long zbc_sys_read(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
   return response.result;
 }
 
-long zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
-                   int fd, const void *src, size_t count) {
+int zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
+                  int fd, const void *src, size_t count) {
   zbc_builder_t builder;
   zbc_response_t response;
   size_t riff_size;
@@ -253,7 +253,7 @@ long zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)count);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)count);
   if (rc < 0)
     return rc;
 
@@ -277,7 +277,7 @@ long zbc_sys_write(zbc_client_state_t *state, void *buf, size_t buf_size,
 }
 
 int zbc_sys_seek(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
-                 unsigned long pos) {
+                 unsigned int pos) {
   zbc_builder_t builder;
   zbc_response_t response;
   size_t riff_size;
@@ -319,8 +319,8 @@ int zbc_sys_seek(zbc_client_state_t *state, void *buf, size_t buf_size, int fd,
   return (int)response.result;
 }
 
-long zbc_sys_flen(zbc_client_state_t *state, void *buf, size_t buf_size,
-                  int fd) {
+int zbc_sys_flen(zbc_client_state_t *state, void *buf, size_t buf_size,
+                 int fd) {
   zbc_response_t response;
   int rc;
 
@@ -434,7 +434,7 @@ int zbc_sys_readc(zbc_client_state_t *state, void *buf, size_t buf_size) {
  *========================================================================*/
 
 int zbc_sys_iserror(zbc_client_state_t *state, void *buf, size_t buf_size,
-                    long status) {
+                    int status) {
   zbc_response_t response;
   int rc;
 
@@ -499,7 +499,7 @@ int zbc_sys_remove(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)pathlen);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)pathlen);
   if (rc < 0)
     return rc;
 
@@ -549,7 +549,7 @@ int zbc_sys_rename(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)old_len);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)old_len);
   if (rc < 0)
     return rc;
 
@@ -557,7 +557,7 @@ int zbc_sys_rename(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)new_len);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)new_len);
   if (rc < 0)
     return rc;
 
@@ -645,8 +645,8 @@ int zbc_sys_tmpnam(zbc_client_state_t *state, void *buf, size_t buf_size,
  * Time Operations
  *========================================================================*/
 
-unsigned long zbc_sys_clock(zbc_client_state_t *state, void *buf,
-                            size_t buf_size) {
+unsigned int zbc_sys_clock(zbc_client_state_t *state, void *buf,
+                           size_t buf_size) {
   zbc_response_t response;
   int rc;
 
@@ -654,11 +654,11 @@ unsigned long zbc_sys_clock(zbc_client_state_t *state, void *buf,
   if (rc < 0)
     return 0; /* Return 0 on error */
 
-  return (unsigned long)response.result;
+  return (unsigned int)response.result;
 }
 
-unsigned long zbc_sys_time(zbc_client_state_t *state, void *buf,
-                           size_t buf_size) {
+unsigned int zbc_sys_time(zbc_client_state_t *state, void *buf,
+                          size_t buf_size) {
   zbc_response_t response;
   int rc;
 
@@ -666,11 +666,11 @@ unsigned long zbc_sys_time(zbc_client_state_t *state, void *buf,
   if (rc < 0)
     return 0;
 
-  return (unsigned long)response.result;
+  return (unsigned int)response.result;
 }
 
-unsigned long zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
-                               size_t buf_size) {
+unsigned int zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
+                              size_t buf_size) {
   zbc_response_t response;
   int rc;
 
@@ -678,7 +678,7 @@ unsigned long zbc_sys_tickfreq(zbc_client_state_t *state, void *buf,
   if (rc < 0)
     return 0;
 
-  return (unsigned long)response.result;
+  return (unsigned int)response.result;
 }
 
 int zbc_sys_elapsed(zbc_client_state_t *state, void *buf, size_t buf_size,
@@ -737,7 +737,7 @@ int zbc_sys_system(zbc_client_state_t *state, void *buf, size_t buf_size,
   if (rc < 0)
     return rc;
 
-  rc = zbc_builder_add_parm_uint(&builder, (unsigned long)cmdlen);
+  rc = zbc_builder_add_parm_uint(&builder, (unsigned int)cmdlen);
   if (rc < 0)
     return rc;
 
@@ -965,7 +965,7 @@ int zbc_sys_heapinfo(zbc_client_state_t *state, void *buf, size_t buf_size,
  *========================================================================*/
 
 void zbc_sys_exit(zbc_client_state_t *state, void *buf, size_t buf_size,
-                  unsigned long exception, unsigned long subcode) {
+                  unsigned int exception, unsigned int subcode) {
   zbc_builder_t builder;
   size_t riff_size;
   int rc;
@@ -1001,7 +1001,7 @@ void zbc_sys_exit(zbc_client_state_t *state, void *buf, size_t buf_size,
 }
 
 void zbc_sys_exit_extended(zbc_client_state_t *state, void *buf,
-                           size_t buf_size, unsigned long code) {
+                           size_t buf_size, unsigned int code) {
   zbc_builder_t builder;
   size_t riff_size;
   int rc;

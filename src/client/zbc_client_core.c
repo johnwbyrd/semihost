@@ -10,7 +10,7 @@
  * Internal helpers for writing values in native endianness
  *------------------------------------------------------------------------*/
 
-static void write_native_uint(uint8_t *buf, unsigned long value, size_t size) {
+static void write_native_uint(uint8_t *buf, unsigned int value, size_t size) {
   size_t i;
 
 #if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
@@ -39,12 +39,12 @@ static void write_native_uint(uint8_t *buf, unsigned long value, size_t size) {
 #endif
 }
 
-static long read_native_int(const uint8_t *buf, size_t size) {
-  unsigned long value = 0;
+static int read_native_int(const uint8_t *buf, size_t size) {
+  unsigned int value = 0;
   size_t i;
-  long result;
-  unsigned long sign_bit;
-  unsigned long sign_extend;
+  int result;
+  unsigned int sign_bit;
+  unsigned int sign_extend;
 
 #if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
   for (i = size; i > 0; i--) {
@@ -58,7 +58,7 @@ static long read_native_int(const uint8_t *buf, size_t size) {
   /* PDP endian */
   for (i = 0; i < size; i += 2) {
     if (i + 1 < size) {
-      value = (value << 16) | ((unsigned long)buf[i] << 8) | buf[i + 1];
+      value = (value << 16) | ((unsigned int)buf[i] << 8) | buf[i + 1];
     } else {
       value = (value << 8) | buf[i];
     }
@@ -66,20 +66,20 @@ static long read_native_int(const uint8_t *buf, size_t size) {
 #endif
 
   /* Sign extend if necessary */
-  if (size < sizeof(long)) {
-    sign_bit = 1UL << (size * 8 - 1);
+  if (size < sizeof(int)) {
+    sign_bit = 1U << (size * 8 - 1);
     if (value & sign_bit) {
-      sign_extend = ~((1UL << (size * 8)) - 1);
+      sign_extend = ~((1U << (size * 8)) - 1);
       value |= sign_extend;
     }
   }
 
-  result = (long)value;
+  result = (int)value;
   return result;
 }
 
-static unsigned long read_native_uint(const uint8_t *buf, size_t size) {
-  unsigned long value = 0;
+static unsigned int read_native_uint(const uint8_t *buf, size_t size) {
+  unsigned int value = 0;
   size_t i;
 
 #if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
@@ -94,7 +94,7 @@ static unsigned long read_native_uint(const uint8_t *buf, size_t size) {
   /* PDP endian */
   for (i = 0; i < size; i += 2) {
     if (i + 1 < size) {
-      value = (value << 16) | ((unsigned long)buf[i] << 8) | buf[i + 1];
+      value = (value << 16) | ((unsigned int)buf[i] << 8) | buf[i + 1];
     } else {
       value = (value << 8) | buf[i];
     }
@@ -130,6 +130,8 @@ void zbc_client_init(zbc_client_state_t *state, volatile void *dev_base) {
   state->int_size = (uint8_t)ZBC_CLIENT_INT_SIZE;
   state->ptr_size = (uint8_t)ZBC_CLIENT_PTR_SIZE;
   state->endianness = (uint8_t)ZBC_CLIENT_ENDIANNESS;
+  state->doorbell_callback = (void (*)(void *))0;
+  state->doorbell_ctx = (void *)0;
 }
 
 int zbc_client_check_signature(const zbc_client_state_t *state) {
@@ -408,7 +410,7 @@ int zbc_builder_begin_call(zbc_builder_t *builder, uint8_t opcode) {
   return ZBC_OK;
 }
 
-int zbc_builder_add_parm_int(zbc_builder_t *builder, long value) {
+int zbc_builder_add_parm_int(zbc_builder_t *builder, int value) {
   size_t parm_data_size;
   size_t needed;
   uint8_t *p;
@@ -437,13 +439,13 @@ int zbc_builder_add_parm_int(zbc_builder_t *builder, long value) {
   p[11] = 0;
 
   /* Write value in native endianness */
-  write_native_uint(p + 12, (unsigned long)value, ZBC_CLIENT_INT_SIZE);
+  write_native_uint(p + 12, (unsigned int)value, ZBC_CLIENT_INT_SIZE);
 
   builder->offset += ZBC_CHUNK_HDR_SIZE + parm_data_size;
   return ZBC_OK;
 }
 
-int zbc_builder_add_parm_uint(zbc_builder_t *builder, unsigned long value) {
+int zbc_builder_add_parm_uint(zbc_builder_t *builder, unsigned int value) {
   size_t parm_data_size;
   size_t needed;
   uint8_t *p;
@@ -653,6 +655,11 @@ int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size) {
   /* Trigger the request */
   dev[ZBC_REG_DOORBELL] = 0x01;
 
+  /* If callback is set (testing), call it to process the request */
+  if (state->doorbell_callback) {
+    state->doorbell_callback(state->doorbell_ctx);
+  }
+
   /* Another barrier after write */
 #if defined(__GNUC__) || defined(__clang__)
   __asm__ volatile("" ::: "memory");
@@ -774,4 +781,213 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
   }
 
   return ZBC_OK;
+}
+
+/*========================================================================
+ * Low-Level Semihosting Entry Point (for picolibc integration)
+ *========================================================================*/
+
+/*
+ * Helper to copy data from source to destination.
+ * Avoids dependency on memcpy.
+ */
+static void copy_bytes(void *dest, const void *src, size_t n) {
+  size_t i;
+  uint8_t *d = (uint8_t *)dest;
+  const uint8_t *s = (const uint8_t *)src;
+  for (i = 0; i < n; i++) {
+    d[i] = s[i];
+  }
+}
+
+uintptr_t zbc_semihost(zbc_client_state_t *state, uint8_t *riff_buf,
+                       size_t riff_buf_size, uintptr_t op, uintptr_t param) {
+  uintptr_t *args;
+  zbc_builder_t builder;
+  zbc_response_t response;
+  size_t riff_size;
+  int rc;
+
+  args = (uintptr_t *)param;
+
+  rc = zbc_builder_start(&builder, riff_buf, riff_buf_size, state);
+  if (rc < 0)
+    return (uintptr_t)-1;
+
+  rc = zbc_builder_begin_call(&builder, (uint8_t)op);
+  if (rc < 0)
+    return (uintptr_t)-1;
+
+  switch (op) {
+  case SH_SYS_OPEN:
+    /* args: {path_ptr, mode, path_len} */
+    zbc_builder_add_data_binary(&builder, (void *)args[0], args[2]);
+    zbc_builder_add_parm_int(&builder, (int)args[1]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[2]);
+    break;
+
+  case SH_SYS_CLOSE:
+  case SH_SYS_FLEN:
+  case SH_SYS_ISTTY:
+    /* args: {fd} */
+    zbc_builder_add_parm_int(&builder, (int)args[0]);
+    break;
+
+  case SH_SYS_WRITEC:
+    /* args: {char_ptr} - read byte and send in DATA */
+    {
+      uint8_t c = *(uint8_t *)args[0];
+      zbc_builder_add_data_binary(&builder, &c, 1);
+    }
+    break;
+
+  case SH_SYS_WRITE0:
+    /* args: {str_ptr} - copy string to DATA */
+    zbc_builder_add_data_string(&builder, (const char *)args[0]);
+    break;
+
+  case SH_SYS_WRITE:
+    /* args: {fd, buf_ptr, count} */
+    zbc_builder_add_parm_int(&builder, (int)args[0]);
+    zbc_builder_add_data_binary(&builder, (void *)args[1], args[2]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[2]);
+    break;
+
+  case SH_SYS_READ:
+    /* args: {fd, buf_ptr, count} - no input data, response has DATA */
+    zbc_builder_add_parm_int(&builder, (int)args[0]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[2]);
+    break;
+
+  case SH_SYS_READC:
+  case SH_SYS_CLOCK:
+  case SH_SYS_TIME:
+  case SH_SYS_ERRNO:
+  case SH_SYS_TICKFREQ:
+    /* No parameters */
+    break;
+
+  case SH_SYS_ISERROR:
+    /* args: {status} */
+    zbc_builder_add_parm_int(&builder, (int)args[0]);
+    break;
+
+  case SH_SYS_SEEK:
+    /* args: {fd, pos} */
+    zbc_builder_add_parm_int(&builder, (int)args[0]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[1]);
+    break;
+
+  case SH_SYS_TMPNAM:
+    /* args: {buf_ptr, id, maxlen} - response has DATA */
+    zbc_builder_add_parm_int(&builder, (int)args[1]);
+    zbc_builder_add_parm_int(&builder, (int)args[2]);
+    break;
+
+  case SH_SYS_REMOVE:
+    /* args: {path_ptr, path_len} */
+    zbc_builder_add_data_binary(&builder, (void *)args[0], args[1]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[1]);
+    break;
+
+  case SH_SYS_RENAME:
+    /* args: {old_ptr, old_len, new_ptr, new_len} */
+    zbc_builder_add_data_binary(&builder, (void *)args[0], args[1]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[1]);
+    zbc_builder_add_data_binary(&builder, (void *)args[2], args[3]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[3]);
+    break;
+
+  case SH_SYS_SYSTEM:
+    /* args: {cmd_ptr, cmd_len} */
+    zbc_builder_add_data_binary(&builder, (void *)args[0], args[1]);
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[1]);
+    break;
+
+  case SH_SYS_GET_CMDLINE:
+    /* args: {buf_ptr, size} - response has DATA */
+    zbc_builder_add_parm_int(&builder, (int)args[1]);
+    break;
+
+  case SH_SYS_HEAPINFO:
+    /* args: {block_ptr} - response has 4 PARM chunks */
+    break;
+
+  case SH_SYS_EXIT:
+  case SH_SYS_EXIT_EXTENDED:
+    /* args: {reason, subcode} or ADP_Stopped_* */
+    zbc_builder_add_parm_uint(&builder, (unsigned int)args[0]);
+    if (op == SH_SYS_EXIT_EXTENDED) {
+      zbc_builder_add_parm_uint(&builder, (unsigned int)args[1]);
+    }
+    break;
+
+  case SH_SYS_ELAPSED:
+    /* args: {tick_ptr} - response has DATA (64-bit value) */
+    break;
+
+  default:
+    return (uintptr_t)-1;
+  }
+
+  rc = zbc_builder_finish(&builder, &riff_size);
+  if (rc < 0)
+    return (uintptr_t)-1;
+
+  rc = zbc_client_submit_poll(state, riff_buf, riff_size);
+  if (rc < 0)
+    return (uintptr_t)-1;
+
+  rc = zbc_parse_response(&response, riff_buf, riff_buf_size, state);
+  if (rc < 0)
+    return (uintptr_t)-1;
+
+  /* Copy response data back for syscalls that return data */
+  switch (op) {
+  case SH_SYS_READ:
+    /* Copy DATA to args[1] (buf_ptr) */
+    if (response.data && response.data_size > 0) {
+      size_t count = args[2];
+      size_t copy_size = (response.data_size < count) ? response.data_size : count;
+      copy_bytes((void *)args[1], response.data, copy_size);
+    }
+    break;
+
+  case SH_SYS_TMPNAM:
+    /* Copy DATA to args[0] (buf_ptr) */
+    if (response.data && response.data_size > 0) {
+      size_t maxlen = args[2];
+      size_t copy_size = (response.data_size < maxlen) ? response.data_size : maxlen - 1;
+      copy_bytes((void *)args[0], response.data, copy_size);
+      ((char *)args[0])[copy_size] = '\0';
+    }
+    break;
+
+  case SH_SYS_GET_CMDLINE:
+    /* Copy DATA to args[0] (buf_ptr) */
+    if (response.data && response.data_size > 0) {
+      size_t size = args[1];
+      size_t copy_size = (response.data_size < size) ? response.data_size : size - 1;
+      copy_bytes((void *)args[0], response.data, copy_size);
+      ((char *)args[0])[copy_size] = '\0';
+    }
+    break;
+
+  case SH_SYS_HEAPINFO:
+    /* Parse 4 PARM chunks from response, copy to args[0] (block_ptr) */
+    /* TODO: Implement when host supports HEAPINFO response parsing */
+    break;
+
+  case SH_SYS_ELAPSED:
+    /* Copy 64-bit value from DATA to args[0] (tick_ptr) */
+    if (response.data && response.data_size >= 8) {
+      copy_bytes((void *)args[0], response.data, 8);
+    }
+    break;
+
+  default:
+    break;
+  }
+
+  return (uintptr_t)response.result;
 }
