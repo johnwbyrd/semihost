@@ -67,17 +67,28 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 
 | Offset | Size | Name | Access | Description |
 |--------|------|------|--------|-------------|
-| 0x00 | 16 | RIFF_PTR | RW | Pointer to RIFF buffer in guest RAM |
-| 0x10 | 1 | DOORBELL | W | Write any value to trigger request |
-| 0x11 | 1 | IRQ_STATUS | R | Interrupt status flags |
-| 0x12 | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
-| 0x13 | 1 | IRQ_ACK | W | Write 1s to clear interrupt bits |
-| 0x14 | 1 | STATUS | R | Device status flags |
-| 0x15-0x1F | 11 | RESERVED | - | Reserved for future use |
+| 0x00 | 8 | SIGNATURE | R | ASCII "SEMIHOST" (device identification) |
+| 0x08 | 16 | RIFF_PTR | RW | Pointer to RIFF buffer in guest RAM |
+| 0x18 | 1 | DOORBELL | W | Write any value to trigger request |
+| 0x19 | 1 | IRQ_STATUS | R | Interrupt status flags |
+| 0x1A | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
+| 0x1B | 1 | IRQ_ACK | W | Write 1s to clear interrupt bits |
+| 0x1C | 1 | STATUS | R | Device status flags |
+| 0x1D-0x1F | 3 | RESERVED | - | Reserved for future use |
 
 ### Register Descriptions
 
-#### RIFF_PTR (0x00-0x0F, 16 bytes, Read/Write)
+#### SIGNATURE (0x00-0x07, 8 bytes, Read-Only)
+
+**Purpose:** Device identification. Contains ASCII string "SEMIHOST" to allow guests to verify device presence.
+
+**Format:** 8 bytes containing the ASCII characters 'S', 'E', 'M', 'I', 'H', 'O', 'S', 'T' (0x53, 0x45, 0x4D, 0x49, 0x48, 0x4F, 0x53, 0x54).
+
+**Usage:** Guest software can read these 8 bytes at the device base address to confirm a semihosting device is present before attempting any operations. This is more reliable than checking a single status bit.
+
+**Write behavior:** Writes are ignored.
+
+#### RIFF_PTR (0x08-0x17, 16 bytes, Read/Write)
 
 **Purpose:** Holds the guest memory address of the RIFF communication buffer.
 
@@ -96,7 +107,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 - 64-bit CPU (x86-64): Writes 8 bytes in LE order
 - 128-bit future CPU: Writes 16 bytes in native order
 
-#### DOORBELL (0x10, 1 byte, Write-Only)
+#### DOORBELL (0x18, 1 byte, Write-Only)
 
 **Purpose:** Trigger register. Writing any value initiates request processing.
 
@@ -108,7 +119,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 
 **Read behavior:** Reading returns undefined value (typically 0x00).
 
-#### IRQ_STATUS (0x11, 1 byte, Read-Only)
+#### IRQ_STATUS (0x19, 1 byte, Read-Only)
 
 **Purpose:** Indicates which interrupt conditions are currently active.
 
@@ -119,7 +130,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 
 **Operation:** Host sets bits when events occur. Guest reads to determine interrupt cause. Bits are cleared by writing to IRQ_ACK.
 
-#### IRQ_ENABLE (0x12, 1 byte, Read/Write)
+#### IRQ_ENABLE (0x1A, 1 byte, Read/Write)
 
 **Purpose:** Controls which interrupt conditions can assert the CPU's interrupt line.
 
@@ -132,7 +143,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 
 **Operation:** When an interrupt condition occurs AND its corresponding enable bit is set, the device asserts the CPU's interrupt request line.
 
-#### IRQ_ACK (0x13, 1 byte, Write-Only)
+#### IRQ_ACK (0x1B, 1 byte, Write-Only)
 
 **Purpose:** Acknowledge and clear interrupt status bits.
 
@@ -142,7 +153,7 @@ The semihosting device presents 32 bytes of memory-mapped registers:
 
 **Read behavior:** Reading returns undefined value.
 
-#### STATUS (0x14, 1 byte, Read-Only)
+#### STATUS (0x1C, 1 byte, Read-Only)
 
 **Purpose:** General device status flags.
 
@@ -588,11 +599,13 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 | 0x12 | SYS_SYSTEM | (command, length) | exit code |
 | 0x13 | SYS_ERRNO | () | last errno value |
 | 0x15 | SYS_GET_CMDLINE | (length) | command line or -1 |
-| 0x16 | SYS_HEAPINFO | () | heap info structure (see ARM spec) |
+| 0x16 | SYS_HEAPINFO | () | 0, DATA(4 ptrs) |
 | 0x18 | SYS_EXIT | (status) | no return |
 | 0x20 | SYS_EXIT_EXTENDED | (exception, subcode) | no return |
-| 0x30 | SYS_ELAPSED | () | 64-bit tick count |
+| 0x30 | SYS_ELAPSED | () | tick count or DATA(8 bytes) |
 | 0x31 | SYS_TICKFREQ | () | ticks per second |
+
+**Note:** SYS_ELAPSED and SYS_HEAPINFO have special return value encoding. See [Special Return Value Encoding](#special-return-value-encoding) for details.
 
 ### Argument Encoding in RIFF Chunks
 
@@ -628,6 +641,77 @@ CALL chunk contains:
 - DATA chunk: payload = "/tmp/test.txt\0"
 - PARM chunk: mode = 0x00
 - PARM chunk: length = 0x0E
+
+### Special Return Value Encoding
+
+Some syscalls return values that may exceed the guest's natural integer size. These use DATA chunks in the RETN response.
+
+#### SYS_ELAPSED (0x30) - 64-bit Tick Count
+
+**Purpose:** Returns elapsed tick count since an arbitrary epoch.
+
+**CALL chunk:** No PARM or DATA sub-chunks required.
+
+**RETN chunk:**
+- If `int_size >= 8`: Result field contains the 64-bit tick count directly
+- If `int_size < 8`: Result field is 0, and a DATA sub-chunk contains the 64-bit value
+
+**DATA chunk format (when int_size < 8):**
+- data_type: 0x01 (binary)
+- payload: 8 bytes, **little-endian** (regardless of guest endianness)
+- Byte 0-3: Low 32 bits of tick count
+- Byte 4-7: High 32 bits of tick count
+
+**Rationale:** 64-bit tick counts cannot fit in 16-bit or 32-bit result fields. Using a DATA chunk with fixed little-endian encoding ensures consistent interpretation across all architectures.
+
+**Example for 16-bit guest (int_size=2):**
+```
+RETN chunk:
+  result = 0x0000 (2 bytes, guest endianness)
+  errno = 0x00000000 (4 bytes, little-endian)
+  DATA sub-chunk:
+    type = 0x01 (binary)
+    payload = 0x78 0x56 0x34 0x12 0xEF 0xCD 0xAB 0x00
+              (represents tick count 0x00ABCDEF12345678)
+```
+
+#### SYS_HEAPINFO (0x16) - Memory Layout Information
+
+**Purpose:** Returns heap and stack boundary addresses.
+
+**CALL chunk:** No PARM or DATA sub-chunks required.
+
+**RETN chunk:**
+- Result field: 0 on success, -1 on error
+- DATA sub-chunk: Contains 4 pointer values
+
+**DATA chunk format:**
+- data_type: 0x01 (binary)
+- payload: `4 * ptr_size` bytes total
+- All pointer values in **guest endianness**
+
+**Pointer layout within DATA payload:**
+| Offset | Size | Field | Description |
+|--------|------|-------|-------------|
+| 0 | ptr_size | heap_base | Start of heap region |
+| ptr_size | ptr_size | heap_limit | End of heap region (exclusive) |
+| 2*ptr_size | ptr_size | stack_base | Bottom of stack (lowest address) |
+| 3*ptr_size | ptr_size | stack_limit | Top of stack (highest address) |
+
+**Note:** Pointer values use guest endianness (as declared in CNFG), not the fixed little-endian encoding used by SYS_ELAPSED. This is because pointer values are architecture-specific addresses that the guest will use directly.
+
+**Example for 32-bit guest (ptr_size=4, little-endian):**
+```
+RETN chunk:
+  result = 0x00000000 (4 bytes, little-endian)
+  errno = 0x00000000 (4 bytes, little-endian)
+  DATA sub-chunk:
+    type = 0x01 (binary)
+    payload = 0x00 0x10 0x00 0x20   (heap_base = 0x20001000)
+              0x00 0x00 0x01 0x20   (heap_limit = 0x20010000)
+              0x00 0x00 0x02 0x20   (stack_base = 0x20020000)
+              0x00 0xF0 0x02 0x20   (stack_limit = 0x2002F000)
+```
 
 ### Open Mode Flags (SYS_OPEN)
 
@@ -711,13 +795,14 @@ Query device features. The META chunk contains a chunk ID, chunk size, a query_t
 
 | Offset | Size | Name | Type | Description |
 |--------|------|------|------|-------------|
-| 0x00 | 16 | RIFF_PTR | RW | Guest RAM pointer to RIFF buffer |
-| 0x10 | 1 | DOORBELL | W | Write to trigger request |
-| 0x11 | 1 | IRQ_STATUS | R | Interrupt status bits |
-| 0x12 | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
-| 0x13 | 1 | IRQ_ACK | W | Clear interrupt bits |
-| 0x14 | 1 | STATUS | R | Device status |
-| 0x15 | 11 | RESERVED | - | Future use |
+| 0x00 | 8 | SIGNATURE | R | ASCII "SEMIHOST" (device identification) |
+| 0x08 | 16 | RIFF_PTR | RW | Guest RAM pointer to RIFF buffer |
+| 0x18 | 1 | DOORBELL | W | Write to trigger request |
+| 0x19 | 1 | IRQ_STATUS | R | Interrupt status bits |
+| 0x1A | 1 | IRQ_ENABLE | RW | Interrupt enable mask |
+| 0x1B | 1 | IRQ_ACK | W | Clear interrupt bits |
+| 0x1C | 1 | STATUS | R | Device status |
+| 0x1D | 3 | RESERVED | - | Future use |
 
 ### Status Bit Definitions
 
