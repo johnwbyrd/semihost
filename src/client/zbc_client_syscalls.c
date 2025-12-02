@@ -750,20 +750,38 @@ int zbc_sys_get_cmdline(zbc_client_state_t *state,
     return (int)response.result;
 }
 
+/*------------------------------------------------------------------------
+ * Internal helper: read pointer value from bytes
+ *------------------------------------------------------------------------*/
+
+static uintptr_t read_ptr_value(const uint8_t *p, size_t ptr_size)
+{
+    uintptr_t val = 0;
+    size_t i;
+
+#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
+    for (i = ptr_size; i > 0; i--) val = (val << 8) | p[i - 1];
+#else
+    for (i = 0; i < ptr_size; i++) val = (val << 8) | p[i];
+#endif
+    return val;
+}
+
 int zbc_sys_heapinfo(zbc_client_state_t *state,
                      void *buf, size_t buf_size,
                      zbc_heapinfo_t *info)
 {
+    zbc_builder_t builder;
     zbc_response_t response;
+    size_t riff_size;
     size_t ptr_size;
+    size_t offset;
+    const uint8_t *ubuf;
     int rc;
+    int parm_count;
+    uintptr_t parm_values[4];
 
     if (!info) return ZBC_ERR_INVALID_ARG;
-
-    rc = exec_syscall_noargs(state, buf, buf_size, SH_SYS_HEAPINFO, &response);
-    if (rc < 0) return rc;
-
-    ptr_size = state->ptr_size;
 
     /* Initialize to zeros */
     info->heap_base = (void *)0;
@@ -771,50 +789,94 @@ int zbc_sys_heapinfo(zbc_client_state_t *state,
     info->stack_base = (void *)0;
     info->stack_limit = (void *)0;
 
-    /* Parse 4 pointers from DATA chunk */
-    if (response.data && response.data_size >= ptr_size * 4) {
-        const uint8_t *p = response.data;
-        size_t i;
-        uintptr_t val;
+    rc = zbc_builder_start(&builder, (uint8_t *)buf, buf_size, state);
+    if (rc < 0) return rc;
 
-        /* heap_base */
-        val = 0;
-#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
-        for (i = ptr_size; i > 0; i--) val = (val << 8) | p[i - 1];
-#else
-        for (i = 0; i < ptr_size; i++) val = (val << 8) | p[i];
-#endif
-        info->heap_base = (void *)val;
-        p += ptr_size;
+    rc = zbc_builder_begin_call(&builder, SH_SYS_HEAPINFO);
+    if (rc < 0) return rc;
 
-        /* heap_limit */
-        val = 0;
-#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
-        for (i = ptr_size; i > 0; i--) val = (val << 8) | p[i - 1];
-#else
-        for (i = 0; i < ptr_size; i++) val = (val << 8) | p[i];
-#endif
-        info->heap_limit = (void *)val;
-        p += ptr_size;
+    rc = zbc_builder_finish(&builder, &riff_size);
+    if (rc < 0) return rc;
 
-        /* stack_base */
-        val = 0;
-#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
-        for (i = ptr_size; i > 0; i--) val = (val << 8) | p[i - 1];
-#else
-        for (i = 0; i < ptr_size; i++) val = (val << 8) | p[i];
-#endif
-        info->stack_base = (void *)val;
-        p += ptr_size;
+    rc = zbc_client_submit_poll(state, buf, riff_size);
+    if (rc < 0) return rc;
 
-        /* stack_limit */
-        val = 0;
-#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
-        for (i = ptr_size; i > 0; i--) val = (val << 8) | p[i - 1];
-#else
-        for (i = 0; i < ptr_size; i++) val = (val << 8) | p[i];
-#endif
-        info->stack_limit = (void *)val;
+    /* Parse basic response first */
+    rc = zbc_parse_response(&response, (const uint8_t *)buf, buf_size, state);
+    if (rc < 0) return rc;
+
+    if (response.is_error) {
+        return ZBC_ERR_DEVICE_ERROR;
+    }
+
+    ptr_size = state->ptr_size;
+    ubuf = (const uint8_t *)buf;
+
+    /*
+     * HEAPINFO returns 4 PARM chunks (type 0x02 = pointer) inside RETN.
+     * RETN format: 'RETN' [size] [result:int_size] [errno:4] [PARM chunks...]
+     *
+     * We need to skip past the RIFF header and find the RETN chunk,
+     * then parse the PARM sub-chunks within it.
+     */
+
+    /* Find RETN chunk - it starts at offset 12 (after RIFF header) or after CNFG */
+    offset = 12;  /* Skip 'RIFF' + size + 'SEMI' */
+
+    /* Skip CNFG if present */
+    if (offset + 8 <= buf_size &&
+        ubuf[offset] == 'C' && ubuf[offset+1] == 'N' &&
+        ubuf[offset+2] == 'F' && ubuf[offset+3] == 'G') {
+        uint32_t cnfg_size = ZBC_READ_U32_LE(ubuf + offset + 4);
+        offset += 8 + cnfg_size;
+        if (cnfg_size & 1) offset++;  /* RIFF padding */
+    }
+
+    /* Now we should be at RETN chunk */
+    if (offset + 8 > buf_size ||
+        ubuf[offset] != 'R' || ubuf[offset+1] != 'E' ||
+        ubuf[offset+2] != 'T' || ubuf[offset+3] != 'N') {
+        return ZBC_ERR_PARSE_ERROR;
+    }
+
+    {
+        uint32_t retn_size = ZBC_READ_U32_LE(ubuf + offset + 4);
+        size_t retn_data_start = offset + 8;
+        size_t retn_data_end = retn_data_start + retn_size;
+        size_t sub_offset;
+
+        /* Skip result (int_size) and errno (4 bytes) */
+        sub_offset = retn_data_start + state->int_size + 4;
+
+        /* Parse PARM chunks */
+        parm_count = 0;
+        while (sub_offset + 8 <= retn_data_end && parm_count < 4) {
+            uint32_t chunk_id = ZBC_READ_U32_LE(ubuf + sub_offset);
+            uint32_t chunk_size = ZBC_READ_U32_LE(ubuf + sub_offset + 4);
+
+            /* Check for 'PARM' chunk */
+            if (chunk_id == ZBC_ID_PARM) {
+                /* PARM format: type(1) + reserved(3) + value(ptr_size) */
+                if (sub_offset + 8 + 4 + ptr_size <= retn_data_end) {
+                    uint8_t parm_type = ubuf[sub_offset + 8];
+                    if (parm_type == ZBC_PARM_TYPE_PTR) {
+                        parm_values[parm_count] = read_ptr_value(
+                            ubuf + sub_offset + 8 + 4, ptr_size);
+                        parm_count++;
+                    }
+                }
+            }
+
+            /* Move to next chunk */
+            sub_offset += 8 + chunk_size;
+            if (chunk_size & 1) sub_offset++;  /* RIFF padding */
+        }
+
+        /* Assign parsed values */
+        if (parm_count >= 1) info->heap_base = (void *)parm_values[0];
+        if (parm_count >= 2) info->heap_limit = (void *)parm_values[1];
+        if (parm_count >= 3) info->stack_base = (void *)parm_values[2];
+        if (parm_count >= 4) info->stack_limit = (void *)parm_values[3];
     }
 
     return (int)response.result;

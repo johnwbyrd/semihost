@@ -599,7 +599,7 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 | 0x12 | SYS_SYSTEM | (command, length) | exit code |
 | 0x13 | SYS_ERRNO | () | last errno value |
 | 0x15 | SYS_GET_CMDLINE | (length) | command line or -1 |
-| 0x16 | SYS_HEAPINFO | () | 0, DATA(4 ptrs) |
+| 0x16 | SYS_HEAPINFO | () | 0, PARM×4 (heap_base, heap_limit, stack_base, stack_limit) |
 | 0x18 | SYS_EXIT | (status) | no return |
 | 0x20 | SYS_EXIT_EXTENDED | (exception, subcode) | no return |
 | 0x30 | SYS_ELAPSED | () | tick count or DATA(8 bytes) |
@@ -683,34 +683,34 @@ RETN chunk:
 
 **RETN chunk:**
 - Result field: 0 on success, -1 on error
-- DATA sub-chunk: Contains 4 pointer values
+- Four PARM sub-chunks (type 0x02 = pointer), in order:
 
-**DATA chunk format:**
-- data_type: 0x01 (binary)
-- payload: `4 * ptr_size` bytes total
-- All pointer values in **guest endianness**
+| Order | Field | Description |
+|-------|-------|-------------|
+| 1 | heap_base | Start of heap region |
+| 2 | heap_limit | End of heap region (exclusive) |
+| 3 | stack_base | Bottom of stack (lowest address) |
+| 4 | stack_limit | Top of stack (highest address) |
 
-**Pointer layout within DATA payload:**
-| Offset | Size | Field | Description |
-|--------|------|-------|-------------|
-| 0 | ptr_size | heap_base | Start of heap region |
-| ptr_size | ptr_size | heap_limit | End of heap region (exclusive) |
-| 2*ptr_size | ptr_size | stack_base | Bottom of stack (lowest address) |
-| 3*ptr_size | ptr_size | stack_limit | Top of stack (highest address) |
-
-**Note:** Pointer values use guest endianness (as declared in CNFG), not the fixed little-endian encoding used by SYS_ELAPSED. This is because pointer values are architecture-specific addresses that the guest will use directly.
+**Rationale:** Using individual PARM chunks for each pointer (rather than a binary blob) maintains the self-describing nature of the RIFF protocol. Each pointer is explicitly typed and sized according to the CNFG ptr_size.
 
 **Example for 32-bit guest (ptr_size=4, little-endian):**
 ```
 RETN chunk:
   result = 0x00000000 (4 bytes, little-endian)
   errno = 0x00000000 (4 bytes, little-endian)
-  DATA sub-chunk:
-    type = 0x01 (binary)
-    payload = 0x00 0x10 0x00 0x20   (heap_base = 0x20001000)
-              0x00 0x00 0x01 0x20   (heap_limit = 0x20010000)
-              0x00 0x00 0x02 0x20   (stack_base = 0x20020000)
-              0x00 0xF0 0x02 0x20   (stack_limit = 0x2002F000)
+  PARM sub-chunk:
+    type = 0x02 (pointer)
+    value = 0x00 0x10 0x00 0x20   (heap_base = 0x20001000)
+  PARM sub-chunk:
+    type = 0x02 (pointer)
+    value = 0x00 0x00 0x01 0x20   (heap_limit = 0x20010000)
+  PARM sub-chunk:
+    type = 0x02 (pointer)
+    value = 0x00 0x00 0x02 0x20   (stack_base = 0x20020000)
+  PARM sub-chunk:
+    type = 0x02 (pointer)
+    value = 0x00 0xF0 0x02 0x20   (stack_limit = 0x2002F000)
 ```
 
 ### Open Mode Flags (SYS_OPEN)

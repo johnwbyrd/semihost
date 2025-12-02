@@ -21,6 +21,7 @@ static int default_handler(zbc_syscall_ctx_t *ctx, zbc_syscall_result_t *result)
     result->error = ENOSYS;
     result->data = (void *)0;
     result->data_size = 0;
+    result->parm_count = 0;
     return 0;
 }
 
@@ -423,16 +424,31 @@ static int write_retn(zbc_host_state_t *state,
     size_t offset;
     size_t retn_size;
     size_t int_size;
+    size_t ptr_size;
     size_t write_offset;
     size_t data_chunk_size;
     size_t padded_data_size;
+    size_t parm_chunk_size;
+    size_t padded_parm_size;
     size_t i;
     const uint8_t *src;
+    int p;
 
     int_size = state->int_size;
+    ptr_size = state->ptr_size;
 
     /* Calculate RETN chunk data size */
     retn_size = int_size + 4;  /* result + errno */
+
+    /* Add size for PARM sub-chunks */
+    for (p = 0; p < result->parm_count && p < ZBC_HOST_MAX_RESULT_PARMS; p++) {
+        size_t value_size = (result->parm_types[p] == ZBC_PARM_TYPE_PTR) ? ptr_size : int_size;
+        parm_chunk_size = 4 + value_size;  /* type(1) + reserved(3) + value */
+        padded_parm_size = ZBC_PAD_SIZE(parm_chunk_size);
+        retn_size += ZBC_CHUNK_HDR_SIZE + padded_parm_size;
+    }
+
+    /* Add size for DATA sub-chunk */
     if (result->data && result->data_size > 0) {
         data_chunk_size = 4 + result->data_size;  /* type(1) + reserved(3) + payload */
         padded_data_size = ZBC_PAD_SIZE(data_chunk_size);
@@ -460,9 +476,35 @@ static int write_retn(zbc_host_state_t *state,
     /* Write RETN header + result + errno */
     zbc_host_write_guest(state, addr + offset, retn_buf, write_offset);
 
+    /* Write PARM sub-chunks if present */
+    for (p = 0; p < result->parm_count && p < ZBC_HOST_MAX_RESULT_PARMS; p++) {
+        uint8_t parm_buf[32];  /* header(8) + type(1) + reserved(3) + value(up to 16) */
+        size_t value_size = (result->parm_types[p] == ZBC_PARM_TYPE_PTR) ? ptr_size : int_size;
+        size_t parm_data_size = 4 + value_size;
+
+        ZBC_WRITE_FOURCC(parm_buf, 'P', 'A', 'R', 'M');
+        ZBC_WRITE_U32_LE(parm_buf + 4, (uint32_t)parm_data_size);
+        parm_buf[8] = result->parm_types[p];
+        parm_buf[9] = 0;
+        parm_buf[10] = 0;
+        parm_buf[11] = 0;
+
+        /* Write value in guest endianness */
+        if (result->parm_types[p] == ZBC_PARM_TYPE_PTR) {
+            zbc_host_write_ptr(state, parm_buf + 12, result->parm_values[p]);
+        } else {
+            zbc_host_write_int(state, parm_buf + 12, (int64_t)result->parm_values[p]);
+        }
+
+        zbc_host_write_guest(state, addr + offset + write_offset, parm_buf, 12 + value_size);
+        write_offset += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(parm_data_size);
+    }
+
     /* Write DATA sub-chunk if present */
     if (result->data && result->data_size > 0) {
         uint8_t data_hdr[12];
+
+        data_chunk_size = 4 + result->data_size;
 
         ZBC_WRITE_FOURCC(data_hdr, 'D', 'A', 'T', 'A');
         ZBC_WRITE_U32_LE(data_hdr + 4, (uint32_t)data_chunk_size);
@@ -637,6 +679,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
     result.error = 0;
     result.data = (void *)0;
     result.data_size = 0;
+    result.parm_count = 0;
 
     /* Call handler */
     rc = handler(&ctx, &result);

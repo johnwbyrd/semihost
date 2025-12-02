@@ -104,11 +104,20 @@ typedef struct zbc_syscall_ctx {
  * Handler fills this to specify the response.
  *------------------------------------------------------------------------*/
 
+#define ZBC_HOST_MAX_RESULT_PARMS  4
+
 typedef struct zbc_syscall_result {
     int64_t   result;     /* Return value (written in guest endianness) */
     int32_t   error;      /* errno value (0 = success) */
-    void     *data;       /* Pointer to return data (for reads), or NULL */
+
+    /* Return data (DATA chunk) - for reads, get_cmdline, etc. */
+    void     *data;       /* Pointer to return data, or NULL */
     size_t    data_size;  /* Size of return data in bytes */
+
+    /* Return parameters (PARM chunks) - for heapinfo */
+    int       parm_count;                            /* Number of PARM chunks to return */
+    uint8_t   parm_types[ZBC_HOST_MAX_RESULT_PARMS]; /* ZBC_PARM_TYPE_* for each */
+    uint64_t  parm_values[ZBC_HOST_MAX_RESULT_PARMS];/* Values to return */
 } zbc_syscall_result_t;
 
 /*------------------------------------------------------------------------
