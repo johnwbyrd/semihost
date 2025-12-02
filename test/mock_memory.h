@@ -7,7 +7,7 @@
 #ifndef MOCK_MEMORY_H
 #define MOCK_MEMORY_H
 
-#include "zbc_semi_common.h"
+#include "zbc_semihost.h"
 
 #ifdef __cplusplus
 extern "C" {

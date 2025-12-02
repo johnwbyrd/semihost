@@ -8,7 +8,7 @@
 #ifndef TEST_HARNESS_H
 #define TEST_HARNESS_H
 
-#include "zbc_semi_common.h"
+#include "zbc_semihost.h"
 #include <stdio.h>
 #include <string.h>
 

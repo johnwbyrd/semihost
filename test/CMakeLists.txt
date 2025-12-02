@@ -21,6 +21,9 @@ target_include_directories(zbc_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# Tests need both client and host definitions
+target_compile_definitions(zbc_tests PRIVATE ZBC_CLIENT ZBC_HOST)
+
 # Link against the semihosting libraries
 target_link_libraries(zbc_tests
     zbc_semi_client
@@ -33,9 +36,8 @@ add_test(NAME zbc_semihost_tests COMMAND zbc_tests)
 # Static allocation check
 # Verify that library sources don't use malloc/calloc/realloc/free
 # Exception: ANSI backend may allocate for tracking open files
-file(GLOB_RECURSE LIB_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/client/*.c"
-    "${CMAKE_SOURCE_DIR}/src/host/*.c"
+file(GLOB LIB_SOURCES
+    "${CMAKE_SOURCE_DIR}/src/*.c"
 )
 
 foreach(src ${LIB_SOURCES})

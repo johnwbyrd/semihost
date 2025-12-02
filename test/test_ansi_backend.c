@@ -5,9 +5,7 @@
  * Creates actual files, writes data, reads it back, verifies results.
  */
 
-#include "zbc_semi_backend.h"
-#include "zbc_semi_host.h"
-#include "zbc_semi_common.h"
+#include "zbc_semihost.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

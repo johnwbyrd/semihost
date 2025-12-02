@@ -27,18 +27,27 @@ endif()
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
+# Shared sources used by both client and host
+set(ZBC_SHARED_SOURCES
+    src/zbc_opcode_table.c
+    src/zbc_riff.c
+)
+
 # Client library
 add_library(zbc_semi_client STATIC
-    src/client/zbc_client_core.c
-    src/client/zbc_client_syscalls.c
+    ${ZBC_SHARED_SOURCES}
+    src/zbc_client.c
 )
+target_compile_definitions(zbc_semi_client PRIVATE ZBC_CLIENT)
 
 # Host library
 add_library(zbc_semi_host STATIC
-    src/host/zbc_host_core.c
-    src/host/backends/zbc_backend_dummy.c
-    src/host/backends/zbc_backend_ansi.c
+    ${ZBC_SHARED_SOURCES}
+    src/zbc_host.c
+    src/zbc_backend_dummy.c
+    src/zbc_backend_ansi.c
 )
+target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 
 # Tests
 enable_testing()

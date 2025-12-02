@@ -5,7 +5,7 @@
  * Portable across any hosted environment with ANSI C support.
  */
 
-#include "zbc_semi_backend.h"
+#include "zbc_semihost.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

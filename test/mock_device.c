@@ -4,7 +4,6 @@
 
 #include "mock_device.h"
 #include "mock_memory.h"
-#include "zbc_semi_backend.h"
 #include <string.h>
 
 /*------------------------------------------------------------------------

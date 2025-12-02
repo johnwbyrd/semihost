@@ -7,9 +7,7 @@
 #ifndef MOCK_DEVICE_H
 #define MOCK_DEVICE_H
 
-#include "zbc_semi_common.h"
-#include "zbc_semi_host.h"
-#include "zbc_semi_backend.h"
+#include "zbc_semihost.h"
 
 #ifdef __cplusplus
 extern "C" {

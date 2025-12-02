@@ -2,7 +2,7 @@
  * Round-Trip Integration Tests
  *
  * Tests client and host libraries together, verifying that:
- * 1. Client builds valid RIFF request
+ * 1. Client builds valid RIFF request via zbc_semihost()
  * 2. Host parses and dispatches correctly via backend
  * 3. Host builds valid RIFF response
  * 4. Client parses response correctly
@@ -13,9 +13,6 @@
 #include "mock_device.h"
 #include "mock_memory.h"
 #include "test_harness.h"
-#include "zbc_semi_client.h"
-#include "zbc_semi_common.h"
-#include "zbc_semi_host.h"
 #include <string.h>
 
 /*------------------------------------------------------------------------
@@ -39,329 +36,10 @@ static void setup_roundtrip(zbc_client_state_t *client, mock_device_t *dev)
 }
 
 /*------------------------------------------------------------------------
- * Helper: Simulate full request/response cycle
- *
- * This mimics what happens when client submits a request:
- * 1. Client writes RIFF_PTR
- * 2. Client writes DOORBELL
- * 3. Host processes and writes response
- * 4. Client reads STATUS (RESPONSE_READY)
- *------------------------------------------------------------------------*/
-
-static int do_roundtrip(zbc_client_state_t *client, mock_device_t *dev,
-                        uint8_t *buf, size_t riff_size)
-{
-    size_t i;
-    uintptr_t addr = (uintptr_t)buf;
-
-    /* Write buffer address to RIFF_PTR register */
-    for (i = 0; i < sizeof(uintptr_t) && i < 16; i++) {
-#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
-        dev->regs[ZBC_REG_RIFF_PTR + sizeof(uintptr_t) - 1 - i] =
-            (uint8_t)(addr & 0xFF);
-#else
-        dev->regs[ZBC_REG_RIFF_PTR + i] = (uint8_t)(addr & 0xFF);
-#endif
-        addr >>= 8;
-    }
-
-    /* Clear remaining bytes */
-    for (; i < 16; i++) {
-        dev->regs[ZBC_REG_RIFF_PTR + i] = 0;
-    }
-
-    /* Trigger doorbell (this processes the request) */
-    mock_device_doorbell(dev);
-
-    /* Check response ready */
-    (void)client;
-    (void)riff_size;
-
-    return (dev->regs[ZBC_REG_STATUS] & ZBC_STATUS_RESPONSE_READY)
-               ? ZBC_OK
-               : ZBC_ERR_TIMEOUT;
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_CLOSE - simple syscall with PARM
- *
- * Dummy backend returns 0 (success) for close.
+ * Test: SYS_CLOSE - simple syscall with one PARM
  *------------------------------------------------------------------------*/
 
 static void test_roundtrip_close(void)
-{
-    GUARDED_BUF(buf, 256);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build request */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_CLOSE);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_parm_int(&builder, 5); /* fd = 5 */
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 0); /* Dummy backend returns 0 */
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_ERRNO - syscall that returns errno
- *
- * Dummy backend returns 0 for get_errno.
- *------------------------------------------------------------------------*/
-
-static void test_roundtrip_errno(void)
-{
-    GUARDED_BUF(buf, 256);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build request */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_ERRNO);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 0); /* Dummy backend returns 0 */
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_WRITE - syscall with DATA chunk
- *
- * Dummy backend returns 0 (all bytes written).
- *------------------------------------------------------------------------*/
-
-static void test_roundtrip_write(void)
-{
-    GUARDED_BUF(buf, 512);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-    uint8_t test_data[] = "Hello, World!";
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build request with DATA */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_WRITE);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_parm_int(&builder, 1); /* fd = 1 (stdout) */
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_data_binary(&builder, test_data, sizeof(test_data));
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_parm_uint(&builder, sizeof(test_data));
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 0); /* Dummy: 0 bytes NOT written */
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_HEAPINFO - syscall that returns multiple values
- *
- * Dummy backend returns zeros for all heap/stack info.
- *------------------------------------------------------------------------*/
-
-static void test_roundtrip_heapinfo(void)
-{
-    GUARDED_BUF(buf, 512);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build request */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_HEAPINFO);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 0);
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_OPEN - syscall with string DATA
- *
- * Dummy backend returns fd = 3.
- *------------------------------------------------------------------------*/
-
-static void test_roundtrip_open(void)
-{
-    GUARDED_BUF(buf, 512);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-    const char *filename = "test.txt";
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build OPEN request */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_OPEN);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_data_string(&builder, filename);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_parm_int(&builder, SH_OPEN_R);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_add_parm_uint(&builder, strlen(filename));
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 3); /* Dummy backend returns fd = 3 */
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: SYS_TIME - syscall with no params
- *
- * Dummy backend returns 0.
- *------------------------------------------------------------------------*/
-
-static void test_roundtrip_time(void)
-{
-    GUARDED_BUF(buf, 256);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    zbc_builder_t builder;
-    zbc_response_t response;
-    size_t riff_size;
-    int rc;
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Build request */
-    rc = zbc_builder_start(&builder, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_begin_call(&builder, SH_SYS_TIME);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    rc = zbc_builder_finish(&builder, &riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Execute round-trip */
-    rc = do_roundtrip(&client, &dev, buf, riff_size);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-
-    /* Parse response */
-    rc = zbc_parse_response(&response, buf, buf_size, &client);
-    TEST_ASSERT_EQ(rc, ZBC_OK);
-    TEST_ASSERT_EQ(response.is_error, 0);
-    TEST_ASSERT_EQ(response.result, 0); /* Dummy backend returns 0 */
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: zbc_semihost() - SYS_CLOSE via low-level entry point
- *------------------------------------------------------------------------*/
-
-static void test_semihost_close(void)
 {
     GUARDED_BUF(buf, 256);
     zbc_client_state_t client;
@@ -372,23 +50,65 @@ static void test_semihost_close(void)
     GUARDED_INIT(buf);
     setup_roundtrip(&client, &dev);
 
-    /* Set up ARM-style param block: {fd} */
     args[0] = 5; /* fd = 5 */
-
-    /* Call zbc_semihost() */
     result = zbc_semihost(&client, buf, buf_size, SH_SYS_CLOSE, (uintptr_t)args);
 
-    /* Dummy backend returns 0 for close */
     TEST_ASSERT_EQ((int)result, 0);
-
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
 
 /*------------------------------------------------------------------------
- * Test: zbc_semihost() - SYS_OPEN via low-level entry point
+ * Test: SYS_ERRNO - syscall with no params
  *------------------------------------------------------------------------*/
 
-static void test_semihost_open(void)
+static void test_roundtrip_errno(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_ERRNO, 0);
+
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_WRITE - syscall with DATA chunk
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_write(void)
+{
+    GUARDED_BUF(buf, 512);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    const char *data = "Hello, World!";
+    uintptr_t args[3];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    args[0] = 1; /* fd = stdout */
+    args[1] = (uintptr_t)data;
+    args[2] = strlen(data);
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_WRITE, (uintptr_t)args);
+
+    /* Dummy backend returns 0 (all bytes written) */
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_OPEN - syscall with string DATA
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_open(void)
 {
     GUARDED_BUF(buf, 512);
     zbc_client_state_t client;
@@ -400,55 +120,22 @@ static void test_semihost_open(void)
     GUARDED_INIT(buf);
     setup_roundtrip(&client, &dev);
 
-    /* Set up ARM-style param block: {path_ptr, mode, path_len} */
     args[0] = (uintptr_t)filename;
     args[1] = SH_OPEN_R;
     args[2] = strlen(filename);
 
-    /* Call zbc_semihost() */
     result = zbc_semihost(&client, buf, buf_size, SH_SYS_OPEN, (uintptr_t)args);
 
     /* Dummy backend returns fd = 3 */
     TEST_ASSERT_EQ((int)result, 3);
-
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
 
 /*------------------------------------------------------------------------
- * Test: zbc_semihost() - SYS_WRITE via low-level entry point
+ * Test: SYS_TIME - syscall with no params, returns value
  *------------------------------------------------------------------------*/
 
-static void test_semihost_write(void)
-{
-    GUARDED_BUF(buf, 512);
-    zbc_client_state_t client;
-    mock_device_t dev;
-    const char *data = "Hello";
-    uintptr_t args[3];
-    uintptr_t result;
-
-    GUARDED_INIT(buf);
-    setup_roundtrip(&client, &dev);
-
-    /* Set up ARM-style param block: {fd, buf_ptr, count} */
-    args[0] = 1; /* fd = stdout */
-    args[1] = (uintptr_t)data;
-    args[2] = 5;
-
-    /* Call zbc_semihost() */
-    result = zbc_semihost(&client, buf, buf_size, SH_SYS_WRITE, (uintptr_t)args);
-
-    /* Dummy backend returns 0 (bytes not written = 0 means all written) */
-    TEST_ASSERT_EQ((int)result, 0);
-
-    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
-}
-
-/*------------------------------------------------------------------------
- * Test: zbc_semihost() - SYS_TIME via low-level entry point (no params)
- *------------------------------------------------------------------------*/
-
-static void test_semihost_time(void)
+static void test_roundtrip_time(void)
 {
     GUARDED_BUF(buf, 256);
     zbc_client_state_t client;
@@ -458,12 +145,125 @@ static void test_semihost_time(void)
     GUARDED_INIT(buf);
     setup_roundtrip(&client, &dev);
 
-    /* SYS_TIME has no parameters */
     result = zbc_semihost(&client, buf, buf_size, SH_SYS_TIME, 0);
 
-    /* Dummy backend returns 0 for time */
+    /* Dummy backend returns 0 */
     TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
 
+/*------------------------------------------------------------------------
+ * Test: SYS_CLOCK - syscall returning centiseconds
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_clock(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_CLOCK, 0);
+
+    /* Dummy backend returns 0 */
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_TICKFREQ - syscall returning tick frequency
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_tickfreq(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_TICKFREQ, 0);
+
+    /* Dummy backend returns 100 Hz */
+    TEST_ASSERT_EQ((int)result, 100);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_FLEN - file length query
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_flen(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t args[1];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    args[0] = 3; /* fd */
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_FLEN, (uintptr_t)args);
+
+    /* Dummy backend returns 0 */
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_SEEK - file seek
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_seek(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t args[2];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    args[0] = 3;   /* fd */
+    args[1] = 100; /* position */
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_SEEK, (uintptr_t)args);
+
+    /* Dummy backend returns 0 (success) */
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
+ * Test: SYS_ISTTY - check if fd is terminal
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_istty(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t args[1];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    args[0] = 1; /* stdout */
+
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_ISTTY, (uintptr_t)args);
+
+    /* Dummy backend returns 0 (not a TTY) */
+    TEST_ASSERT_EQ((int)result, 0);
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
 
@@ -478,18 +278,13 @@ void run_roundtrip_tests(void)
     RUN_TEST(roundtrip_close);
     RUN_TEST(roundtrip_errno);
     RUN_TEST(roundtrip_write);
-    RUN_TEST(roundtrip_heapinfo);
     RUN_TEST(roundtrip_open);
     RUN_TEST(roundtrip_time);
-
-    END_SUITE();
-
-    BEGIN_SUITE("zbc_semihost() Low-Level Entry Point");
-
-    RUN_TEST(semihost_close);
-    RUN_TEST(semihost_open);
-    RUN_TEST(semihost_write);
-    RUN_TEST(semihost_time);
+    RUN_TEST(roundtrip_clock);
+    RUN_TEST(roundtrip_tickfreq);
+    RUN_TEST(roundtrip_flen);
+    RUN_TEST(roundtrip_seek);
+    RUN_TEST(roundtrip_istty);
 
     END_SUITE();
 }

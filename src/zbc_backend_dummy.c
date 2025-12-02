@@ -5,8 +5,7 @@
  * Useful for testing or when semihosting output is not needed.
  */
 
-#include "zbc_semi_backend.h"
-#include <string.h>
+#include "zbc_semihost.h"
 
 static int dummy_open(void *ctx, const char *path, size_t path_len, int mode)
 {
