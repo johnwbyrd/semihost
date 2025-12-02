@@ -36,6 +36,8 @@ add_library(zbc_semi_client STATIC
 # Host library
 add_library(zbc_semi_host STATIC
     src/host/zbc_host_core.c
+    src/host/backends/zbc_backend_dummy.c
+    src/host/backends/zbc_backend_ansi.c
 )
 
 # Tests

@@ -4,6 +4,68 @@ This file contains critical design information that must persist across conversa
 
 ---
 
+## ⚠️ MANDATORY: READ THIS ENTIRE FILE BEFORE ANY WORK ⚠️
+
+**DO NOT SKIM. DO NOT SKIP. READ EVERY SECTION.**
+
+If you are resuming from a context reset or summary, you MUST read this file completely before writing any code, making any suggestions, or taking any action. The summary does not contain all the critical constraints.
+
+Previous AI sessions have made serious mistakes by:
+- Not reading this file before starting work
+- Assuming the summary contained all requirements
+- Writing code that only works on the development machine
+- Using `long` everywhere (which varies by platform)
+- Hardcoding paths like `/tmp` (Linux-only)
+
+**YOU WILL MAKE THESE SAME MISTAKES IF YOU DON'T READ THIS FILE.**
+
+---
+
+## CRITICAL: NEVER ASSUME POINTER OR INTEGER SIZES
+
+**STOP. READ THIS BEFORE WRITING ANY CODE.**
+
+The client library must run on EVERYTHING from a MOS 6502 (8-bit, 16-bit pointers) to 64-bit systems.
+
+**YOU MUST NEVER:**
+- Use `sizeof(int)`, `sizeof(long)`, `sizeof(void*)` as if they're fixed values
+- Assume `long` is 32 bits or 64 bits (it's 32 on Windows x64, 64 on Linux x64!)
+- Assume pointers are any particular size
+- Cast between `uint64_t` and pointer types
+- Use `uintptr_t` assuming it exists or has a known size
+- Write code that only works on your development machine (Linux x86_64)
+- Use `long` in APIs or data structures - it's not portable!
+
+**YOU MUST:**
+- Read int_size, ptr_size, endianness from the CNFG chunk
+- Marshal/unmarshal integers byte-by-byte using the configured sizes
+- Test mentally: "Would this work on a 6502? An 8051? A PDP-11? ARM64? Windows x64?"
+- Use the protocol's explicit size fields, never implicit host sizes
+- Use `int32_t`, `uint32_t`, `int64_t`, `uint64_t` for fixed-width values
+- Use `int` only where the exact size doesn't matter (loop counters, booleans)
+- Use `size_t` for memory sizes and counts
+
+**If you find yourself writing `sizeof(long)` or `(void*)(uintptr_t)value`, STOP.**
+
+**If you find yourself writing `long` in a function signature or struct, STOP and think about what size you actually need.**
+
+---
+
+## CRITICAL: CROSS-PLATFORM COMPATIBILITY
+
+The CI runs on Ubuntu, macOS, AND Windows. Code must work on all three.
+
+**YOU MUST NEVER:**
+- Hardcode `/tmp` - use environment variables (TMPDIR, TMP, TEMP)
+- Assume path separators are `/` - Windows uses `\`
+- Assume any particular directory structure
+
+**YOU MUST:**
+- Check the `.github/workflows/ci.yml` to understand the test matrix
+- Use portable APIs and avoid platform-specific assumptions
+
+---
+
 ## CRITICAL DESIGN PRINCIPLE - WHY ZBC MARSHALS DATA INTO RIFF CHUNKS
 
 **Do NOT propose passing pointers for the host to chase. This is WRONG for ZBC.**
@@ -149,21 +211,25 @@ The host library runs in the emulator (MAME, QEMU, etc.):
 
 ## Backend Vtable Design
 
+**IMPORTANT: Use `int` not `long` in the vtable.** `long` is not portable (32 bits on Windows x64, 64 bits on Linux x64). ARM semihosting returns register-sized values (32-bit for 32-bit guests), so `int` is correct for the host-side API.
+
 ```c
 /*
  * Backend vtable for semihosting operations.
  * Each function corresponds to an ARM semihosting syscall.
  * Return values follow ARM semihosting conventions.
  * ctx is passed through from zbc_host_init().
+ *
+ * NOTE: Use int (not long) for return values - long varies by platform!
  */
 typedef struct zbc_backend {
     /* File operations */
     int (*open)(void *ctx, const char *path, size_t path_len, int mode);
     int (*close)(void *ctx, int fd);
-    long (*read)(void *ctx, int fd, void *buf, size_t count);
-    long (*write)(void *ctx, int fd, const void *buf, size_t count);
-    int (*seek)(void *ctx, int fd, long pos);
-    long (*flen)(void *ctx, int fd);
+    int (*read)(void *ctx, int fd, void *buf, size_t count);
+    int (*write)(void *ctx, int fd, const void *buf, size_t count);
+    int (*seek)(void *ctx, int fd, int pos);
+    int (*flen)(void *ctx, int fd);
     int (*remove)(void *ctx, const char *path, size_t path_len);
     int (*rename)(void *ctx, const char *old_path, size_t old_len,
                   const char *new_path, size_t new_len);
@@ -175,22 +241,22 @@ typedef struct zbc_backend {
     int (*readc)(void *ctx);
 
     /* Status queries */
-    int (*iserror)(void *ctx, long status);
+    int (*iserror)(void *ctx, int status);
     int (*istty)(void *ctx, int fd);
 
     /* Time */
-    long (*clock)(void *ctx);
-    long (*time)(void *ctx);
-    int (*elapsed)(void *ctx, unsigned long *lo, unsigned long *hi);
-    long (*tickfreq)(void *ctx);
+    int (*clock)(void *ctx);
+    int (*time)(void *ctx);
+    int (*elapsed)(void *ctx, unsigned int *lo, unsigned int *hi);
+    int (*tickfreq)(void *ctx);
 
     /* System */
     int (*do_system)(void *ctx, const char *cmd, size_t cmd_len);
     int (*get_cmdline)(void *ctx, char *buf, size_t buf_size);
-    int (*heapinfo)(void *ctx, unsigned long *heap_base,
-                    unsigned long *heap_limit, unsigned long *stack_base,
-                    unsigned long *stack_limit);
-    void (*do_exit)(void *ctx, unsigned long reason, unsigned long subcode);
+    int (*heapinfo)(void *ctx, unsigned int *heap_base,
+                    unsigned int *heap_limit, unsigned int *stack_base,
+                    unsigned int *stack_limit);
+    void (*do_exit)(void *ctx, unsigned int reason, unsigned int subcode);
 
     /* Error */
     int (*get_errno)(void *ctx);

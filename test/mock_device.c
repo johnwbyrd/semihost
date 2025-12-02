@@ -4,6 +4,7 @@
 
 #include "mock_device.h"
 #include "mock_memory.h"
+#include "zbc_semi_backend.h"
 #include <string.h>
 
 /*------------------------------------------------------------------------
@@ -57,14 +58,15 @@ void mock_device_init(mock_device_t *dev) {
   mock_device_set_signature(dev);
   mock_device_set_present(dev);
 
-  /* Initialize host state with mock memory ops */
+  /* Initialize host state with mock memory ops and dummy backend */
   mem_ops.read_u8 = mock_dev_read_u8;
   mem_ops.write_u8 = mock_dev_write_u8;
   mem_ops.read_block = mock_dev_read_block;
   mem_ops.write_block = mock_dev_write_block;
 
-  zbc_host_init(&dev->host_state, &mem_ops, dev, dev->work_buf,
-                sizeof(dev->work_buf));
+  zbc_host_init(&dev->host_state, &mem_ops, dev,
+                zbc_backend_dummy(), NULL,
+                dev->work_buf, sizeof(dev->work_buf));
 }
 
 void mock_device_set_signature(mock_device_t *dev) {
@@ -130,76 +132,3 @@ void mock_device_doorbell(mock_device_t *dev) {
   dev->regs[ZBC_REG_STATUS] |= ZBC_STATUS_RESPONSE_READY;
 }
 
-void mock_device_set_handler(mock_device_t *dev, uint8_t opcode,
-                             zbc_syscall_handler_t handler) {
-  if (!dev)
-    return;
-  zbc_host_set_handler(&dev->host_state, opcode, handler);
-}
-
-/*------------------------------------------------------------------------
- * Built-in test handlers
- *------------------------------------------------------------------------*/
-
-int mock_handler_return_42(zbc_syscall_ctx_t *ctx,
-                           zbc_syscall_result_t *result) {
-  (void)ctx;
-  result->result = 42;
-  result->error = 0;
-  result->data = NULL;
-  result->data_size = 0;
-  result->parm_count = 0;
-  return 0;
-}
-
-int mock_handler_echo(zbc_syscall_ctx_t *ctx, zbc_syscall_result_t *result) {
-  /* Echo back the first DATA chunk received */
-  result->result = 0;
-  result->error = 0;
-  result->parm_count = 0;
-
-  if (ctx->data_count > 0 && ctx->data[0].size > 0) {
-    result->data = ctx->data[0].data;
-    result->data_size = ctx->data[0].size;
-    result->result = (int64_t)ctx->data[0].size;
-  } else {
-    result->data = NULL;
-    result->data_size = 0;
-  }
-
-  return 0;
-}
-
-int mock_handler_error(zbc_syscall_ctx_t *ctx, zbc_syscall_result_t *result) {
-  (void)ctx;
-  result->result = -1;
-  result->error = 5; /* EIO */
-  result->data = NULL;
-  result->data_size = 0;
-  result->parm_count = 0;
-  return 0;
-}
-
-int mock_handler_heapinfo(zbc_syscall_ctx_t *ctx,
-                          zbc_syscall_result_t *result) {
-  (void)ctx;
-
-  result->result = 0;
-  result->error = 0;
-  result->data = NULL;
-  result->data_size = 0;
-
-  /* Return 4 test pointers as PARM chunks */
-  result->parm_count = 4;
-  result->parm_types[0] = ZBC_PARM_TYPE_PTR;
-  result->parm_types[1] = ZBC_PARM_TYPE_PTR;
-  result->parm_types[2] = ZBC_PARM_TYPE_PTR;
-  result->parm_types[3] = ZBC_PARM_TYPE_PTR;
-
-  result->parm_values[0] = 0x20001000; /* heap_base */
-  result->parm_values[1] = 0x20010000; /* heap_limit */
-  result->parm_values[2] = 0x20020000; /* stack_base */
-  result->parm_values[3] = 0x2002F000; /* stack_limit */
-
-  return 0;
-}

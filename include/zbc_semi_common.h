@@ -13,36 +13,38 @@ extern "C" {
 
 /*------------------------------------------------------------------------
  * Standard includes - C90 compatible
+ *
+ * Most modern compilers/systems provide <stdint.h> even in C90 mode.
+ * We include it unconditionally and only fall back to manual typedefs
+ * for truly ancient systems that don't have it (define ZBC_NO_STDINT).
  *------------------------------------------------------------------------*/
 
-#if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
-#include <stdint.h>
-#else
-/* C90 fallback - platform may need to override these */
+#include <stddef.h> /* for size_t */
+
+#ifdef ZBC_NO_STDINT
+/* Manual fallback for systems without <stdint.h> */
 typedef unsigned char uint8_t;
 typedef signed char int8_t;
 typedef unsigned short uint16_t;
 typedef signed short int16_t;
-typedef unsigned long uint32_t;
-typedef signed long int32_t;
+typedef unsigned int uint32_t;
+typedef signed int int32_t;
 #ifdef _MSC_VER
 typedef unsigned __int64 uint64_t;
 typedef signed __int64 int64_t;
 #else
-/* Many C90 compilers support long long as extension */
 typedef unsigned long long uint64_t;
 typedef signed long long int64_t;
 #endif
-/* uintptr_t: unsigned type capable of holding a pointer */
 #if defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__) ||          \
     defined(__LP64__)
 typedef uint64_t uintptr_t;
 #else
 typedef uint32_t uintptr_t;
 #endif
+#else
+#include <stdint.h>
 #endif
-
-#include <stddef.h> /* for size_t */
 
 /*------------------------------------------------------------------------
  * RIFF FourCC codes
