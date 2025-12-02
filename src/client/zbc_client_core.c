@@ -78,32 +78,6 @@ static int read_native_int(const uint8_t *buf, size_t size) {
   return result;
 }
 
-static unsigned int read_native_uint(const uint8_t *buf, size_t size) {
-  unsigned int value = 0;
-  size_t i;
-
-#if ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_LITTLE
-  for (i = size; i > 0; i--) {
-    value = (value << 8) | buf[i - 1];
-  }
-#elif ZBC_CLIENT_ENDIANNESS == ZBC_ENDIAN_BIG
-  for (i = 0; i < size; i++) {
-    value = (value << 8) | buf[i];
-  }
-#else
-  /* PDP endian */
-  for (i = 0; i < size; i += 2) {
-    if (i + 1 < size) {
-      value = (value << 16) | ((unsigned int)buf[i] << 8) | buf[i + 1];
-    } else {
-      value = (value << 8) | buf[i];
-    }
-  }
-#endif
-
-  return value;
-}
-
 /*------------------------------------------------------------------------
  * String length helper (avoids strlen dependency)
  *------------------------------------------------------------------------*/
