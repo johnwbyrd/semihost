@@ -33,6 +33,12 @@ typedef signed __int64     int64_t;
 typedef unsigned long long uint64_t;
 typedef signed long long   int64_t;
 #endif
+/* uintptr_t: unsigned type capable of holding a pointer */
+#if defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__) || defined(__LP64__)
+typedef uint64_t uintptr_t;
+#else
+typedef uint32_t uintptr_t;
+#endif
 #endif
 
 #include <stddef.h>  /* for size_t */
