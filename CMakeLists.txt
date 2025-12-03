@@ -30,6 +30,9 @@ endif()
 set(CMAKE_C_STANDARD 90)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
+# Sanitizers (ASan + UBSan)
+include(${CMAKE_SOURCE_DIR}/cmake/Sanitizers.cmake)
+
 # Warning flags (portable)
 if(MSVC)
     add_compile_options(/W4)
@@ -65,3 +68,9 @@ target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 # Tests
 enable_testing()
 add_subdirectory(test)
+
+# Fuzzing (optional, requires Clang)
+option(ENABLE_FUZZING "Enable libFuzzer-based fuzz targets (requires Clang)" OFF)
+if(ENABLE_FUZZING)
+    add_subdirectory(fuzz)
+endif()
