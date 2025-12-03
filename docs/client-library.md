@@ -1,117 +1,193 @@
-# Client Library Guide
+# Client Library
 
-How to use the client library in embedded targets.
+The client library provides semihosting services to guest code running on an emulator or hardware with a ZBC semihosting device. It gives you file I/O, console access, and time services from within your guest, without needing to write device drivers for your particular virtual hardware.
 
-## Overview
+When running in a virtual machine or emulator, semihosting escapes the virtual machine boundary.  Your guest code gains direct access to the host filesystem and console.  You can read test inputs, write output files, and log messages to the host during development, without bringing up those services on the emulated device itself.
 
-The client library runs on the guest (embedded target) and communicates with the semihosting device. It handles RIFF encoding/decoding so your code can make simple syscalls.
+## What You Get
 
-Most users won't need this directly — if you're using picolibc or newlib with ZBC support, semihosting is already integrated. This guide is for toolchain developers porting to new targets.
+- **File operations**: open, close, read, write, seek, get length, remove, rename
+- **Console I/O**: read/write characters and strings
+- **Time services**: wall clock time, elapsed ticks, tick frequency
+- **System**: exit, get command line, get heap info
 
-## Initialization
+## Setup
+
+Include the header and declare your state:
 
 ```c
-#include "zbc_semi_client.h"
+#include "zbc_client.h"
 
-zbc_client_state_t client;
+static zbc_client_state_t client;
+static uint8_t riff_buf[512];
+```
 
-/* Initialize with device base address */
+Initialize with the device base address for your particular architecture:
+
+```c
 zbc_client_init(&client, (void *)0xFFFF0000);
+```
 
-/* Optional: verify device is present */
+Optionally verify the device exists:
+
+```c
 if (!zbc_client_check_signature(&client)) {
     /* No semihosting device at this address */
 }
 ```
 
-## High-Level Syscall API
+## Making Calls
 
-The library provides wrappers for all ARM semihosting syscalls:
+All semihosting calls go through `zbc_call()`:
 
 ```c
-uint8_t buffer[256];
-
-/* Open a file */
-int fd = zbc_sys_open(&client, buffer, sizeof(buffer),
-                      "/tmp/test.txt", 4);  /* mode 4 = write */
-
-/* Write to file */
-const char *msg = "Hello\n";
-int result = zbc_sys_write(&client, buffer, sizeof(buffer),
-                           fd, msg, strlen(msg));
-
-/* Close file */
-zbc_sys_close(&client, buffer, sizeof(buffer), fd);
-
-/* Console output */
-zbc_sys_write0(&client, buffer, sizeof(buffer), "Hello, world!\n");
-
-/* Get time */
-unsigned int seconds = zbc_sys_time(&client, buffer, sizeof(buffer));
+uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
+                   int opcode, uintptr_t *args);
 ```
 
-## Low-Level Builder API
+- `state` - initialized client state
+- `buf` - working buffer for RIFF protocol (you provide this)
+- `buf_size` - size of buffer
+- `opcode` - syscall number (`SH_SYS_*` constants from `zbc_protocol.h`)
+- `args` - array of arguments, layout depends on opcode
 
-For more control, build RIFF requests manually:
+Returns the syscall result, or `(uintptr_t)-1` on error.
+
+### Console Output
+
+Write a string to console (SYS_WRITE0):
 
 ```c
-zbc_builder_t builder;
-zbc_response_t response;
-size_t riff_size;
+uintptr_t args[1];
+args[0] = (uintptr_t)"Hello, world!\n";
+zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_WRITE0, args);
+```
 
-/* Start a new request */
-zbc_builder_start(&builder, buffer, sizeof(buffer), &client);
+### Opening a File
 
-/* Begin a syscall (SYS_WRITE = 0x05) */
-zbc_builder_begin_call(&builder, 0x05);
+SYS_OPEN takes path pointer, mode, and path length:
 
-/* Add parameters */
-zbc_builder_add_parm_int(&builder, fd);           /* file descriptor */
-zbc_builder_add_data_binary(&builder, data, len); /* data to write */
-zbc_builder_add_parm_uint(&builder, len);         /* length */
+```c
+const char *path = "/tmp/test.txt";
+uintptr_t args[3];
+args[0] = (uintptr_t)path;
+args[1] = SH_OPEN_W;  /* write mode */
+args[2] = strlen(path);
 
-/* Finish and get RIFF size */
-zbc_builder_finish(&builder, &riff_size);
-
-/* Submit to device and wait */
-zbc_client_submit_poll(&client, buffer, riff_size);
-
-/* Parse response */
-zbc_parse_response(&response, buffer, sizeof(buffer), &client);
-
-/* Check result */
-if (response.result < 0) {
-    /* Error occurred, check response.host_errno */
+uintptr_t fd = zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_OPEN, args);
+if (fd == (uintptr_t)-1) {
+    /* open failed */
 }
 ```
+
+### Writing to a File
+
+SYS_WRITE takes fd, buffer pointer, and count. Returns bytes NOT written (0 = success):
+
+```c
+const char *data = "Hello\n";
+size_t len = 6;
+uintptr_t args[3];
+args[0] = fd;
+args[1] = (uintptr_t)data;
+args[2] = len;
+
+uintptr_t not_written = zbc_call(&client, riff_buf, sizeof(riff_buf),
+                                  SH_SYS_WRITE, args);
+```
+
+### Reading from a File
+
+SYS_READ takes fd, buffer pointer, and count. Returns bytes NOT read:
+
+```c
+char buf[256];
+uintptr_t args[3];
+args[0] = fd;
+args[1] = (uintptr_t)buf;
+args[2] = sizeof(buf);
+
+uintptr_t not_read = zbc_call(&client, riff_buf, sizeof(riff_buf),
+                               SH_SYS_READ, args);
+size_t bytes_read = sizeof(buf) - not_read;
+```
+
+### Closing a File
+
+```c
+uintptr_t args[1];
+args[0] = fd;
+zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_CLOSE, args);
+```
+
+### Getting the Time
+
+SYS_TIME returns seconds since Unix epoch:
+
+```c
+uintptr_t seconds = zbc_call(&client, riff_buf, sizeof(riff_buf),
+                              SH_SYS_TIME, NULL);
+```
+
+## Syscall Reference
+
+Each syscall has a specific args array layout. The opcode constants are defined in `zbc_protocol.h`.
+
+| Opcode | Name | Args | Returns |
+|--------|------|------|---------|
+| 0x01 | SH_SYS_OPEN | [0]=path, [1]=mode, [2]=len | fd or -1 |
+| 0x02 | SH_SYS_CLOSE | [0]=fd | 0 or -1 |
+| 0x03 | SH_SYS_WRITEC | [0]=char_ptr | (void) |
+| 0x04 | SH_SYS_WRITE0 | [0]=string_ptr | (void) |
+| 0x05 | SH_SYS_WRITE | [0]=fd, [1]=buf, [2]=count | bytes NOT written |
+| 0x06 | SH_SYS_READ | [0]=fd, [1]=buf, [2]=count | bytes NOT read |
+| 0x07 | SH_SYS_READC | (none) | char or -1 |
+| 0x08 | SH_SYS_ISERROR | [0]=status | 1 if error, 0 otherwise |
+| 0x09 | SH_SYS_ISTTY | [0]=fd | 1 if tty, 0 otherwise |
+| 0x0A | SH_SYS_SEEK | [0]=fd, [1]=pos | 0 or -1 |
+| 0x0C | SH_SYS_FLEN | [0]=fd | length or -1 |
+| 0x0D | SH_SYS_TMPNAM | [0]=buf, [1]=id, [2]=maxlen | 0 or -1, fills buf |
+| 0x0E | SH_SYS_REMOVE | [0]=path, [1]=len | 0 or -1 |
+| 0x0F | SH_SYS_RENAME | [0]=old, [1]=old_len, [2]=new, [3]=new_len | 0 or -1 |
+| 0x10 | SH_SYS_CLOCK | (none) | centiseconds since start |
+| 0x11 | SH_SYS_TIME | (none) | seconds since epoch |
+| 0x12 | SH_SYS_SYSTEM | [0]=cmd, [1]=len | exit code |
+| 0x13 | SH_SYS_ERRNO | (none) | last errno |
+| 0x15 | SH_SYS_GET_CMDLINE | [0]=buf, [1]=size | 0 or -1, fills buf |
+| 0x16 | SH_SYS_HEAPINFO | [0]=block_ptr | 0, fills 4 values |
+| 0x18 | SH_SYS_EXIT | [0]=reason, [1]=subcode | (no return) |
+| 0x30 | SH_SYS_ELAPSED | [0]=tick_ptr | 0, fills 8 bytes |
+| 0x31 | SH_SYS_TICKFREQ | (none) | ticks per second |
+
+### Open Mode Flags
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 0 | SH_OPEN_R | Read only |
+| 1 | SH_OPEN_RB | Read only, binary |
+| 4 | SH_OPEN_W | Write, truncate/create |
+| 5 | SH_OPEN_WB | Write binary, truncate/create |
+| 8 | SH_OPEN_A | Append, create if needed |
+
+See `zbc_protocol.h` for the full list (modes 0-11 corresponding to fopen modes).
 
 ## Buffer Management
 
-The library never allocates memory. You provide buffers for all operations.
+The library never allocates memory. You provide the RIFF buffer for each call.
 
-**Buffer sizing:**
-- 256 bytes: Sufficient for most syscalls
-- 1024 bytes: Comfortable for large file operations
-- Match your largest expected read/write size
+**Sizing:**
+- 256 bytes handles most syscalls
+- 512 bytes is comfortable for file operations
+- Match your largest read/write size plus ~64 bytes overhead
 
-**Stack vs static:**
-```c
-/* Stack allocation (typical) */
-void my_function(void) {
-    uint8_t buffer[256];
-    zbc_sys_write0(&client, buffer, sizeof(buffer), "Hello\n");
-}
-
-/* Static allocation (for interrupt handlers or limited stack) */
-static uint8_t semihost_buffer[256];
-```
+The buffer is reused for both request and response. After `zbc_call()` returns, the buffer contains the response data (for syscalls like SYS_READ that return data, the library copies it to your destination buffer automatically).
 
 ## picolibc Integration
 
 To integrate with picolibc's semihosting layer, implement `sys_semihost()`:
 
 ```c
-#include "zbc_semi_client.h"
+#include "zbc_client.h"
 
 static zbc_client_state_t client;
 static uint8_t riff_buf[1024];
@@ -123,38 +199,14 @@ uintptr_t sys_semihost(uintptr_t op, uintptr_t param)
         zbc_client_init(&client, (void *)SEMIHOST_DEVICE_ADDR);
         initialized = 1;
     }
-
     return zbc_semihost(&client, riff_buf, sizeof(riff_buf), op, param);
 }
 ```
 
-The `zbc_semihost()` function handles the ARM-style parameter block format used by picolibc.
-
-## Available Syscalls
-
-| Function | Syscall | Description |
-|----------|---------|-------------|
-| `zbc_sys_open` | SYS_OPEN | Open file |
-| `zbc_sys_close` | SYS_CLOSE | Close file |
-| `zbc_sys_read` | SYS_READ | Read from file |
-| `zbc_sys_write` | SYS_WRITE | Write to file |
-| `zbc_sys_writec` | SYS_WRITEC | Write character to console |
-| `zbc_sys_write0` | SYS_WRITE0 | Write string to console |
-| `zbc_sys_readc` | SYS_READC | Read character from console |
-| `zbc_sys_seek` | SYS_SEEK | Seek in file |
-| `zbc_sys_flen` | SYS_FLEN | Get file length |
-| `zbc_sys_remove` | SYS_REMOVE | Delete file |
-| `zbc_sys_rename` | SYS_RENAME | Rename file |
-| `zbc_sys_tmpnam` | SYS_TMPNAM | Generate temp filename |
-| `zbc_sys_clock` | SYS_CLOCK | Centiseconds since start |
-| `zbc_sys_time` | SYS_TIME | Seconds since epoch |
-| `zbc_sys_errno` | SYS_ERRNO | Get last error |
-| `zbc_sys_get_cmdline` | SYS_GET_CMDLINE | Get command line |
-| `zbc_sys_heapinfo` | SYS_HEAPINFO | Get heap/stack info |
-| `zbc_sys_exit` | SYS_EXIT | Exit program |
-| `zbc_sys_tickfreq` | SYS_TICKFREQ | Get tick frequency |
+The `zbc_semihost()` function is a thin wrapper around `zbc_call()` that accepts the ARM-style parameter block format (op, pointer-to-args) used by picolibc and newlib.
 
 ## See Also
 
-- [Protocol Specification](specification.md) — RIFF format details
-- `include/zbc_semi_client.h` — Full API documentation
+- [Protocol Specification](specification.md) - wire format details
+- `include/zbc_client.h` - API declarations
+- `include/zbc_protocol.h` - opcodes and constants

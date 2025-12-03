@@ -9,12 +9,9 @@
 2. [Hardware Architecture](#hardware-architecture)
 3. [RIFF Protocol](#riff-protocol)
 4. [Operation Modes](#operation-modes)
-5. [Guest Software Integration](#guest-software-integration)
-6. [Host Implementation](#host-implementation)
-7. [Complete Examples](#complete-examples)
-8. [ARM Semihosting Compatibility](#arm-semihosting-compatibility)
-9. [Future Extensions](#future-extensions)
-10. [Reference Tables](#reference-tables)
+5. [ARM Semihosting Compatibility](#arm-semihosting-compatibility)
+6. [Future Extensions](#future-extensions)
+7. [Reference Tables](#reference-tables)
 
 ---
 
@@ -584,8 +581,8 @@ This protocol uses the **ARM Semihosting specification** syscall numbers for max
 | 0x02 | SYS_CLOSE | (fd) | 0 or -1 |
 | 0x03 | SYS_WRITEC | (char_ptr) | - |
 | 0x04 | SYS_WRITE0 | (string) | - |
-| 0x05 | SYS_WRITE | (fd, data, length) | bytes written or -1 |
-| 0x06 | SYS_READ | (fd, length) | bytes read or -1 |
+| 0x05 | SYS_WRITE | (fd, data, length) | bytes NOT written (0 = success) |
+| 0x06 | SYS_READ | (fd, length) | bytes NOT read (0 = complete) |
 | 0x07 | SYS_READC | () | character (0-255) |
 | 0x08 | SYS_ISERROR | (status) | error code or 0 |
 | 0x09 | SYS_ISTTY | (fd) | 1 if TTY, 0 otherwise |

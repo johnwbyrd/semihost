@@ -1,28 +1,47 @@
-# ZBC Semihosting Libraries
+# ZBC Semihosting
 
-C libraries for implementing the ZBC semihosting device.
+C libraries for memory-mapped semihosting. Provides file I/O, console, and time services to guest programs, via a simple device register interface.
 
-**ZBC** (Zero Board Computer) is a minimal hardware specification for bringing up compilers and libraries on new CPUs. **Semihosting** provides I/O services (file access, console, timekeeping) to guest programs via a memory-mapped device instead of architecture-specific trap instructions.
+## Who Is This For?
+
+- **Emulator authors** — add semihosting to your emulator so guest programs can access host files
+- **libc porters** — implement `fopen`/`fread`/`fwrite` on a new target without real device drivers
+- **Toolchain developers** — run compiler test suites on emulated hardware without writing filesystem drivers
+
+## Features
+
+- Works on any CPU from 8-bit to 64-bit (architecture-agnostic RIFF protocol)
+- ARM semihosting compatible syscall numbers
+- C90 compliant, zero heap allocation
+- Secure (sandboxed) and insecure backends
 
 ## Documentation
 
 | I want to... | Read this |
 |--------------|-----------|
-| Add semihosting to my emulator | [Emulator Integration Guide](docs/emulator-integration.md) |
-| Port the client library to a new target | [Client Library Guide](docs/client-library.md) |
+| Add semihosting to my emulator | [Emulator Integration](docs/emulator-integration.md) |
+| Use semihosting from guest code | [Client Library](docs/client-library.md) |
 | Understand the wire protocol | [Protocol Specification](docs/specification.md) |
 
-## Quick Start
+## Building
 
 ```bash
-cmake -B build && cmake --build build && ctest --test-dir build
+cmake -B build && cmake --build build
 ```
+
+## Testing
+
+```bash
+ctest --test-dir build
+```
+
+Tests run on Linux, macOS, and Windows. CI includes AddressSanitizer, UndefinedBehaviorSanitizer, and continuous fuzzing via ClusterFuzzLite.
 
 ## Related Projects
 
-- [MAME](https://github.com/mamedev/mame) — Includes ZBC machine drivers and semihosting plugin
-- [zeroboardcomputer.com](https://www.zeroboardcomputer.com) — ZBC specification and documentation
+- [MAME](https://github.com/mamedev/mame) — includes ZBC machine drivers
+- [zeroboardcomputer.com](https://www.zeroboardcomputer.com) — ZBC specification
 
 ## License
 
-BSD-3-Clause
+[MIT](LICENSE) (SPDX: `MIT`)
