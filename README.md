@@ -19,8 +19,8 @@ A semihosting device provides file I/O, console, and time services to guest prog
 - ARM semihosting compatible syscall numbers
 - C90 compliant, extremely portable, with zero heap allocation
 - Secure (sandboxed) and insecure backends
-- GitHub test suite fir Ubuntu, MacOS, and Windows
-- Fuzzer for RIFF parser to reduce possibility of malicious use
+- GitHub test suite for Ubuntu, MacOS, and Windows
+- GitHub automatic fuzzing of RIFF parser to reduce possibility of malicious use
 
 ## Documentation
 
