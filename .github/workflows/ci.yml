@@ -26,3 +26,18 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure -C Release -V
+
+  sanitizers:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with Sanitizers
+        run: cmake -B build -DENABLE_SANITIZERS=ON -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_COMPILER=clang
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test with ASan + UBSan
+        run: ctest --test-dir build --output-on-failure -V
