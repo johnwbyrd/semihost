@@ -1,6 +1,8 @@
 name: ClusterFuzzLite
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
   schedule:
@@ -12,9 +14,9 @@ permissions:
   security-events: write
 
 jobs:
-  # PR fuzzing - quick check on every PR
+  # Quick fuzzing on PR and push to main
   pr-fuzzing:
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
