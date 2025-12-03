@@ -2,7 +2,9 @@
  * ZBC Semihosting ANSI C Backend
  *
  * Implements semihosting using only standard C library functions.
- * Portable across any hosted environment with ANSI C support.
+ * Provides two backends:
+ *   - zbc_backend_ansi(): Secure, sandboxed (recommended)
+ *   - zbc_backend_ansi_insecure(): Unrestricted (explicit opt-in)
  */
 
 #include "zbc_semihost.h"
@@ -12,127 +14,13 @@
 #include <time.h>
 #include <errno.h>
 
-/*------------------------------------------------------------------------
- * File descriptor table
- *
- * fd 0-2 are reserved for stdin/stdout/stderr.
- * fd 3+ are dynamically allocated FILE* handles.
- *------------------------------------------------------------------------*/
+/*========================================================================
+ * Shared helpers
+ *========================================================================*/
 
-#define ANSI_FIRST_FD 3
-#define ANSI_INITIAL_CAPACITY 64 /* Use a reasonable initial capacity */
-
-static FILE **ansi_files_ptr = NULL;
-static int ansi_files_capacity = 0;
-static int ansi_next_fd = ANSI_FIRST_FD; /* Smallest FD is 3 */
-static int ansi_last_errno = 0;
-static clock_t ansi_start_clock;
-
-typedef struct FreeFDNode {
-    int fd;
-    struct FreeFDNode *next;
-} FreeFDNode;
-
-static FreeFDNode *ansi_free_fd_list = NULL;
-static int ansi_initialized = 0;
-
-static void ansi_init(void)
-{
-    if (ansi_initialized) {
-        return;
-    }
-
-    ansi_files_ptr = (FILE**)calloc(ANSI_INITIAL_CAPACITY, sizeof(FILE*));
-    if (ansi_files_ptr == NULL) {
-        /* Handle allocation error, though in semihosting this might be tricky */
-        exit(1); /* or some other error handling */
-    }
-    ansi_files_capacity = ANSI_INITIAL_CAPACITY;
-    ansi_next_fd = ANSI_FIRST_FD;
-    ansi_free_fd_list = NULL;
-
-    ansi_start_clock = clock();
-    ansi_initialized = 1;
-}
-
-/* Helper to resize the ansi_files_ptr array */
-static int ansi_resize_fd_array(int required_capacity)
-{
-    int new_capacity;
-    FILE **new_ptr;
-    int i;
-
-    new_capacity = ansi_files_capacity;
-    if (new_capacity == 0) {
-        new_capacity = ANSI_INITIAL_CAPACITY; /* Start with initial capacity if currently 0 */
-    }
-    while (new_capacity < required_capacity) {
-        new_capacity *= 2;
-    }
-
-    new_ptr = (FILE**)realloc(ansi_files_ptr, new_capacity * sizeof(FILE*));
-    if (new_ptr == NULL) {
-        return -1; /* realloc failed */
-    }
-
-    /* Initialize newly allocated memory to NULL */
-    for (i = ansi_files_capacity; i < new_capacity; i++) {
-        new_ptr[i] = NULL;
-    }
-
-    ansi_files_ptr = new_ptr;
-    ansi_files_capacity = new_capacity;
-    return 0;
-}
-
-static int ansi_alloc_fd(FILE *fp)
-{
-    int new_fd;
-    int idx;
-    FreeFDNode *node_to_reuse;
-
-    if (ansi_free_fd_list != NULL) {
-        /* Reuse an FD from the free list */
-        node_to_reuse = ansi_free_fd_list;
-        new_fd = node_to_reuse->fd;
-        ansi_free_fd_list = node_to_reuse->next;
-        free(node_to_reuse);
-    } else {
-        /* Allocate a new FD */
-        new_fd = ansi_next_fd++;
-    }
-
-    idx = new_fd - ANSI_FIRST_FD;
-
-    /* Ensure array has capacity for this FD */
-    if (idx >= ansi_files_capacity) {
-        if (ansi_resize_fd_array(idx + 1) != 0) {
-            return -1; /* Failed to resize */
-        }
-    }
-
-    ansi_files_ptr[idx] = fp;
-    return new_fd;
-}
-
-static FILE *ansi_get_file(int fd)
-{
-    /* Handle stdin/stdout/stderr */
-    if (fd == 0) return stdin;
-    if (fd == 1) return stdout;
-    if (fd == 2) return stderr;
-
-    /* Validate FD and array bounds */
-    if (fd < ANSI_FIRST_FD || (fd - ANSI_FIRST_FD >= ansi_files_capacity)) {
-        return NULL; /* Invalid FD or out of bounds */
-    }
-
-    return ansi_files_ptr[fd - ANSI_FIRST_FD];
-}
-/*------------------------------------------------------------------------
+/*
  * ARM semihosting open mode to fopen mode string mapping
- *------------------------------------------------------------------------*/
-
+ */
 static const char *ansi_mode_string(int mode)
 {
     switch (mode) {
@@ -152,47 +40,351 @@ static const char *ansi_mode_string(int mode)
     }
 }
 
-/*------------------------------------------------------------------------
- * Backend implementation
- *------------------------------------------------------------------------*/
+/*
+ * Check if open mode is a write mode (modes 4+ involve writing)
+ */
+static int ansi_mode_is_write(int mode)
+{
+    return (mode >= 4);
+}
+
+/*========================================================================
+ * SECURE BACKEND - Path Normalization and Validation
+ *========================================================================*/
+
+/*
+ * Normalize a path in-place (C90 compatible).
+ *
+ * Operations:
+ * 1. Collapse multiple slashes: "a//b" -> "a/b"
+ * 2. Remove . components: "a/./b" -> "a/b"
+ * 3. Resolve .. components: "a/b/../c" -> "a/c"
+ *
+ * Returns new length of normalized path.
+ */
+static size_t ansi_path_normalize(char *path, size_t path_len)
+{
+    size_t read_pos;
+    size_t write_pos;
+    size_t component_start;
+    size_t comp_len;
+    int is_absolute;
+    char c;
+
+    if (path_len == 0) {
+        return 0;
+    }
+
+    /* Check if absolute path */
+    is_absolute = (path[0] == '/' || path[0] == '\\');
+
+    read_pos = 0;
+    write_pos = 0;
+
+    /* Preserve leading slash for absolute paths */
+    if (is_absolute) {
+        path[write_pos++] = '/';
+        /* Skip all leading slashes */
+        while (read_pos < path_len &&
+               (path[read_pos] == '/' || path[read_pos] == '\\')) {
+            read_pos++;
+        }
+    }
+
+    component_start = write_pos;
+
+    while (read_pos < path_len) {
+        c = path[read_pos];
+
+        if (c == '/' || c == '\\') {
+            /* End of component */
+            comp_len = write_pos - component_start;
+
+            if (comp_len == 1 && path[component_start] == '.') {
+                /* "." - remove it */
+                write_pos = component_start;
+            } else if (comp_len == 2 && path[component_start] == '.' &&
+                       path[component_start + 1] == '.') {
+                /* ".." - go up one level */
+                write_pos = component_start;
+                if (write_pos > 0) {
+                    write_pos--;  /* Remove trailing slash */
+                    /* Find previous slash (but not past root) */
+                    while (write_pos > (is_absolute ? 1 : 0) &&
+                           path[write_pos - 1] != '/' &&
+                           path[write_pos - 1] != '\\') {
+                        write_pos--;
+                    }
+                }
+            }
+
+            /* Skip multiple slashes */
+            while (read_pos < path_len &&
+                   (path[read_pos] == '/' || path[read_pos] == '\\')) {
+                read_pos++;
+            }
+
+            /* Add slash if we have content and more to come */
+            if (write_pos > 0 && read_pos < path_len) {
+                path[write_pos++] = '/';
+            }
+            component_start = write_pos;
+        } else {
+            path[write_pos++] = c;
+            read_pos++;
+        }
+    }
+
+    /* Handle trailing component */
+    comp_len = write_pos - component_start;
+    if (comp_len == 1 && path[component_start] == '.') {
+        write_pos = component_start;
+        if (write_pos > 0) {
+            write_pos--;  /* Remove trailing slash */
+        }
+    } else if (comp_len == 2 && path[component_start] == '.' &&
+               path[component_start + 1] == '.') {
+        write_pos = component_start;
+        if (write_pos > 0) {
+            write_pos--;
+            while (write_pos > 0 && path[write_pos - 1] != '/' &&
+                   path[write_pos - 1] != '\\') {
+                write_pos--;
+            }
+            if (write_pos > 0) {
+                write_pos--;
+            }
+        }
+    }
+
+    /* Remove trailing slash unless it's the root */
+    if (write_pos > 1 && path[write_pos - 1] == '/') {
+        write_pos--;
+    }
+
+    path[write_pos] = '\0';
+    return write_pos;
+}
+
+/*
+ * Validate a path against sandbox and path rules.
+ *
+ * Returns:
+ *   0 if path is allowed (resolved path written to state->path_buf)
+ *   -1 if path is denied
+ */
+static int ansi_validate_path(zbc_ansi_state_t *state, const char *path,
+                              size_t path_len, int for_write,
+                              size_t *resolved_len)
+{
+    size_t norm_len;
+    int i;
+
+    /* Use custom policy if provided */
+    if (state->policy && state->policy->validate_path) {
+        return state->policy->validate_path(
+            state->policy_ctx, path, path_len, for_write,
+            state->path_buf, sizeof(state->path_buf), resolved_len);
+    }
+
+    /* Check if path is absolute or relative */
+    if (path_len > 0 && (path[0] == '/' || path[0] == '\\')) {
+        /* Absolute path - copy and normalize */
+        if (path_len >= sizeof(state->path_buf)) {
+            return -1;  /* Path too long */
+        }
+        memcpy(state->path_buf, path, path_len);
+        state->path_buf[path_len] = '\0';
+        norm_len = ansi_path_normalize(state->path_buf, path_len);
+
+        /* Check primary sandbox */
+        if (norm_len >= state->sandbox_dir_len &&
+            memcmp(state->path_buf, state->sandbox_dir,
+                   state->sandbox_dir_len) == 0) {
+            *resolved_len = norm_len;
+            return 0;  /* Allowed */
+        }
+
+        /* Check additional path rules */
+        for (i = 0; i < state->path_rule_count; i++) {
+            const zbc_ansi_path_rule_t *rule = &state->path_rules[i];
+            if (norm_len >= rule->prefix_len &&
+                memcmp(state->path_buf, rule->prefix, rule->prefix_len) == 0) {
+                if (for_write && !rule->allow_write) {
+                    if (state->on_violation) {
+                        state->on_violation(state->callback_ctx,
+                                            ZBC_ANSI_VIOL_WRITE_BLOCKED, path);
+                    }
+                    return -1;  /* Write to read-only path */
+                }
+                *resolved_len = norm_len;
+                return 0;  /* Allowed */
+            }
+        }
+
+        /* No rule matched - deny */
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_PATH_BLOCKED, path);
+        }
+        return -1;
+    }
+
+    /* Relative path - prepend sandbox FIRST, then normalize */
+    if (state->sandbox_dir_len + path_len + 1 >= sizeof(state->path_buf)) {
+        return -1;  /* Would overflow */
+    }
+
+    /* Copy sandbox, then original path (not pre-normalized) */
+    memcpy(state->path_buf, state->sandbox_dir, state->sandbox_dir_len);
+    memcpy(state->path_buf + state->sandbox_dir_len, path, path_len);
+    norm_len = state->sandbox_dir_len + path_len;
+    state->path_buf[norm_len] = '\0';
+
+    /* Now normalize the combined path */
+    norm_len = ansi_path_normalize(state->path_buf, norm_len);
+
+    /* Verify result is still in sandbox */
+    if (norm_len < state->sandbox_dir_len ||
+        memcmp(state->path_buf, state->sandbox_dir,
+               state->sandbox_dir_len) != 0) {
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_PATH_TRAVERSAL, path);
+        }
+        return -1;
+    }
+
+    *resolved_len = norm_len;
+    return 0;
+}
+
+/*========================================================================
+ * SECURE BACKEND - File Descriptor Management
+ *========================================================================*/
+
+static int ansi_alloc_fd(zbc_ansi_state_t *state, FILE *fp)
+{
+    int fd;
+    int idx;
+    zbc_ansi_fd_node_t *node;
+
+    if (state->free_fd_list != NULL) {
+        /* Reuse from free list (LIFO) */
+        node = state->free_fd_list;
+        fd = node->fd;
+        state->free_fd_list = node->next;
+        node->fd = 0;
+        node->next = NULL;
+    } else {
+        /* Allocate new */
+        fd = state->next_fd++;
+    }
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return -1;  /* Out of FDs */
+    }
+
+    state->files[idx] = fp;
+    return fd;
+}
+
+static void ansi_free_fd(zbc_ansi_state_t *state, int fd)
+{
+    int idx;
+    int pool_idx;
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return;
+    }
+
+    state->files[idx] = NULL;
+
+    /* Find a free pool slot and add to free list */
+    for (pool_idx = 0; pool_idx < ZBC_ANSI_MAX_FILES; pool_idx++) {
+        if (state->fd_pool[pool_idx].fd == 0 ||
+            state->fd_pool[pool_idx].fd == fd) {
+            state->fd_pool[pool_idx].fd = fd;
+            state->fd_pool[pool_idx].next = state->free_fd_list;
+            state->free_fd_list = &state->fd_pool[pool_idx];
+            break;
+        }
+    }
+}
+
+static FILE *ansi_get_file(zbc_ansi_state_t *state, int fd)
+{
+    int idx;
+
+    /* Handle stdin/stdout/stderr */
+    if (fd == 0) return stdin;
+    if (fd == 1) return stdout;
+    if (fd == 2) return stderr;
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return NULL;
+    }
+
+    return (FILE *)state->files[idx];
+}
+
+/*========================================================================
+ * SECURE BACKEND - Implementation
+ *========================================================================*/
 
 static int ansi_open(void *ctx, const char *path, size_t path_len, int mode)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     const char *mode_str;
     FILE *fp;
     int fd;
-    char *path_copy;
+    int for_write;
+    size_t resolved_len;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
+    /* Check read-only flag */
+    for_write = ansi_mode_is_write(mode);
+    if (for_write && (state->flags & ZBC_ANSI_FLAG_READ_ONLY)) {
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_WRITE_BLOCKED, path);
+        }
+        state->last_errno = EACCES;
+        return -1;
+    }
+
+    /* Validate and resolve path */
+    if (ansi_validate_path(state, path, path_len, for_write,
+                           &resolved_len) != 0) {
+        state->last_errno = EACCES;
+        return -1;
+    }
+
+    /* Get mode string */
     mode_str = ansi_mode_string(mode);
     if (mode_str == NULL) {
-        ansi_last_errno = EINVAL;
+        state->last_errno = EINVAL;
         return -1;
     }
 
-    /* Path may not be null-terminated, so make a copy */
-    path_copy = (char *)malloc(path_len + 1);
-    if (path_copy == NULL) {
-        ansi_last_errno = ENOMEM;
-        return -1;
-    }
-    memcpy(path_copy, path, path_len);
-    path_copy[path_len] = '\0';
-
-    fp = fopen(path_copy, mode_str);
-    free(path_copy);
-
+    /* Open the file */
+    fp = fopen(state->path_buf, mode_str);
     if (fp == NULL) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
-    fd = ansi_alloc_fd(fp);
+    /* Allocate FD */
+    fd = ansi_alloc_fd(state, fp);
     if (fd < 0) {
         fclose(fp);
-        ansi_last_errno = EMFILE;
+        state->last_errno = EMFILE;
         return -1;
     }
 
@@ -201,65 +393,52 @@ static int ansi_open(void *ctx, const char *path, size_t path_len, int mode)
 
 static int ansi_close(void *ctx, int fd)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
-    FreeFDNode *new_node;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
     /* Cannot close stdin/stdout/stderr */
-    if (fd < ANSI_FIRST_FD) {
-        return 0; /* Silently succeed */
+    if (fd < ZBC_ANSI_FIRST_FD) {
+        return 0;
     }
 
-    /* Validate FD and array bounds */
-    if (fd - ANSI_FIRST_FD >= ansi_files_capacity || ansi_files_ptr[fd - ANSI_FIRST_FD] == NULL) {
-         ansi_last_errno = EBADF;
+    fp = ansi_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
         return -1;
     }
-
-    fp = ansi_files_ptr[fd - ANSI_FIRST_FD];
 
     if (fclose(fp) != 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
-    /* Mark the slot as free */
-    ansi_files_ptr[fd - ANSI_FIRST_FD] = NULL;
-
-    /* Add FD to free list */
-    new_node = (FreeFDNode *)malloc(sizeof(FreeFDNode));
-    if (new_node == NULL) {
-        /* This is a critical error, but we've already closed the file.
-         * Cannot add to free list, so this FD won't be reused.
-         * Consider logging or handling more robustly if needed. */
-        return 0; /* Still succeed for the close operation itself */
-    }
-    new_node->fd = fd;
-    new_node->next = ansi_free_fd_list;
-    ansi_free_fd_list = new_node;
-
+    ansi_free_fd(state, fd);
     return 0;
 }
 
 static int ansi_read(void *ctx, int fd, void *buf, size_t count)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
     size_t nread;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
-    fp = ansi_get_file(fd);
+    fp = ansi_get_file(state, fd);
     if (fp == NULL) {
-        ansi_last_errno = EBADF;
+        state->last_errno = EBADF;
         return -1;
     }
 
     nread = fread(buf, 1, count, fp);
     if (nread < count && ferror(fp)) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
@@ -269,21 +448,23 @@ static int ansi_read(void *ctx, int fd, void *buf, size_t count)
 
 static int ansi_write(void *ctx, int fd, const void *buf, size_t count)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
     size_t nwritten;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
-    fp = ansi_get_file(fd);
+    fp = ansi_get_file(state, fd);
     if (fp == NULL) {
-        ansi_last_errno = EBADF;
+        state->last_errno = EBADF;
         return -1;
     }
 
     nwritten = fwrite(buf, 1, count, fp);
     if (nwritten < count) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
     }
 
     /* Flush stdout/stderr immediately for console output */
@@ -297,19 +478,21 @@ static int ansi_write(void *ctx, int fd, const void *buf, size_t count)
 
 static int ansi_seek(void *ctx, int fd, int pos)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
-    fp = ansi_get_file(fd);
+    fp = ansi_get_file(state, fd);
     if (fp == NULL) {
-        ansi_last_errno = EBADF;
+        state->last_errno = EBADF;
         return -1;
     }
 
     if (fseek(fp, pos, SEEK_SET) != 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
@@ -318,39 +501,41 @@ static int ansi_seek(void *ctx, int fd, int pos)
 
 static int ansi_flen(void *ctx, int fd)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
     long cur_pos;
     long end_pos;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
-    fp = ansi_get_file(fd);
+    fp = ansi_get_file(state, fd);
     if (fp == NULL) {
-        ansi_last_errno = EBADF;
+        state->last_errno = EBADF;
         return -1;
     }
 
     cur_pos = ftell(fp);
     if (cur_pos < 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
     if (fseek(fp, 0, SEEK_END) != 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
     end_pos = ftell(fp);
     if (end_pos < 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         fseek(fp, cur_pos, SEEK_SET);
         return -1;
     }
 
     if (fseek(fp, cur_pos, SEEK_SET) != 0) {
-        ansi_last_errno = errno;
+        state->last_errno = errno;
         return -1;
     }
 
@@ -359,65 +544,79 @@ static int ansi_flen(void *ctx, int fd)
 
 static int ansi_remove_file(void *ctx, const char *path, size_t path_len)
 {
-    char *path_copy;
-    int result;
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+    size_t resolved_len;
 
-    (void)ctx;
-    ansi_init();
-
-    path_copy = (char *)malloc(path_len + 1);
-    if (path_copy == NULL) {
-        ansi_last_errno = ENOMEM;
+    if (!state || !state->initialized) {
         return -1;
     }
-    memcpy(path_copy, path, path_len);
-    path_copy[path_len] = '\0';
 
-    result = remove(path_copy);
-    free(path_copy);
+    /* Check read-only flag */
+    if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_REMOVE_BLOCKED, path);
+        }
+        state->last_errno = EACCES;
+        return -1;
+    }
 
-    if (result != 0) {
-        ansi_last_errno = errno;
+    /* Validate path (remove is a write operation) */
+    if (ansi_validate_path(state, path, path_len, 1, &resolved_len) != 0) {
+        state->last_errno = EACCES;
+        return -1;
+    }
+
+    if (remove(state->path_buf) != 0) {
+        state->last_errno = errno;
         return -1;
     }
 
     return 0;
 }
 
-static int ansi_rename_file(void *ctx,
-                            const char *old_path, size_t old_len,
+static int ansi_rename_file(void *ctx, const char *old_path, size_t old_len,
                             const char *new_path, size_t new_len)
 {
-    char *old_copy;
-    char *new_copy;
-    int result;
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+    char old_resolved[ZBC_ANSI_PATH_BUF_MAX];
+    size_t old_resolved_len;
+    size_t new_resolved_len;
 
-    (void)ctx;
-    ansi_init();
-
-    old_copy = (char *)malloc(old_len + 1);
-    if (old_copy == NULL) {
-        ansi_last_errno = ENOMEM;
+    if (!state || !state->initialized) {
         return -1;
     }
-    memcpy(old_copy, old_path, old_len);
-    old_copy[old_len] = '\0';
 
-    new_copy = (char *)malloc(new_len + 1);
-    if (new_copy == NULL) {
-        free(old_copy);
-        ansi_last_errno = ENOMEM;
+    /* Check read-only flag */
+    if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_RENAME_BLOCKED, old_path);
+        }
+        state->last_errno = EACCES;
         return -1;
     }
-    memcpy(new_copy, new_path, new_len);
-    new_copy[new_len] = '\0';
 
-    result = rename(old_copy, new_copy);
-    free(old_copy);
-    free(new_copy);
+    /* Validate old path */
+    if (ansi_validate_path(state, old_path, old_len, 1,
+                           &old_resolved_len) != 0) {
+        state->last_errno = EACCES;
+        return -1;
+    }
 
-    if (result != 0) {
-        ansi_last_errno = errno;
+    /* Save old resolved path */
+    memcpy(old_resolved, state->path_buf, old_resolved_len + 1);
+
+    /* Validate new path */
+    if (ansi_validate_path(state, new_path, new_len, 1,
+                           &new_resolved_len) != 0) {
+        state->last_errno = EACCES;
+        return -1;
+    }
+
+    /* Now state->path_buf has new path, old_resolved has old path */
+    if (rename(old_resolved, state->path_buf) != 0) {
+        state->last_errno = errno;
         return -1;
     }
 
@@ -426,23 +625,30 @@ static int ansi_rename_file(void *ctx,
 
 static int ansi_tmpnam_func(void *ctx, char *buf, size_t buf_size, int id)
 {
-    (void)ctx;
-    ansi_init();
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+    size_t needed;
 
-    /* Generate a simple temp name: tmp<id>.tmp */
-    if (buf_size < 12) {
-        ansi_last_errno = EINVAL;
+    if (!state || !state->initialized) {
         return -1;
     }
 
-    sprintf(buf, "tmp%03d.tmp", id % 1000);
+    /* Format: {sandbox_dir}tmp{id:03d}.tmp */
+    needed = state->sandbox_dir_len + 3 + 3 + 4 + 1;  /* tmp + NNN + .tmp + \0 */
+
+    if (buf_size < needed) {
+        state->last_errno = EINVAL;
+        return -1;
+    }
+
+    memcpy(buf, state->sandbox_dir, state->sandbox_dir_len);
+    sprintf(buf + state->sandbox_dir_len, "tmp%03d.tmp", id % 1000);
+
     return 0;
 }
 
 static void ansi_writec(void *ctx, char c)
 {
     (void)ctx;
-    ansi_init();
     putchar(c);
     fflush(stdout);
 }
@@ -450,7 +656,6 @@ static void ansi_writec(void *ctx, char c)
 static void ansi_write0(void *ctx, const char *str)
 {
     (void)ctx;
-    ansi_init();
     fputs(str, stdout);
     fflush(stdout);
 }
@@ -459,7 +664,6 @@ static int ansi_readc(void *ctx)
 {
     int c;
     (void)ctx;
-    ansi_init();
     c = getchar();
     if (c == EOF) {
         return -1;
@@ -476,8 +680,6 @@ static int ansi_iserror(void *ctx, int status)
 static int ansi_istty(void *ctx, int fd)
 {
     (void)ctx;
-    /* In pure ANSI C, we can't determine if fd is a TTY.
-     * Assume stdin/stdout/stderr are TTYs. */
     if (fd >= 0 && fd <= 2) {
         return 1;
     }
@@ -486,14 +688,16 @@ static int ansi_istty(void *ctx, int fd)
 
 static int ansi_clock_func(void *ctx)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     clock_t now;
     clock_t elapsed;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
     now = clock();
-    elapsed = now - ansi_start_clock;
+    elapsed = now - (clock_t)state->start_clock;
 
     /* Convert to centiseconds */
     return (int)((elapsed * 100) / CLOCKS_PER_SEC);
@@ -504,11 +708,9 @@ static int ansi_time_func(void *ctx)
     time_t t;
 
     (void)ctx;
-    ansi_init();
 
     t = time(NULL);
     if (t == (time_t)-1) {
-        ansi_last_errno = errno;
         return -1;
     }
 
@@ -517,18 +719,19 @@ static int ansi_time_func(void *ctx)
 
 static int ansi_elapsed(void *ctx, unsigned int *lo, unsigned int *hi)
 {
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     clock_t now;
     clock_t elapsed;
 
-    (void)ctx;
-    ansi_init();
+    if (!state || !state->initialized) {
+        return -1;
+    }
 
     now = clock();
-    elapsed = now - ansi_start_clock;
+    elapsed = now - (clock_t)state->start_clock;
 
-    /* Return as ticks (same as clock value) */
     *lo = (unsigned int)elapsed;
-    *hi = 0; /* Assume clock_t fits in 32 bits for simplicity */
+    *hi = 0;
 
     return 0;
 }
@@ -541,79 +744,123 @@ static int ansi_tickfreq(void *ctx)
 
 static int ansi_do_system(void *ctx, const char *cmd, size_t cmd_len)
 {
-    char *cmd_copy;
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     int result;
 
-    (void)ctx;
-    ansi_init();
-
-    cmd_copy = (char *)malloc(cmd_len + 1);
-    if (cmd_copy == NULL) {
-        ansi_last_errno = ENOMEM;
+    if (!state || !state->initialized) {
         return -1;
     }
-    memcpy(cmd_copy, cmd, cmd_len);
-    cmd_copy[cmd_len] = '\0';
 
-    result = system(cmd_copy);
-    free(cmd_copy);
+    /* Check if system() is allowed */
+    if (!(state->flags & ZBC_ANSI_FLAG_ALLOW_SYSTEM)) {
+        if (state->on_violation) {
+            state->on_violation(state->callback_ctx,
+                                ZBC_ANSI_VIOL_SYSTEM_BLOCKED, cmd);
+        }
+        return -1;
+    }
 
+    /* Check custom policy */
+    if (state->policy && state->policy->validate_system) {
+        if (state->policy->validate_system(state->policy_ctx,
+                                           cmd, cmd_len) != 0) {
+            if (state->on_violation) {
+                state->on_violation(state->callback_ctx,
+                                    ZBC_ANSI_VIOL_SYSTEM_BLOCKED, cmd);
+            }
+            return -1;
+        }
+    }
+
+    /* Copy command to path_buf for null-termination */
+    if (cmd_len >= sizeof(state->path_buf)) {
+        state->last_errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(state->path_buf, cmd, cmd_len);
+    state->path_buf[cmd_len] = '\0';
+
+    result = system(state->path_buf);
     return result;
 }
 
 static int ansi_get_cmdline(void *ctx, char *buf, size_t buf_size)
 {
     (void)ctx;
-    ansi_init();
-
-    /* ANSI C has no standard way to get command line.
-     * Return empty string. */
     if (buf_size > 0) {
         buf[0] = '\0';
     }
     return 0;
 }
 
-static int ansi_heapinfo(void *ctx,
-                         unsigned int *heap_base, unsigned int *heap_limit,
-                         unsigned int *stack_base, unsigned int *stack_limit)
+static int ansi_heapinfo(void *ctx, unsigned int *heap_base,
+                         unsigned int *heap_limit, unsigned int *stack_base,
+                         unsigned int *stack_limit)
 {
     (void)ctx;
-    ansi_init();
-
-    /* ANSI C has no standard way to query heap/stack layout.
-     * Return zeros to indicate unknown. */
     *heap_base = 0;
     *heap_limit = 0;
     *stack_base = 0;
     *stack_limit = 0;
-
     return 0;
 }
 
 static void ansi_do_exit(void *ctx, unsigned int reason, unsigned int subcode)
 {
-    (void)ctx;
-    (void)subcode;
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
 
-    /* Clean up before exit */
-    zbc_backend_ansi_cleanup();
+    if (!state) {
+        return;
+    }
 
-    /* Use reason as exit code, clamped to valid range */
+    /* Check if exit() is allowed */
+    if (!(state->flags & ZBC_ANSI_FLAG_ALLOW_EXIT)) {
+        /* Check custom policy */
+        if (state->policy && state->policy->handle_exit) {
+            if (state->policy->handle_exit(state->policy_ctx,
+                                           reason, subcode) != 0) {
+                /* Policy blocked exit */
+                if (state->on_violation) {
+                    state->on_violation(state->callback_ctx,
+                                        ZBC_ANSI_VIOL_EXIT_BLOCKED, NULL);
+                }
+                if (state->on_exit) {
+                    state->on_exit(state->callback_ctx, reason, subcode);
+                }
+                return;
+            }
+        } else {
+            /* No policy, exit blocked by flag */
+            if (state->on_violation) {
+                state->on_violation(state->callback_ctx,
+                                    ZBC_ANSI_VIOL_EXIT_BLOCKED, NULL);
+            }
+            if (state->on_exit) {
+                state->on_exit(state->callback_ctx, reason, subcode);
+            }
+            return;
+        }
+    }
+
+    /* Clean up and exit */
+    zbc_ansi_cleanup(state);
     exit((int)(reason & 0xFF));
 }
 
 static int ansi_get_errno(void *ctx)
 {
-    (void)ctx;
-    return ansi_last_errno;
+    zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+    if (!state) {
+        return 0;
+    }
+    return state->last_errno;
 }
 
-/*------------------------------------------------------------------------
- * Backend vtable
- *------------------------------------------------------------------------*/
+/*========================================================================
+ * SECURE BACKEND - Vtable and Public API
+ *========================================================================*/
 
-static const zbc_backend_t ansi_backend = {
+static const zbc_backend_t ansi_secure_backend = {
     ansi_open,
     ansi_close,
     ansi_read,
@@ -641,40 +888,596 @@ static const zbc_backend_t ansi_backend = {
 
 const zbc_backend_t *zbc_backend_ansi(void)
 {
-    return &ansi_backend;
+    return &ansi_secure_backend;
 }
 
-void zbc_backend_ansi_cleanup(void)
+void zbc_ansi_init(zbc_ansi_state_t *state, const char *sandbox_dir)
+{
+    size_t len;
+    int i;
+
+    if (!state || !sandbox_dir) {
+        return;
+    }
+
+    memset(state, 0, sizeof(*state));
+
+    /* Copy sandbox directory */
+    len = strlen(sandbox_dir);
+    if (len >= ZBC_ANSI_SANDBOX_DIR_MAX - 1) {
+        len = ZBC_ANSI_SANDBOX_DIR_MAX - 2;
+    }
+    memcpy(state->sandbox_dir, sandbox_dir, len);
+
+    /* Ensure trailing slash */
+    if (len > 0 && state->sandbox_dir[len - 1] != '/') {
+        state->sandbox_dir[len] = '/';
+        len++;
+    }
+    state->sandbox_dir[len] = '\0';
+    state->sandbox_dir_len = len;
+
+    /* Initialize FD tracking */
+    state->next_fd = ZBC_ANSI_FIRST_FD;
+    state->free_fd_list = NULL;
+    for (i = 0; i < ZBC_ANSI_MAX_FILES; i++) {
+        state->files[i] = NULL;
+        state->fd_pool[i].fd = 0;
+        state->fd_pool[i].next = NULL;
+    }
+
+    state->start_clock = (uint32_t)clock();
+    state->initialized = 1;
+}
+
+int zbc_ansi_add_path(zbc_ansi_state_t *state, const char *prefix,
+                      int allow_write)
+{
+    zbc_ansi_path_rule_t *rule;
+
+    if (!state || !prefix) {
+        return -1;
+    }
+
+    if (state->path_rule_count >= ZBC_ANSI_MAX_PATH_RULES) {
+        return -1;
+    }
+
+    rule = &state->path_rules[state->path_rule_count];
+    rule->prefix = prefix;
+    rule->prefix_len = strlen(prefix);
+    rule->allow_write = allow_write;
+
+    state->path_rule_count++;
+    return 0;
+}
+
+void zbc_ansi_set_policy(zbc_ansi_state_t *state,
+                         const zbc_ansi_policy_t *policy, void *ctx)
+{
+    if (!state) {
+        return;
+    }
+    state->policy = policy;
+    state->policy_ctx = ctx;
+}
+
+void zbc_ansi_set_callbacks(zbc_ansi_state_t *state,
+                            void (*on_violation)(void *ctx, int type,
+                                                 const char *detail),
+                            void (*on_exit)(void *ctx, unsigned int reason,
+                                            unsigned int subcode),
+                            void *ctx)
+{
+    if (!state) {
+        return;
+    }
+    state->on_violation = on_violation;
+    state->on_exit = on_exit;
+    state->callback_ctx = ctx;
+}
+
+void zbc_ansi_cleanup(zbc_ansi_state_t *state)
 {
     int i;
-    FreeFDNode *current;
-    FreeFDNode *next;
 
-    if (!ansi_initialized) {
+    if (!state || !state->initialized) {
         return;
     }
 
     /* Close all open files */
-    if (ansi_files_ptr != NULL) {
-        for (i = 0; i < ansi_files_capacity; i++) {
-            if (ansi_files_ptr[i] != NULL) {
-                fclose(ansi_files_ptr[i]);
-                ansi_files_ptr[i] = NULL;
-            }
+    for (i = 0; i < ZBC_ANSI_MAX_FILES; i++) {
+        if (state->files[i] != NULL) {
+            fclose((FILE *)state->files[i]);
+            state->files[i] = NULL;
         }
-        free(ansi_files_ptr);
-        ansi_files_ptr = NULL;
     }
-    ansi_files_capacity = 0;
 
-    /* Free the free FD list */
-    current = ansi_free_fd_list;
-    while (current != NULL) {
-        next = current->next;
-        free(current);
-        current = next;
-    }
-    ansi_free_fd_list = NULL;
-
-    ansi_initialized = 0;
+    state->initialized = 0;
 }
+
+/*========================================================================
+ * INSECURE BACKEND - File Descriptor Management
+ *========================================================================*/
+
+static int ansi_insecure_alloc_fd(zbc_ansi_insecure_state_t *state, FILE *fp)
+{
+    int fd;
+    int idx;
+    zbc_ansi_fd_node_t *node;
+
+    if (state->free_fd_list != NULL) {
+        node = state->free_fd_list;
+        fd = node->fd;
+        state->free_fd_list = node->next;
+        node->fd = 0;
+        node->next = NULL;
+    } else {
+        fd = state->next_fd++;
+    }
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return -1;
+    }
+
+    state->files[idx] = fp;
+    return fd;
+}
+
+static void ansi_insecure_free_fd(zbc_ansi_insecure_state_t *state, int fd)
+{
+    int idx;
+    int pool_idx;
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return;
+    }
+
+    state->files[idx] = NULL;
+
+    for (pool_idx = 0; pool_idx < ZBC_ANSI_MAX_FILES; pool_idx++) {
+        if (state->fd_pool[pool_idx].fd == 0 ||
+            state->fd_pool[pool_idx].fd == fd) {
+            state->fd_pool[pool_idx].fd = fd;
+            state->fd_pool[pool_idx].next = state->free_fd_list;
+            state->free_fd_list = &state->fd_pool[pool_idx];
+            break;
+        }
+    }
+}
+
+static FILE *ansi_insecure_get_file(zbc_ansi_insecure_state_t *state, int fd)
+{
+    int idx;
+
+    if (fd == 0) return stdin;
+    if (fd == 1) return stdout;
+    if (fd == 2) return stderr;
+
+    idx = fd - ZBC_ANSI_FIRST_FD;
+    if (idx < 0 || idx >= ZBC_ANSI_MAX_FILES) {
+        return NULL;
+    }
+
+    return (FILE *)state->files[idx];
+}
+
+/*========================================================================
+ * INSECURE BACKEND - Implementation
+ *========================================================================*/
+
+static int ansi_insecure_open(void *ctx, const char *path, size_t path_len,
+                              int mode)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    const char *mode_str;
+    FILE *fp;
+    int fd;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    mode_str = ansi_mode_string(mode);
+    if (mode_str == NULL) {
+        state->last_errno = EINVAL;
+        return -1;
+    }
+
+    /* Path may not be null-terminated - use state buffer */
+    if (path_len >= sizeof(state->path_buf)) {
+        state->last_errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(state->path_buf, path, path_len);
+    state->path_buf[path_len] = '\0';
+
+    fp = fopen(state->path_buf, mode_str);
+    if (fp == NULL) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    fd = ansi_insecure_alloc_fd(state, fp);
+    if (fd < 0) {
+        fclose(fp);
+        state->last_errno = EMFILE;
+        return -1;
+    }
+
+    return fd;
+}
+
+static int ansi_insecure_close(void *ctx, int fd)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    FILE *fp;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    if (fd < ZBC_ANSI_FIRST_FD) {
+        return 0;
+    }
+
+    fp = ansi_insecure_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
+        return -1;
+    }
+
+    if (fclose(fp) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    ansi_insecure_free_fd(state, fd);
+    return 0;
+}
+
+static int ansi_insecure_read(void *ctx, int fd, void *buf, size_t count)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    FILE *fp;
+    size_t nread;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    fp = ansi_insecure_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
+        return -1;
+    }
+
+    nread = fread(buf, 1, count, fp);
+    if (nread < count && ferror(fp)) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    return (int)(count - nread);
+}
+
+static int ansi_insecure_write(void *ctx, int fd, const void *buf, size_t count)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    FILE *fp;
+    size_t nwritten;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    fp = ansi_insecure_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
+        return -1;
+    }
+
+    nwritten = fwrite(buf, 1, count, fp);
+    if (nwritten < count) {
+        state->last_errno = errno;
+    }
+
+    if (fd == 1 || fd == 2) {
+        fflush(fp);
+    }
+
+    return (int)(count - nwritten);
+}
+
+static int ansi_insecure_seek(void *ctx, int fd, int pos)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    FILE *fp;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    fp = ansi_insecure_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
+        return -1;
+    }
+
+    if (fseek(fp, pos, SEEK_SET) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    return 0;
+}
+
+static int ansi_insecure_flen(void *ctx, int fd)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    FILE *fp;
+    long cur_pos;
+    long end_pos;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    fp = ansi_insecure_get_file(state, fd);
+    if (fp == NULL) {
+        state->last_errno = EBADF;
+        return -1;
+    }
+
+    cur_pos = ftell(fp);
+    if (cur_pos < 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    end_pos = ftell(fp);
+    if (end_pos < 0) {
+        state->last_errno = errno;
+        fseek(fp, cur_pos, SEEK_SET);
+        return -1;
+    }
+
+    if (fseek(fp, cur_pos, SEEK_SET) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    return (int)end_pos;
+}
+
+static int ansi_insecure_remove_file(void *ctx, const char *path,
+                                     size_t path_len)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    if (path_len >= sizeof(state->path_buf)) {
+        state->last_errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(state->path_buf, path, path_len);
+    state->path_buf[path_len] = '\0';
+
+    if (remove(state->path_buf) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    return 0;
+}
+
+static int ansi_insecure_rename_file(void *ctx, const char *old_path,
+                                     size_t old_len, const char *new_path,
+                                     size_t new_len)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    char old_copy[ZBC_ANSI_PATH_BUF_MAX];
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    if (old_len >= sizeof(old_copy) || new_len >= sizeof(state->path_buf)) {
+        state->last_errno = ENAMETOOLONG;
+        return -1;
+    }
+
+    memcpy(old_copy, old_path, old_len);
+    old_copy[old_len] = '\0';
+
+    memcpy(state->path_buf, new_path, new_len);
+    state->path_buf[new_len] = '\0';
+
+    if (rename(old_copy, state->path_buf) != 0) {
+        state->last_errno = errno;
+        return -1;
+    }
+
+    return 0;
+}
+
+static int ansi_insecure_tmpnam_func(void *ctx, char *buf, size_t buf_size,
+                                     int id)
+{
+    (void)ctx;
+
+    if (buf_size < 12) {
+        return -1;
+    }
+
+    sprintf(buf, "tmp%03d.tmp", id % 1000);
+    return 0;
+}
+
+static int ansi_insecure_clock_func(void *ctx)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    clock_t now;
+    clock_t elapsed;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    now = clock();
+    elapsed = now - (clock_t)state->start_clock;
+
+    return (int)((elapsed * 100) / CLOCKS_PER_SEC);
+}
+
+static int ansi_insecure_elapsed(void *ctx, unsigned int *lo, unsigned int *hi)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    clock_t now;
+    clock_t elapsed;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    now = clock();
+    elapsed = now - (clock_t)state->start_clock;
+
+    *lo = (unsigned int)elapsed;
+    *hi = 0;
+
+    return 0;
+}
+
+static int ansi_insecure_do_system(void *ctx, const char *cmd, size_t cmd_len)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+
+    if (!state || !state->initialized) {
+        return -1;
+    }
+
+    if (cmd_len >= sizeof(state->path_buf)) {
+        state->last_errno = ENAMETOOLONG;
+        return -1;
+    }
+    memcpy(state->path_buf, cmd, cmd_len);
+    state->path_buf[cmd_len] = '\0';
+
+    return system(state->path_buf);
+}
+
+static void ansi_insecure_do_exit(void *ctx, unsigned int reason,
+                                  unsigned int subcode)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    (void)subcode;
+
+    if (state) {
+        zbc_ansi_insecure_cleanup(state);
+    }
+
+    exit((int)(reason & 0xFF));
+}
+
+static int ansi_insecure_get_errno(void *ctx)
+{
+    zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+    if (!state) {
+        return 0;
+    }
+    return state->last_errno;
+}
+
+/*========================================================================
+ * INSECURE BACKEND - Vtable and Public API
+ *========================================================================*/
+
+static const zbc_backend_t ansi_insecure_backend = {
+    ansi_insecure_open,
+    ansi_insecure_close,
+    ansi_insecure_read,
+    ansi_insecure_write,
+    ansi_insecure_seek,
+    ansi_insecure_flen,
+    ansi_insecure_remove_file,
+    ansi_insecure_rename_file,
+    ansi_insecure_tmpnam_func,
+    ansi_writec,
+    ansi_write0,
+    ansi_readc,
+    ansi_iserror,
+    ansi_istty,
+    ansi_insecure_clock_func,
+    ansi_time_func,
+    ansi_insecure_elapsed,
+    ansi_tickfreq,
+    ansi_insecure_do_system,
+    ansi_get_cmdline,
+    ansi_heapinfo,
+    ansi_insecure_do_exit,
+    ansi_insecure_get_errno
+};
+
+const zbc_backend_t *zbc_backend_ansi_insecure(void)
+{
+    return &ansi_insecure_backend;
+}
+
+void zbc_ansi_insecure_init(zbc_ansi_insecure_state_t *state)
+{
+    int i;
+
+    if (!state) {
+        return;
+    }
+
+    memset(state, 0, sizeof(*state));
+
+    state->next_fd = ZBC_ANSI_FIRST_FD;
+    state->free_fd_list = NULL;
+    for (i = 0; i < ZBC_ANSI_MAX_FILES; i++) {
+        state->files[i] = NULL;
+        state->fd_pool[i].fd = 0;
+        state->fd_pool[i].next = NULL;
+    }
+
+    state->start_clock = (uint32_t)clock();
+    state->initialized = 1;
+}
+
+void zbc_ansi_insecure_cleanup(zbc_ansi_insecure_state_t *state)
+{
+    int i;
+
+    if (!state || !state->initialized) {
+        return;
+    }
+
+    for (i = 0; i < ZBC_ANSI_MAX_FILES; i++) {
+        if (state->files[i] != NULL) {
+            fclose((FILE *)state->files[i]);
+            state->files[i] = NULL;
+        }
+    }
+
+    state->initialized = 0;
+}
+
+/*========================================================================
+ * Legacy API - Removed
+ *
+ * The old zbc_backend_ansi_cleanup() global function is no longer needed
+ * since state is now caller-provided. Use zbc_ansi_cleanup() or
+ * zbc_ansi_insecure_cleanup() instead.
+ *========================================================================*/
