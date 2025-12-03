@@ -61,9 +61,12 @@ add_library(zbc_semi_host STATIC
     ${ZBC_SHARED_SOURCES}
     src/zbc_host.c
     src/zbc_backend_dummy.c
-    src/zbc_backend_ansi.c
+    src/zbc_ansi_common.c
+    src/zbc_ansi_secure.c
+    src/zbc_ansi_insecure.c
 )
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
+target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # Tests
 enable_testing()

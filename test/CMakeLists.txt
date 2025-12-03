@@ -11,7 +11,8 @@ add_executable(zbc_tests
     mock_memory.c
     test_client_builder.c
     test_roundtrip.c
-    test_ansi_backend.c
+    test_ansi_insecure.c
+    test_ansi_secure.c
     test_main.c
 )
 
@@ -41,8 +42,8 @@ file(GLOB LIB_SOURCES
 )
 
 foreach(src ${LIB_SOURCES})
-    # Skip ANSI backend - it may allocate for tracking open files
-    string(FIND "${src}" "zbc_backend_ansi.c" is_ansi_backend)
+    # Skip ANSI backend files - they may allocate for tracking open files
+    string(FIND "${src}" "zbc_ansi_" is_ansi_backend)
     if(is_ansi_backend GREATER -1)
         continue()
     endif()

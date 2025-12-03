@@ -11,7 +11,8 @@
 /* Test suite runners */
 extern void run_client_builder_tests(void);
 extern void run_roundtrip_tests(void);
-extern void run_ansi_backend_tests(void);
+extern void run_ansi_insecure_tests(void);
+extern void run_ansi_secure_tests(void);
 
 int main(int argc, char **argv) {
   const char *filter = NULL;
@@ -43,7 +44,8 @@ int main(int argc, char **argv) {
   }
 
   if (!filter || strcmp(filter, "ansi") == 0) {
-    run_ansi_backend_tests();
+    run_ansi_insecure_tests();
+    run_ansi_secure_tests();
   }
 
   /* Print summary */
