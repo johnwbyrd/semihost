@@ -292,7 +292,7 @@ The RIFF communication buffer is:
 
 RIFF (Resource Interchange File Format) is a tagged container format. The same format used by WAV, AVI, and many other standards.
 
-**Basic structure:** The RIFF container begins with the four-character code 'RIFF', followed by a 4-byte size field, followed by the form type 'SEMI'. Within the container are chunks: CNFG (configuration data), CALL (syscall data), and RETN (return data, written by the device).
+**Basic structure:** The RIFF container begins with the four-character code 'RIFF', followed by a 4-byte size field, followed by the form type 'SEMI'. Within the container are chunks: CNFG (configuration data), CALL (syscall data), RETN (pre-allocated by guest for return data), and ERRO (pre-allocated by guest for error responses).
 
 **RIFF compliance:**
 - Chunk IDs: 4-byte ASCII codes ('RIFF', 'CNFG', etc.)
@@ -318,7 +318,7 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 
 ### Chunk Nesting and Organization
 
-**RIFF hierarchy for semihosting:** The RIFF container with form type 'SEMI' contains: CNFG (leaf chunk for configuration), CALL (container chunk for request, which may contain PARM leaf chunks for parameters and DATA leaf chunks for buffers/strings), and RETN or ERRO (container chunks for response, which may contain DATA leaf chunks for read data).
+**RIFF hierarchy for semihosting:** The RIFF container with form type 'SEMI' contains: CNFG (leaf chunk for configuration), CALL (container chunk for request, which may contain PARM leaf chunks for parameters and DATA leaf chunks for buffers/strings), RETN (container chunk pre-allocated by guest for response, which may contain DATA leaf chunks for read data), and ERRO (leaf chunk pre-allocated by guest for error responses).
 
 **Nesting rules:**
 - Maximum nesting depth: 2 levels (RIFF → CALL/RETN → PARM/DATA)
@@ -331,6 +331,14 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 - All chunks should be naturally aligned
 - RIFF buffer should start on a word-aligned address
 - Per RIFF specification, odd-sized chunks are padded to even boundary
+
+**Parser requirements:**
+- Parsers MUST NOT assume any particular chunk order within the RIFF container
+- Parsers MUST locate chunks by iterating through the RIFF structure using chunk IDs and sizes
+- Parsers MUST NOT read or write at hardcoded offsets - all access must be based on parsed chunk locations
+- Parsers MUST NOT write any response data until the entire request has been successfully parsed and validated
+- If parsing fails or required chunks (RETN, ERRO) are missing, the parser MUST NOT write to guest memory
+- Unknown chunk types MUST be skipped (using their size field), not rejected - this enables forward compatibility
 
 ### CNFG Chunk - Configuration
 
@@ -435,11 +443,16 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 
 ### RETN Chunk - Return Value and Data
 
-**Purpose:** Device response containing syscall result and optional data.
+**Purpose:** Pre-allocated container for device response containing syscall result and optional data.
 
 **Chunk ID:** 'RETN' (ASCII codes 0x52 0x45 0x54 0x4E)
 
-**Format:** The RETN chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: result (int_size bytes, syscall return value in guest endianness), errno (4 bytes, POSIX errno in little-endian, 0=success), and optional sub-chunks (DATA chunks for read operations).
+**Format:** The RETN chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (set by guest at allocation time), followed by space for: result (int_size bytes, syscall return value in guest endianness), errno (4 bytes, POSIX errno in little-endian, 0=success), and optional sub-chunks (DATA chunks for read operations).
+
+**Guest allocation:** The guest **must** pre-allocate the RETN chunk with sufficient space for the expected response:
+- Minimum size: `int_size + 4` bytes (result + errno) for syscalls with no data return
+- For SYS_READ: `int_size + 4 + 12 + requested_bytes` (result + errno + DATA chunk header + read data)
+- For other data-returning syscalls: sized according to maximum expected response
 
 **Result field:**
 - Size equals `int_size` from CNFG
@@ -456,17 +469,21 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 - 0 = success, no error
 - >0 = POSIX errno value (ENOENT=2, EACCES=13, etc.)
 
-**Sub-chunks:** For syscalls that return data (SYS_READ, SYS_READC), the RETN chunk contains a DATA sub-chunk with the actual bytes read.
+**Sub-chunks:** For syscalls that return data (SYS_READ, SYS_READC), the device writes a DATA sub-chunk within RETN containing the actual bytes read. The DATA chunk size reflects the actual bytes returned, which may be less than the allocated space (e.g., on EOF).
 
-**Device behavior:** Device **overwrites** the CALL chunk with RETN chunk in the same buffer location.
+**Device behavior:** Device writes response data **within** the pre-allocated RETN chunk bounds. The device never modifies the RIFF structure - only the contents of RETN. If the response would exceed the allocated RETN size, the device writes an error to the ERRO chunk instead.
 
 ### ERRO Chunk - Error Response
 
-**Purpose:** Device response when RIFF structure is malformed or request cannot be processed.
+**Purpose:** Pre-allocated container for device error response when RIFF structure is malformed or request cannot be processed.
 
 **Chunk ID:** 'ERRO' (ASCII codes 0x45 0x52 0x52 0x4F)
 
-**Format:** The ERRO chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (variable), followed by: error_code (2 bytes in little-endian), two reserved bytes (must be 0x00), and an optional ASCII error message (variable length).
+**Format:** The ERRO chunk contains a 4-byte chunk ID, a 4-byte little-endian chunk size (set by guest at allocation time), followed by space for: error_code (2 bytes in little-endian), two reserved bytes (must be 0x00), and an optional ASCII error message (variable length).
+
+**Guest allocation:** The guest **must** pre-allocate the ERRO chunk with sufficient space for error responses:
+- Minimum size: 4 bytes (error_code + reserved)
+- Recommended size: 64 bytes (allows for error message)
 
 **Error codes:**
 - `0x01` - Invalid chunk structure (incorrect nesting, wrong chunk sizes, or unrecognized chunk types)
@@ -474,9 +491,12 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 - `0x03` - Missing CNFG chunk (first request after device initialization must include CNFG)
 - `0x04` - Unsupported opcode (syscall number not implemented by this device)
 - `0x05` - Invalid parameter count (wrong number of PARM or DATA chunks for the specified syscall)
-- `0x06-0xFFFF` - Reserved for future use
+- `0x06` - Missing RETN chunk (guest must pre-allocate RETN)
+- `0x07` - Missing ERRO chunk (guest must pre-allocate ERRO)
+- `0x08` - RETN too small (pre-allocated RETN cannot hold response)
+- `0x09-0xFFFF` - Reserved for future use
 
-**Device behavior:** Device writes ERRO chunk instead of RETN when it cannot parse or execute the request.
+**Device behavior:** Device writes error data **within** the pre-allocated ERRO chunk bounds when it cannot parse or execute the request. The device never modifies the RIFF structure - only the contents of ERRO. If ERRO itself is missing or too small, the device cannot report the error and sets only the IRQ_STATUS error bit.
 
 ---
 
@@ -487,11 +507,11 @@ RIFF (Resource Interchange File Format) is a tagged container format. The same f
 **Default mode.** Guest blocks waiting for response by polling STATUS register.
 
 **Operation:**
-1. Guest builds RIFF buffer with CALL chunk containing PARM/DATA sub-chunks
+1. Guest builds RIFF buffer with CALL chunk (containing PARM/DATA sub-chunks), pre-allocated RETN chunk, and pre-allocated ERRO chunk
 2. Guest writes RIFF buffer address to RIFF_PTR register
 3. Guest writes to DOORBELL register to trigger processing
 4. Guest polls STATUS register until RESPONSE_READY bit is set
-5. Guest reads RETN chunk from RIFF buffer (device overwrites CALL with RETN)
+5. Guest reads response from RETN chunk (or ERRO chunk if error occurred)
 
 **Note:** See [Cache Coherency Requirements](#cache-coherency-requirements) in Hardware Architecture section for critical cache management details.
 
@@ -513,11 +533,11 @@ Guest MUST NOT write DOORBELL while STATUS.RESPONSE_READY is set. Device behavio
 
 **Operation:**
 1. Guest enables RESPONSE_READY interrupt via IRQ_ENABLE register
-2. Guest builds RIFF buffer and writes to RIFF_PTR
+2. Guest builds RIFF buffer with CALL, pre-allocated RETN, and pre-allocated ERRO chunks, then writes address to RIFF_PTR
 3. Guest writes to DOORBELL and continues other work
 4. Device processes request and sets IRQ_STATUS.RESPONSE_READY
 5. Device asserts interrupt line
-6. Guest interrupt handler reads RETN chunk and acknowledges interrupt via IRQ_ACK
+6. Guest interrupt handler reads response from RETN chunk (or ERRO chunk) and acknowledges interrupt via IRQ_ACK
 
 **Note:** See [Cache Coherency Requirements](#cache-coherency-requirements) in Hardware Architecture section for critical cache management details.
 
@@ -817,8 +837,8 @@ Query device features. The META chunk contains a chunk ID, chunk size, a query_t
 | CALL | Call (container) | Guest→Device | Variable | Syscall request with sub-chunks |
 | PARM | Parameter | Guest→Device | 12+value_size | Scalar parameter (in CALL) |
 | DATA | Data | Bidirectional | 12+payload_size | Binary/string data |
-| RETN | Return (container) | Device→Guest | Variable | Syscall result with optional DATA |
-| ERRO | Error | Device→Guest | Variable | Error response |
+| RETN | Return (container) | Guest (alloc) ← Device (fill) | Variable | Pre-allocated by guest, filled by device |
+| ERRO | Error | Guest (alloc) ← Device (fill) | Variable | Pre-allocated by guest, filled on error |
 | EVNT | Event | Device→Guest | Variable | Async events (future) |
 | ABRT | Abort | Bidirectional | Variable | Cancel operation (future) |
 | META | Metadata | Bidirectional | Variable | Capabilities (future) |
@@ -848,7 +868,10 @@ Query device features. The META chunk contains a chunk ID, chunk size, a query_t
 | 0x03 | Missing CNFG chunk | CNFG required but not sent |
 | 0x04 | Unsupported opcode | Syscall number not implemented |
 | 0x05 | Invalid parameter count | Wrong number of PARM/DATA chunks |
-| 0x06-0xFFFF | Reserved | Reserved for future use |
+| 0x06 | Missing RETN chunk | Guest must pre-allocate RETN |
+| 0x07 | Missing ERRO chunk | Guest must pre-allocate ERRO |
+| 0x08 | RETN too small | Pre-allocated RETN cannot hold response |
+| 0x09-0xFFFF | Reserved | Reserved for future use |
 
 ### Endianness Encoding
 

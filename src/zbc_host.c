@@ -99,10 +99,8 @@ static void write_erro(zbc_host_state_t *state, uint64_t addr, int error_code)
     erro[10] = 0;
     erro[11] = 0;
 
+    /* Write ERRO at fixed offset - response replaces request */
     offset = ZBC_HDR_SIZE;
-    if (state->cnfg_received) {
-        offset += ZBC_CNFG_TOTAL_SIZE;
-    }
 
     write_guest(state, addr + offset, erro, 12);
 }
@@ -136,11 +134,8 @@ static void write_retn(zbc_host_state_t *state, uint64_t addr,
 
     write_pos = 8 + int_size + 4;
 
-    /* Write RETN header */
+    /* Write RETN at fixed offset - response replaces request */
     offset = ZBC_HDR_SIZE;
-    if (state->cnfg_received) {
-        offset += ZBC_CNFG_TOTAL_SIZE;
-    }
 
     write_guest(state, addr + offset, buf, write_pos);
 

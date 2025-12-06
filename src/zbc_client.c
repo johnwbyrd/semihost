@@ -373,6 +373,7 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     size_t offset;
     int int_size;
     const uint8_t *retn_data;
+    size_t retn_offset;
 
     if (!response || !buf || !state) {
         return ZBC_ERR_INVALID_ARG;
@@ -393,64 +394,60 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
         return ZBC_ERR_PARSE_ERROR;
     }
 
+    /* Iterate through chunks looking for RETN or ERRO */
     offset = ZBC_HDR_SIZE;
-
-    /* Read first chunk */
-    if (zbc_riff_read_header(buf, capacity, offset, &chunk_id, &chunk_size) < 0) {
-        return ZBC_ERR_PARSE_ERROR;
-    }
-
-    /* Skip CNFG if present */
-    if (chunk_id == ZBC_ID_CNFG) {
-        offset = zbc_riff_skip_chunk(buf, capacity, offset);
-        if (offset == 0) {
-            return ZBC_ERR_PARSE_ERROR;
-        }
+    while (offset + ZBC_CHUNK_HDR_SIZE <= capacity) {
         if (zbc_riff_read_header(buf, capacity, offset, &chunk_id, &chunk_size) < 0) {
-            return ZBC_ERR_PARSE_ERROR;
+            break;
         }
-    }
 
-    /* Check for ERRO */
-    if (chunk_id == ZBC_ID_ERRO) {
-        response->is_error = 1;
-        if (offset + ZBC_CHUNK_HDR_SIZE + 2 <= capacity) {
-            response->proto_error = ZBC_READ_U16_LE(buf + offset + 8);
+        if (chunk_id == ZBC_ID_ERRO) {
+            /* Found error response */
+            response->is_error = 1;
+            if (offset + ZBC_CHUNK_HDR_SIZE + 2 <= capacity) {
+                response->proto_error = ZBC_READ_U16_LE(buf + offset + 8);
+            }
+            return ZBC_OK;
         }
-        return ZBC_OK;
-    }
 
-    /* Expect RETN */
-    if (chunk_id != ZBC_ID_RETN) {
-        return ZBC_ERR_PARSE_ERROR;
-    }
+        if (chunk_id == ZBC_ID_RETN) {
+            /* Found return response - parse it */
+            if (offset + ZBC_CHUNK_HDR_SIZE + int_size + 4 > capacity) {
+                return ZBC_ERR_PARSE_ERROR;
+            }
 
-    /* Parse RETN: result (int_size, native) + errno (4, LE) + optional DATA */
-    if (offset + ZBC_CHUNK_HDR_SIZE + int_size + 4 > capacity) {
-        return ZBC_ERR_PARSE_ERROR;
-    }
+            retn_data = buf + offset + ZBC_CHUNK_HDR_SIZE;
+            response->result = zbc_read_native_int(retn_data, int_size,
+                                                   state->endianness);
+            response->error_code = (int)ZBC_READ_U32_LE(retn_data + int_size);
 
-    retn_data = buf + offset + ZBC_CHUNK_HDR_SIZE;
-
-    response->result = zbc_read_native_int(retn_data, int_size, state->endianness);
-    response->error_code = (int)ZBC_READ_U32_LE(retn_data + int_size);
-
-    /* Check for DATA sub-chunk */
-    offset += ZBC_CHUNK_HDR_SIZE + int_size + 4;
-
-    if (offset + ZBC_CHUNK_HDR_SIZE <= capacity) {
-        if (zbc_riff_read_header(buf, capacity, offset, &chunk_id, &chunk_size) == 0) {
-            if (chunk_id == ZBC_ID_DATA && chunk_size >= 4) {
-                /* DATA: type(1) + reserved(3) + payload */
-                if (offset + ZBC_CHUNK_HDR_SIZE + chunk_size <= capacity) {
-                    response->data = buf + offset + ZBC_CHUNK_HDR_SIZE + 4;
-                    response->data_size = chunk_size - 4;
+            /* Check for DATA sub-chunk within RETN */
+            retn_offset = offset + ZBC_CHUNK_HDR_SIZE + int_size + 4;
+            if (retn_offset + ZBC_CHUNK_HDR_SIZE <= offset + ZBC_CHUNK_HDR_SIZE + chunk_size) {
+                uint32_t sub_id, sub_size;
+                if (zbc_riff_read_header(buf, capacity, retn_offset,
+                                         &sub_id, &sub_size) == 0) {
+                    if (sub_id == ZBC_ID_DATA && sub_size >= 4) {
+                        if (retn_offset + ZBC_CHUNK_HDR_SIZE + sub_size <= capacity) {
+                            response->data = buf + retn_offset + ZBC_CHUNK_HDR_SIZE + 4;
+                            response->data_size = sub_size - 4;
+                        }
+                    }
                 }
             }
+
+            return ZBC_OK;
+        }
+
+        /* Skip to next chunk */
+        offset = zbc_riff_skip_chunk(buf, capacity, offset);
+        if (offset == 0) {
+            break;
         }
     }
 
-    return ZBC_OK;
+    /* No RETN or ERRO found */
+    return ZBC_ERR_PARSE_ERROR;
 }
 
 /*========================================================================
