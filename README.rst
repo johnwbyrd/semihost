@@ -1,20 +1,27 @@
 Zero Board Computer Semihosting
 ===============================
 
+The Zero Board Computer is the hardware equivalent of **Hello World.**
+It's the minimum viable computer — just enough to prove your CPU and
+toolchain work.
+
 The `Zero Board Computer <https://www.zeroboardcomputer.com>` is an
 idealized computer architecture, designed for bringing up new toolchains,
 new CPUs, and new compilers, quickly and easily.  Its design is simple
 and clean; it's easy to emulate, debug, and understand.
 
-Central to ZBC's architecture is a semihosting device, which provides an
-ARM-like standardized interface for guest programs to call host services.
-This repository is a reference implementation of that semihosting device,
-which you can use to add semihosting support to your emulator or
-toolchain.
+Functionally, the ZBC just your favorite CPU, a whole bunch of RAM, 
+a super simple (optional) video display, and a semihosting device.
+
+This ZBC semihosting device provides an ARM-like standardized interface,
+so that guest programs can request host services such as file I/O and
+timekeeping.  This repository is a reference implementation of that
+semihosting device, which you can use to add semihosting support to
+your favorite emulator or toolchain.
 
 Whether you're building a bare-metal toolchain for a new CPU, writing an
-emulator, or just want to run programs on exotic hardware, ZBC semihosting
-makes it easy to get standard C library features like file I/O, console
+emulator, or compiling an operating system, ZBC semihosting makes it easy
+for you to get standard C library features like file I/O, console
 output, and time services up and running quickly, without having to 
 muck around writing device drivers.
 
