@@ -67,14 +67,12 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state)
 
 /*
  * Write CNFG chunk if not yet sent.
- * Uses zbc_chunk_t and zbc_cnfg_payload_t structs.
  */
 static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
                                 zbc_client_state_t *state)
 {
-    zbc_chunk_t *chunk;
-    zbc_cnfg_payload_t *cnfg;
     size_t total_size;
+    uint8_t *payload;
 
     if (state->cnfg_sent) {
         return ZBC_OK;
@@ -85,15 +83,15 @@ static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
         return ZBC_ERR_BUFFER_FULL;
     }
 
-    chunk = (zbc_chunk_t *)(buf + *pos);
-    chunk->id = ZBC_ID_CNFG;
-    chunk->size = ZBC_CNFG_PAYLOAD_SIZE;
+    /* Write chunk header (alignment-safe) */
+    ZBC_CHUNK_WRITE_HDR(buf + *pos, ZBC_ID_CNFG, ZBC_CNFG_PAYLOAD_SIZE);
 
-    cnfg = (zbc_cnfg_payload_t *)chunk->data;
-    cnfg->int_size = state->int_size;
-    cnfg->ptr_size = state->ptr_size;
-    cnfg->endianness = state->endianness;
-    cnfg->reserved = 0;
+    /* Write CNFG payload (all single bytes, no alignment issues) */
+    payload = buf + *pos + ZBC_CHUNK_HDR_SIZE;
+    payload[0] = state->int_size;
+    payload[1] = state->ptr_size;
+    payload[2] = state->endianness;
+    payload[3] = 0;  /* reserved */
 
     *pos += total_size;
     state->cnfg_sent = 1;
@@ -103,16 +101,14 @@ static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
 
 /*
  * Write a PARM chunk with an integer value.
- * Uses zbc_chunk_t and zbc_parm_payload_t structs.
  */
 static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
                             unsigned int value, int is_signed,
                             const zbc_client_state_t *state)
 {
-    zbc_chunk_t *chunk;
-    zbc_parm_payload_t *parm;
     size_t payload_size;
     size_t total_size;
+    uint8_t *payload;
 
     /* Payload = type(1) + reserved(3) + value(int_size) */
     payload_size = ZBC_PARM_HDR_SIZE + state->int_size;
@@ -122,16 +118,16 @@ static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
         return ZBC_ERR_BUFFER_FULL;
     }
 
-    chunk = (zbc_chunk_t *)(buf + *pos);
-    chunk->id = ZBC_ID_PARM;
-    chunk->size = (uint32_t)payload_size;
+    /* Write chunk header (alignment-safe) */
+    ZBC_CHUNK_WRITE_HDR(buf + *pos, ZBC_ID_PARM, (uint32_t)payload_size);
 
-    parm = (zbc_parm_payload_t *)chunk->data;
-    parm->type = ZBC_PARM_TYPE_INT;
-    parm->reserved[0] = 0;
-    parm->reserved[1] = 0;
-    parm->reserved[2] = 0;
-    zbc_write_native_uint(parm->value, value, state->int_size, state->endianness);
+    /* Write PARM payload (single bytes + zbc_write_native_uint handles value) */
+    payload = buf + *pos + ZBC_CHUNK_HDR_SIZE;
+    payload[0] = ZBC_PARM_TYPE_INT;
+    payload[1] = 0;  /* reserved */
+    payload[2] = 0;
+    payload[3] = 0;
+    zbc_write_native_uint(payload + 4, value, state->int_size, state->endianness);
 
     *pos += total_size;
 
@@ -141,17 +137,15 @@ static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
 
 /*
  * Write a DATA chunk with binary content.
- * Uses zbc_chunk_t and zbc_data_payload_t structs.
  */
 static int write_data_chunk(uint8_t *buf, size_t capacity, size_t *pos,
                             const void *data, size_t len, int data_type)
 {
-    zbc_chunk_t *chunk;
-    zbc_data_payload_t *data_payload;
     size_t payload_size;
     size_t total_size;
     size_t i;
     const uint8_t *src;
+    uint8_t *payload;
 
     /* Payload = type(1) + reserved(3) + data(len) */
     payload_size = ZBC_DATA_HDR_SIZE + len;
@@ -161,25 +155,25 @@ static int write_data_chunk(uint8_t *buf, size_t capacity, size_t *pos,
         return ZBC_ERR_BUFFER_FULL;
     }
 
-    chunk = (zbc_chunk_t *)(buf + *pos);
-    chunk->id = ZBC_ID_DATA;
-    chunk->size = (uint32_t)payload_size;
+    /* Write chunk header (alignment-safe) */
+    ZBC_CHUNK_WRITE_HDR(buf + *pos, ZBC_ID_DATA, (uint32_t)payload_size);
 
-    data_payload = (zbc_data_payload_t *)chunk->data;
-    data_payload->type = (uint8_t)data_type;
-    data_payload->reserved[0] = 0;
-    data_payload->reserved[1] = 0;
-    data_payload->reserved[2] = 0;
+    /* Write DATA payload header (single bytes, no alignment issues) */
+    payload = buf + *pos + ZBC_CHUNK_HDR_SIZE;
+    payload[0] = (uint8_t)data_type;
+    payload[1] = 0;  /* reserved */
+    payload[2] = 0;
+    payload[3] = 0;
 
     /* Copy data */
     src = (const uint8_t *)data;
     for (i = 0; i < len; i++) {
-        data_payload->payload[i] = src[i];
+        payload[4 + i] = src[i];
     }
 
     /* Add padding byte if odd */
     if (payload_size & 1) {
-        chunk->data[payload_size] = 0;
+        payload[payload_size] = 0;
     }
 
     *pos += total_size;
@@ -188,18 +182,16 @@ static int write_data_chunk(uint8_t *buf, size_t capacity, size_t *pos,
 
 /*
  * Build request from opcode table entry and args array.
- * Uses zbc_riff_t, zbc_chunk_t, and zbc_call_header_t structs.
  */
 static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
                          zbc_client_state_t *state,
                          const zbc_opcode_entry_t *entry,
                          uintptr_t *args)
 {
-    zbc_riff_t *riff;
-    zbc_chunk_t *call_chunk;
-    zbc_call_header_t *call_hdr;
     size_t pos;
+    size_t call_chunk_pos;
     size_t call_data_start;
+    uint8_t *call_hdr;
     int i;
     int rc;
 
@@ -209,10 +201,7 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
     }
 
     /* Write RIFF header (size patched later) */
-    riff = (zbc_riff_t *)buf;
-    riff->riff_id = ZBC_ID_RIFF;
-    riff->size = 0;  /* Placeholder */
-    riff->form_type = ZBC_ID_SEMI;
+    ZBC_RIFF_WRITE_HDR(buf, 0, ZBC_ID_SEMI);
     pos = ZBC_RIFF_HDR_SIZE;
 
     /* CNFG chunk if needed */
@@ -226,18 +215,17 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
         return ZBC_ERR_BUFFER_FULL;
     }
 
-    call_chunk = (zbc_chunk_t *)(buf + pos);
-    call_chunk->id = ZBC_ID_CALL;
-    call_chunk->size = 0;  /* Placeholder */
+    call_chunk_pos = pos;
+    ZBC_CHUNK_WRITE_HDR(buf + pos, ZBC_ID_CALL, 0);  /* size patched later */
     pos += ZBC_CHUNK_HDR_SIZE;
     call_data_start = pos;
 
-    /* CALL header (opcode) */
-    call_hdr = (zbc_call_header_t *)(buf + pos);
-    call_hdr->opcode = entry->opcode;
-    call_hdr->reserved[0] = 0;
-    call_hdr->reserved[1] = 0;
-    call_hdr->reserved[2] = 0;
+    /* CALL header (opcode) - all single bytes */
+    call_hdr = buf + pos;
+    call_hdr[0] = entry->opcode;
+    call_hdr[1] = 0;  /* reserved */
+    call_hdr[2] = 0;
+    call_hdr[3] = 0;
     pos += ZBC_CALL_HDR_PAYLOAD_SIZE;
 
     /* Emit sub-chunks based on table */
@@ -293,11 +281,11 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
         }
     }
 
-    /* Patch CALL chunk size */
-    call_chunk->size = (uint32_t)(pos - call_data_start);
+    /* Patch CALL chunk size (alignment-safe) */
+    ZBC_PATCH_U32(buf + call_chunk_pos + 4, (uint32_t)(pos - call_data_start));
 
-    /* Patch RIFF size (everything after the size field: form_type + chunks) */
-    riff->size = (uint32_t)(pos - 4 - 4);
+    /* Patch RIFF size (alignment-safe) */
+    ZBC_PATCH_U32(buf + 4, (uint32_t)(pos - 4 - 4));
 
     *out_size = pos;
     return ZBC_OK;

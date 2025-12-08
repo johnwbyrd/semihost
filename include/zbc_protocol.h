@@ -400,6 +400,109 @@ typedef struct {
     } while (0)
 
 /*========================================================================
+ * Alignment requirements
+ *
+ * On platforms with 4+ byte pointers, buffers are typically naturally
+ * aligned, so we use byte-safe access to avoid undefined behavior from
+ * struct overlay at potentially misaligned RIFF chunk boundaries.
+ *
+ * On smaller platforms (16-bit), we use direct overlay for size/speed
+ * since the buffer may only be 2-byte aligned anyway.
+ *
+ * Set ZBC_REQUIRE_ALIGNED_ACCESS=1 to force byte-safe access path.
+ * Set ZBC_REQUIRE_ALIGNED_ACCESS=0 to force direct overlay path.
+ *========================================================================*/
+
+#ifndef ZBC_REQUIRE_ALIGNED_ACCESS
+  #if (defined(__SIZEOF_POINTER__) && __SIZEOF_POINTER__ >= 4) || \
+      defined(__LP64__) || defined(_LP64) || defined(__x86_64__) || \
+      defined(__aarch64__) || defined(_M_X64) || defined(_M_ARM64) || \
+      defined(__i386__) || defined(_M_IX86) || defined(__arm__)
+    /* 32-bit or 64-bit platform: use byte-safe access */
+    #define ZBC_REQUIRE_ALIGNED_ACCESS 1
+  #else
+    /* 16-bit or unknown: use direct overlay */
+    #define ZBC_REQUIRE_ALIGNED_ACCESS 0
+  #endif
+#endif
+
+/*
+ * ZBC_CHUNK_WRITE_HDR - write chunk header (id + size) to wire buffer
+ *
+ * On alignment-sensitive platforms, copies from aligned local struct.
+ * On x86/ARM7+, casts directly (faster but technically UB).
+ *
+ * Parameters:
+ *   wire_ptr   - destination in wire buffer (uint8_t *)
+ *   id_val     - FourCC chunk ID (uint32_t)
+ *   size_val   - chunk payload size (uint32_t)
+ */
+#if ZBC_REQUIRE_ALIGNED_ACCESS
+
+#define ZBC_CHUNK_WRITE_HDR(wire_ptr, id_val, size_val) \
+    do { \
+        ZBC_WRITE_U32_LE((wire_ptr), (id_val)); \
+        ZBC_WRITE_U32_LE((wire_ptr) + 4, (size_val)); \
+    } while (0)
+
+#else /* !ZBC_REQUIRE_ALIGNED_ACCESS */
+
+#define ZBC_CHUNK_WRITE_HDR(wire_ptr, id_val, size_val) \
+    do { \
+        zbc_chunk_t *_c = (zbc_chunk_t *)(wire_ptr); \
+        _c->id = (id_val); \
+        _c->size = (size_val); \
+    } while (0)
+
+#endif /* ZBC_REQUIRE_ALIGNED_ACCESS */
+
+/*
+ * ZBC_RIFF_WRITE_HDR - write RIFF container header to wire buffer
+ *
+ * Parameters:
+ *   wire_ptr   - destination in wire buffer (uint8_t *)
+ *   size_val   - RIFF size field (uint32_t)
+ *   form_val   - form type FourCC (uint32_t)
+ */
+#if ZBC_REQUIRE_ALIGNED_ACCESS
+
+#define ZBC_RIFF_WRITE_HDR(wire_ptr, size_val, form_val) \
+    do { \
+        ZBC_WRITE_U32_LE((wire_ptr), ZBC_ID_RIFF); \
+        ZBC_WRITE_U32_LE((wire_ptr) + 4, (size_val)); \
+        ZBC_WRITE_U32_LE((wire_ptr) + 8, (form_val)); \
+    } while (0)
+
+#else /* !ZBC_REQUIRE_ALIGNED_ACCESS */
+
+#define ZBC_RIFF_WRITE_HDR(wire_ptr, size_val, form_val) \
+    do { \
+        zbc_riff_t *_r = (zbc_riff_t *)(wire_ptr); \
+        _r->riff_id = ZBC_ID_RIFF; \
+        _r->size = (size_val); \
+        _r->form_type = (form_val); \
+    } while (0)
+
+#endif /* ZBC_REQUIRE_ALIGNED_ACCESS */
+
+/*
+ * ZBC_PATCH_U32 - patch a uint32_t value in wire buffer
+ *
+ * Used to fix up size fields after writing chunk contents.
+ */
+#if ZBC_REQUIRE_ALIGNED_ACCESS
+
+#define ZBC_PATCH_U32(wire_ptr, val) \
+    ZBC_WRITE_U32_LE((wire_ptr), (val))
+
+#else /* !ZBC_REQUIRE_ALIGNED_ACCESS */
+
+#define ZBC_PATCH_U32(wire_ptr, val) \
+    do { *(uint32_t *)(wire_ptr) = (val); } while (0)
+
+#endif /* ZBC_REQUIRE_ALIGNED_ACCESS */
+
+/*========================================================================
  * Opcode table types
  *========================================================================*/
 
