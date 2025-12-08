@@ -37,7 +37,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/Sanitizers.cmake)
 if(MSVC)
     add_compile_options(/W4)
 else()
-    add_compile_options(-Wall -Wextra -pedantic -Wno-variadic-macros)
+    add_compile_options(-Wall -Wextra -pedantic -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments)
 endif()
 
 # Include directories
