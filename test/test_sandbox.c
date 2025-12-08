@@ -1,7 +1,7 @@
 /*
  * Sandbox Tests
  *
- * Fork-based tests that verify sandbox implementations actually block
+ * Fork-based tests that verify seccomp sandbox actually blocks
  * dangerous syscalls. Uses fork() to isolate each test since sandbox
  * activation is irreversible within a process.
  *
@@ -19,18 +19,15 @@
 #include <string.h>
 #include <errno.h>
 
-#if defined(ZBC_HAVE_SECCOMP) || defined(ZBC_HAVE_SEATBELT)
+#ifdef ZBC_HAVE_SECCOMP
 
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <signal.h>
-
-#ifdef ZBC_HAVE_SECCOMP
 #include <sys/socket.h>
 #include <sys/ptrace.h>
-#endif
 
 /*------------------------------------------------------------------------
  * Test tracking
@@ -92,7 +89,6 @@ static int run_forked_test(const char *name, test_fn fn, int expect_signal)
         /* Expecting child to be killed by signal */
         if (WIFSIGNALED(status)) {
             int sig = WTERMSIG(status);
-#ifdef ZBC_HAVE_SECCOMP
             /* Seccomp with SCMP_ACT_KILL_PROCESS sends SIGSYS */
             if (sig == SIGSYS) {
                 printf("PASS (killed by SIGSYS as expected)\n");
@@ -101,11 +97,6 @@ static int run_forked_test(const char *name, test_fn fn, int expect_signal)
             } else {
                 printf("FAIL (killed by signal %d, expected SIGSYS)\n", sig);
             }
-#else
-            printf("PASS (killed by signal %d)\n", sig);
-            tests_passed++;
-            result = 1;
-#endif
         } else if (WIFEXITED(status)) {
             printf("FAIL (exited with %d, expected signal)\n", WEXITSTATUS(status));
         } else {
@@ -130,7 +121,7 @@ static int run_forked_test(const char *name, test_fn fn, int expect_signal)
 }
 
 /*------------------------------------------------------------------------
- * Common tests (both seccomp and seatbelt)
+ * Test implementations
  *------------------------------------------------------------------------*/
 
 static int test_sandbox_init_succeeds_impl(void)
@@ -201,12 +192,6 @@ static int test_allowed_file_ops_impl(void)
     return 1;
 }
 
-/*------------------------------------------------------------------------
- * Seccomp-specific tests
- *------------------------------------------------------------------------*/
-
-#ifdef ZBC_HAVE_SECCOMP
-
 static int test_socket_blocked_impl(void)
 {
     int rc;
@@ -258,69 +243,22 @@ static int test_ptrace_blocked_impl(void)
     return 1;
 }
 
-#endif /* ZBC_HAVE_SECCOMP */
-
-/*------------------------------------------------------------------------
- * Seatbelt-specific tests
- *------------------------------------------------------------------------*/
-
-#ifdef ZBC_HAVE_SEATBELT
-
-static int test_outside_sandbox_blocked_impl(void)
-{
-    int rc;
-    int fd;
-
-    rc = zbc_sandbox_init("/tmp");
-    if (rc != ZBC_OK) {
-        return 0;
-    }
-
-    /* Try to read outside sandbox - should fail with EPERM */
-    fd = open("/etc/passwd", O_RDONLY);
-    if (fd >= 0) {
-        close(fd);
-        return 0;  /* Should have been blocked */
-    }
-
-    /* Seatbelt returns EPERM or EACCES */
-    if (errno == EPERM || errno == EACCES) {
-        return 1;
-    }
-
-    return 0;
-}
-
-#endif /* ZBC_HAVE_SEATBELT */
-
 /*------------------------------------------------------------------------
  * Main
  *------------------------------------------------------------------------*/
 
 int main(void)
 {
-#ifdef ZBC_HAVE_SECCOMP
     printf("Sandbox Tests (seccomp)\n");
-#elif defined(ZBC_HAVE_SEATBELT)
-    printf("Sandbox Tests (seatbelt)\n");
-#endif
     printf("========================\n\n");
 
-    /* Common tests */
     run_forked_test("sandbox_init_succeeds", test_sandbox_init_succeeds_impl, 0);
     run_forked_test("allowed_file_ops", test_allowed_file_ops_impl, 0);
 
-#ifdef ZBC_HAVE_SECCOMP
     /* Seccomp blocking tests - expect SIGSYS */
     run_forked_test("socket_blocked", test_socket_blocked_impl, 1);
     run_forked_test("execve_blocked", test_execve_blocked_impl, 1);
     run_forked_test("ptrace_blocked", test_ptrace_blocked_impl, 1);
-#endif
-
-#ifdef ZBC_HAVE_SEATBELT
-    /* Seatbelt blocking tests - returns EPERM, doesn't kill */
-    run_forked_test("outside_sandbox_blocked", test_outside_sandbox_blocked_impl, 0);
-#endif
 
     printf("\n========================\n");
     printf("Results: %d/%d passed\n", tests_passed, tests_run);
@@ -328,7 +266,7 @@ int main(void)
     return (tests_passed == tests_run) ? 0 : 1;
 }
 
-#else /* Neither ZBC_HAVE_SECCOMP nor ZBC_HAVE_SEATBELT */
+#else /* !ZBC_HAVE_SECCOMP */
 
 /*
  * Stub tests - verify the no-op implementation works correctly
@@ -369,4 +307,4 @@ int main(void)
     return (tests_passed == tests_run) ? 0 : 1;
 }
 
-#endif /* ZBC_HAVE_SECCOMP || ZBC_HAVE_SEATBELT */
+#endif /* ZBC_HAVE_SECCOMP */

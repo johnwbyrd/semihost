@@ -68,9 +68,8 @@ add_library(zbc_semi_host STATIC
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# Sandbox options (optional, platform-specific)
+# Sandbox option (optional, Linux only)
 option(ZBC_USE_SECCOMP "Enable seccomp sandboxing (Linux only, requires libseccomp)" OFF)
-option(ZBC_USE_SEATBELT "Enable Seatbelt sandboxing (macOS only)" OFF)
 
 # Seccomp support (Linux)
 if(ZBC_USE_SECCOMP)
@@ -84,20 +83,7 @@ if(ZBC_USE_SECCOMP)
     target_link_libraries(zbc_semi_host PRIVATE ${SECCOMP_LIBRARIES})
     target_sources(zbc_semi_host PRIVATE src/platform/linux/sandbox_seccomp.c)
     message(STATUS "Seccomp sandboxing: enabled")
-endif()
-
-# Seatbelt support (macOS)
-if(ZBC_USE_SEATBELT)
-    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
-        message(FATAL_ERROR "ZBC_USE_SEATBELT requires macOS")
-    endif()
-    target_compile_definitions(zbc_semi_host PRIVATE ZBC_HAVE_SEATBELT)
-    target_sources(zbc_semi_host PRIVATE src/platform/darwin/sandbox_seatbelt.c)
-    message(STATUS "Seatbelt sandboxing: enabled")
-endif()
-
-# Stub if neither sandbox option enabled
-if(NOT ZBC_USE_SECCOMP AND NOT ZBC_USE_SEATBELT)
+else()
     target_sources(zbc_semi_host PRIVATE src/platform/generic/sandbox_stub.c)
     message(STATUS "Sandboxing: disabled (stub)")
 endif()

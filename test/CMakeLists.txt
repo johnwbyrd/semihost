@@ -62,18 +62,15 @@ endforeach()
 message(STATUS "Static allocation check passed - no malloc/calloc/realloc in library sources (ANSI backend exempt)")
 
 # Sandbox tests - separate binary due to fork() requirement for test isolation
-# (seccomp/seatbelt activation is irreversible within a process)
+# (seccomp activation is irreversible within a process)
 add_executable(zbc_sandbox_tests test_sandbox.c)
 target_include_directories(zbc_sandbox_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(zbc_sandbox_tests zbc_semi_host)
 
-# Pass through sandbox defines from parent
+# Pass through seccomp define from parent
 if(ZBC_USE_SECCOMP)
     target_compile_definitions(zbc_sandbox_tests PRIVATE ZBC_HAVE_SECCOMP)
     target_link_libraries(zbc_sandbox_tests ${SECCOMP_LIBRARIES})
-endif()
-if(ZBC_USE_SEATBELT)
-    target_compile_definitions(zbc_sandbox_tests PRIVATE ZBC_HAVE_SEATBELT)
 endif()
 
 add_test(NAME zbc_sandbox_tests COMMAND zbc_sandbox_tests)

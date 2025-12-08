@@ -59,18 +59,3 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure -V
-
-  sandbox-seatbelt:
-    runs-on: macos-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Configure with Seatbelt
-        run: cmake -B build -DZBC_USE_SEATBELT=ON
-
-      - name: Build
-        run: cmake --build build
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure -V
