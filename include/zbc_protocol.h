@@ -171,23 +171,27 @@ typedef uint32_t uintptr_t;
 
 /*========================================================================
  * Library error codes
+ *
+ * All errors are negative, allowing functions to return positive values
+ * for success (e.g., byte counts) and negative for errors.
+ * Check: if (rc < 0) { handle error }
  *========================================================================*/
 
-#define ZBC_OK                    0
-#define ZBC_ERR_NULL_ARG          1   /* NULL pointer passed */
-#define ZBC_ERR_HEADER_OVERFLOW   2   /* Chunk header extends past container */
-#define ZBC_ERR_DATA_OVERFLOW     3   /* Chunk data extends past container */
-#define ZBC_ERR_BAD_RIFF_MAGIC    4   /* Not a RIFF container */
-#define ZBC_ERR_BAD_FORM_TYPE     5   /* Wrong form type (expected SEMI) */
-#define ZBC_ERR_RIFF_OVERFLOW     6   /* RIFF size exceeds buffer */
-#define ZBC_ERR_NOT_FOUND         7   /* Chunk with requested ID not found */
-#define ZBC_ERR_BUFFER_FULL       8   /* Not enough space to write chunk */
-#define ZBC_ERR_UNKNOWN_OPCODE    9   /* Opcode not in table */
-#define ZBC_ERR_NOT_INITIALIZED   10  /* State not initialized */
-#define ZBC_ERR_DEVICE_ERROR      11  /* Device communication error */
-#define ZBC_ERR_TIMEOUT           12  /* Operation timed out */
-#define ZBC_ERR_INVALID_ARG       13  /* Invalid argument */
-#define ZBC_ERR_PARSE_ERROR       14  /* Malformed RIFF data */
+#define ZBC_OK                     0
+#define ZBC_ERR_NULL_ARG          (-1)   /* NULL pointer passed */
+#define ZBC_ERR_HEADER_OVERFLOW   (-2)   /* Chunk header extends past container */
+#define ZBC_ERR_DATA_OVERFLOW     (-3)   /* Chunk data extends past container */
+#define ZBC_ERR_BAD_RIFF_MAGIC    (-4)   /* Not a RIFF container */
+#define ZBC_ERR_BAD_FORM_TYPE     (-5)   /* Wrong form type (expected SEMI) */
+#define ZBC_ERR_RIFF_OVERFLOW     (-6)   /* RIFF size exceeds buffer */
+#define ZBC_ERR_NOT_FOUND         (-7)   /* Chunk with requested ID not found */
+#define ZBC_ERR_BUFFER_FULL       (-8)   /* Not enough space to write chunk */
+#define ZBC_ERR_UNKNOWN_OPCODE    (-9)   /* Opcode not in table */
+#define ZBC_ERR_NOT_INITIALIZED   (-10)  /* State not initialized */
+#define ZBC_ERR_DEVICE_ERROR      (-11)  /* Device communication error */
+#define ZBC_ERR_TIMEOUT           (-12)  /* Operation timed out */
+#define ZBC_ERR_INVALID_ARG       (-13)  /* Invalid argument */
+#define ZBC_ERR_PARSE_ERROR       (-14)  /* Malformed RIFF data */
 
 /*========================================================================
  * Protocol error codes (in ERRO chunk)
