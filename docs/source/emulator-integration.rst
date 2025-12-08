@@ -213,33 +213,9 @@ All operations succeed with no side effects. Useful for testing.
 Custom Backends
 ---------------
 
-Implement the ``zbc_backend_t`` vtable for custom behavior:
+Implement the ``zbc_backend_t`` vtable (`include/zbc_backend.h`). Only implement needed ops; NULL = error to guest.
 
-.. code-block:: c
-
-   static int my_open(void *ctx, const char *path, size_t path_len, int mode) {
-       /* Your implementation */
-       return fd;  /* or -1 on error */
-   }
-
-   static int my_close(void *ctx, int fd) {
-       return 0;  /* or -1 on error */
-   }
-
-   static int my_write(void *ctx, int fd, const void *buf, size_t count) {
-       /* Write data */
-       return 0;  /* bytes NOT written (0 = success) */
-   }
-
-   static const zbc_backend_t my_backend = {
-       .open = my_open,
-       .close = my_close,
-       .write = my_write,
-       /* Set unused operations to NULL - returns error to guest */
-   };
-
-Return Value Conventions
-^^^^^^^^^^^^^^^^^^^^^^^^
+**Return Conventions**:
 
 .. list-table::
    :header-rows: 1
@@ -249,42 +225,45 @@ Return Value Conventions
      - Success
      - Error
    * - open
-     - fd (≥0)
+     - fd ≥0
      - -1
-   * - close, seek, remove, rename
+   * - close/seek/remove/rename
      - 0
      - -1
-   * - read, write
-     - bytes NOT transferred (0 = complete)
+   * - read/write
+     - bytes NOT transferred (0=complete)
      - -1
    * - flen
-     - file length
+     - length
      - -1
-   * - clock
-     - centiseconds since start
+   * - clock/time
+     - time value
      - -1
-   * - time
-     - seconds since epoch
-     - -1
+
+Example:
+
+.. code-block:: c
+
+   static const zbc_backend_t my_backend = {
+       .open = my_open_impl,
+       .close = my_close_impl,
+       /* etc. */
+   };
 
 Cleanup
 -------
 
-Close open files before shutdown:
-
 .. code-block:: c
 
-   /* For secure backend */
-   zbc_ansi_cleanup(&backend_state);
-
-   /* For insecure backend */
-   zbc_ansi_insecure_cleanup(&backend_state);
+   zbc_ansi_cleanup(&backend_state);  /* secure */
+   zbc_ansi_insecure_cleanup(&backend_state);  /* insecure */
 
 See Also
 --------
 
-- :doc:`specification` -- RIFF format details
-- :doc:`client-library` -- guest-side API
-- ``include/zbc_host.h`` -- host API declarations
-- ``include/zbc_backend.h`` -- backend vtable
-- ``include/zbc_backend_ansi.h`` -- ANSI backend configuration
+- :doc:`specification` -- RIFF details
+- :doc:`client-library` -- guest API
+- :doc:`security` -- backends/security
+- ``include/zbc_host.h``
+- ``include/zbc_backend.h``
+- ``include/zbc_backend_ansi.h``

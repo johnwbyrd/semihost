@@ -15,7 +15,11 @@ Documentation
 
    client-library
    emulator-integration
+   security
    specification
+   building
+   testing
+   examples
 
 .. toctree::
    :maxdepth: 2

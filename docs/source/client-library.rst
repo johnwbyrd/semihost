@@ -1,16 +1,22 @@
 Client Library
 ==============
 
-The client library provides semihosting services to guest code running on
-an emulator or hardware with a ZBC semihosting device. It gives you file I/O,
-console access, and time services from within your guest, without needing to
-write device drivers for your particular virtual hardware.
+The ZBC semihosting client library gives you file I/O, console access, and
+time services from within your guest, without needing to write device drivers
+for your particular real or virtual hardware.  It's the quickest way to bring
+up code for your new architecture or emulator.
 
-When running in a virtual machine or emulator, semihosting escapes the
-virtual machine boundary. Your guest code gains direct access to the host
-filesystem and console. You can read test inputs, write output files, and
-log messages to the host during development, without bringing up those
-services on the emulated device itself.
+When running in a virtual machine or emulator, semihosting gains direct access
+to the host filesystem and console. You can read test inputs, write output
+files, and log messages to the host during development, without bringing up
+those services on the emulated device itself.
+
+Naturally, with great power comes great responsibility.  By design, semihosting
+allows guest programs to read and write arbitrary files on the host system.
+The semihosting device attempts to provide you some isolation features via 
+seccomp filters and directory jails on Linux; however, it's up to you implement
+these features correctly for your use case.
+
 
 What You Get
 ------------
@@ -126,15 +132,13 @@ SYS_READ takes fd, buffer pointer, and count. Returns bytes NOT read:
 
 .. code-block:: c
 
-   char buf[256];
+   char my_read_buf[256];
    zbc_response_t response;
-   uintptr_t args[3];
-   args[0] = fd;
-   args[1] = (uintptr_t)buf;
-   args[2] = sizeof(buf);
+   uintptr_t args[3] = { fd, 0 /* unused */, sizeof(my_read_buf) };
 
    zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_READ, args);
-   size_t bytes_read = sizeof(buf) - response.result;
+   size_t bytes_read = args[2] - (size_t)response.result;
+   memcpy(my_read_buf, response.data, bytes_read);
 
 Closing a File
 ^^^^^^^^^^^^^^
