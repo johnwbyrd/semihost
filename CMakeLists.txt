@@ -37,7 +37,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/Sanitizers.cmake)
 if(MSVC)
     add_compile_options(/W4)
 else()
-    add_compile_options(-Wall -Wextra -pedantic)
+    add_compile_options(-Wall -Wextra -pedantic -Wno-variadic-macros)
 endif()
 
 # Include directories
@@ -67,6 +67,40 @@ add_library(zbc_semi_host STATIC
 )
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# Sandbox options (optional, platform-specific)
+option(ZBC_USE_SECCOMP "Enable seccomp sandboxing (Linux only, requires libseccomp)" OFF)
+option(ZBC_USE_SEATBELT "Enable Seatbelt sandboxing (macOS only)" OFF)
+
+# Seccomp support (Linux)
+if(ZBC_USE_SECCOMP)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        message(FATAL_ERROR "ZBC_USE_SECCOMP requires Linux")
+    endif()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SECCOMP REQUIRED libseccomp)
+    target_compile_definitions(zbc_semi_host PRIVATE ZBC_HAVE_SECCOMP)
+    target_include_directories(zbc_semi_host PRIVATE ${SECCOMP_INCLUDE_DIRS})
+    target_link_libraries(zbc_semi_host PRIVATE ${SECCOMP_LIBRARIES})
+    target_sources(zbc_semi_host PRIVATE src/platform/linux/sandbox_seccomp.c)
+    message(STATUS "Seccomp sandboxing: enabled")
+endif()
+
+# Seatbelt support (macOS)
+if(ZBC_USE_SEATBELT)
+    if(NOT CMAKE_SYSTEM_NAME STREQUAL "Darwin")
+        message(FATAL_ERROR "ZBC_USE_SEATBELT requires macOS")
+    endif()
+    target_compile_definitions(zbc_semi_host PRIVATE ZBC_HAVE_SEATBELT)
+    target_sources(zbc_semi_host PRIVATE src/platform/darwin/sandbox_seatbelt.c)
+    message(STATUS "Seatbelt sandboxing: enabled")
+endif()
+
+# Stub if neither sandbox option enabled
+if(NOT ZBC_USE_SECCOMP AND NOT ZBC_USE_SEATBELT)
+    target_sources(zbc_semi_host PRIVATE src/platform/generic/sandbox_stub.c)
+    message(STATUS "Sandboxing: disabled (stub)")
+endif()
 
 # Tests
 enable_testing()

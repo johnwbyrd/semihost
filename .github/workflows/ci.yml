@@ -41,3 +41,36 @@ jobs:
 
       - name: Test with ASan + UBSan
         run: ctest --test-dir build --output-on-failure -V
+
+  sandbox-seccomp:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install libseccomp
+        run: sudo apt-get update && sudo apt-get install -y libseccomp-dev
+
+      - name: Configure with seccomp
+        run: cmake -B build -DZBC_USE_SECCOMP=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -V
+
+  sandbox-seatbelt:
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure with Seatbelt
+        run: cmake -B build -DZBC_USE_SEATBELT=ON
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -V

@@ -451,11 +451,21 @@ typedef struct {
 
 #endif /* ZBC_LOG */
 
-/* Convenience macros */
+/* Convenience macros - use these for messages with format arguments */
 #define ZBC_LOG_ERROR(fmt, ...)  ZBC_LOG(ZBC_LOG_LVL_ERROR, fmt, ##__VA_ARGS__)
 #define ZBC_LOG_WARN(fmt, ...)   ZBC_LOG(ZBC_LOG_LVL_WARN, fmt, ##__VA_ARGS__)
 #define ZBC_LOG_INFO(fmt, ...)   ZBC_LOG(ZBC_LOG_LVL_INFO, fmt, ##__VA_ARGS__)
 #define ZBC_LOG_DEBUG(fmt, ...)  ZBC_LOG(ZBC_LOG_LVL_DEBUG, fmt, ##__VA_ARGS__)
+
+/*
+ * String-only variants (_S suffix) - use these for plain string messages
+ * without format arguments. Avoids C90 "empty macro arguments" warning
+ * from -Wpedantic when calling ZBC_LOG_ERROR("message") with no varargs.
+ */
+#define ZBC_LOG_ERROR_S(msg)  ZBC_LOG(ZBC_LOG_LVL_ERROR, "%s", msg)
+#define ZBC_LOG_WARN_S(msg)   ZBC_LOG(ZBC_LOG_LVL_WARN, "%s", msg)
+#define ZBC_LOG_INFO_S(msg)   ZBC_LOG(ZBC_LOG_LVL_INFO, "%s", msg)
+#define ZBC_LOG_DEBUG_S(msg)  ZBC_LOG(ZBC_LOG_LVL_DEBUG, "%s", msg)
 
 /*========================================================================
  * Alignment requirements

@@ -209,7 +209,7 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
 
     /* Check magic and get size */
     if (ZBC_READ_U32_LE(buf) != ZBC_ID_RIFF) {
-        ZBC_LOG_ERROR("parse_request: bad RIFF magic");
+        ZBC_LOG_ERROR_S("parse_request: bad RIFF magic");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -247,13 +247,13 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
     }
 
     if (!state->cnfg_received) {
-        ZBC_LOG_ERROR("parse_request: missing CNFG chunk");
+        ZBC_LOG_ERROR_S("parse_request: missing CNFG chunk");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MISSING_CNFG);
         return ZBC_ERR_PARSE_ERROR;
     }
 
     if (!parsed->has_call) {
-        ZBC_LOG_ERROR("parse_request: missing CALL chunk");
+        ZBC_LOG_ERROR_S("parse_request: missing CALL chunk");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_INVALID_CHUNK);
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -275,7 +275,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
     int rc;
 
     if (!state || !state->work_buf || !state->backend) {
-        ZBC_LOG_ERROR("zbc_host_process: invalid arguments");
+        ZBC_LOG_ERROR_S("zbc_host_process: invalid arguments");
         return ZBC_ERR_INVALID_ARG;
     }
 

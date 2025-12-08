@@ -413,7 +413,7 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     }
 
     /* No RETN or ERRO found */
-    ZBC_LOG_ERROR("zbc_parse_response: no RETN or ERRO chunk in response");
+    ZBC_LOG_ERROR_S("zbc_parse_response: no RETN or ERRO chunk in response");
     return ZBC_ERR_PARSE_ERROR;
 }
 

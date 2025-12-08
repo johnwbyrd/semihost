@@ -55,33 +55,6 @@ static void init_temp_dir(void)
     g_temp_dir[len] = '\0';
 }
 
-static int make_temp_path(char *buf, size_t buf_size, const char *filename)
-{
-    size_t dir_len = strlen(g_temp_dir);
-    size_t file_len = strlen(filename);
-    size_t total = dir_len + 1 + file_len + 1;  /* dir + sep + filename + nul */
-
-    if (total > buf_size) {
-        buf[0] = '\0';
-        return -1;
-    }
-
-#ifdef _WIN32
-    sprintf(buf, "%s\\%s", g_temp_dir, filename);
-#else
-    sprintf(buf, "%s/%s", g_temp_dir, filename);
-#endif
-    return 0;
-}
-
-static int make_indexed_temp_path(char *buf, size_t buf_size,
-                                  const char *prefix, int index)
-{
-    char filename[MAX_FILENAME_LEN];
-    sprintf(filename, "%s_%04d.tmp", prefix, index);
-    return make_temp_path(buf, buf_size, filename);
-}
-
 /*------------------------------------------------------------------------
  * Test macros
  *------------------------------------------------------------------------*/
@@ -111,26 +84,5 @@ static int make_indexed_temp_path(char *buf, size_t buf_size,
 
 #define STRESS_FILE_COUNT_SMALL  64   /* Maximum for fixed-size array */
 #define ANSI_FIRST_FD 3               /* First available FD after stdio */
-
-/*------------------------------------------------------------------------
- * Cleanup helper
- *------------------------------------------------------------------------*/
-
-static void cleanup_temp_files(const zbc_backend_t *be, void *ctx,
-                               int *fds, int fds_count,
-                               const char *prefix, int close_first)
-{
-    int i;
-    char path[512];
-
-    for (i = 0; i < fds_count; i++) {
-        if (close_first && fds[i] >= 0) {
-            be->close(ctx, fds[i]);
-            fds[i] = -1;
-        }
-        make_indexed_temp_path(path, sizeof(path), prefix, i);
-        be->remove(ctx, path, strlen(path));
-    }
-}
 
 #endif /* TEST_ANSI_COMMON_H */
