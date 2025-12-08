@@ -6,16 +6,17 @@ idealized computer architecture, designed for bringing up new toolchains,
 new CPUs, and new compilers, quickly and easily.  Its design is simple
 and clean; it's easy to emulate, debug, and understand.
 
-Central to ZBC's architecture is a semihosting device, which provides a
-standardized interface for guest programs to call host services. This
-repository is a reference implementation of that semihosting device, which
-you can use to add semihosting support to your emulator or toolchain.
+Central to ZBC's architecture is a semihosting device, which provides an
+ARM-like standardized interface for guest programs to call host services.
+This repository is a reference implementation of that semihosting device,
+which you can use to add semihosting support to your emulator or
+toolchain.
 
 Whether you're building a bare-metal toolchain for a new CPU, writing an
-emulator, or just want to run programs on exotic hardware, semihosting
+emulator, or just want to run programs on exotic hardware, ZBC semihosting
 makes it easy to get standard C library features like file I/O, console
-output, and time services up and running quickly, without writing device
-drivers.
+output, and time services up and running quickly, without having to 
+muck around writing device drivers.
 
 **Full documentation:** https://johnwbyrd.github.io/semihost/
 
@@ -36,7 +37,9 @@ Features
 
 - Works on any CPU from 8-bit to 64-bit (architecture-agnostic RIFF protocol)
 - ARM semihosting compatible syscall numbers
-- C90 compliant, extremely portable, zero heap allocation
+- C90 compliant to be friendly with ancient compilers
+- Extremely portable
+- Does zero heap allocation -- you allocate all your own buffers
 - Secure (sandboxed) and insecure backends
 - GitHub test suite for Ubuntu, macOS, and Windows
 - Automatic fuzzing of RIFF parser
