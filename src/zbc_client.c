@@ -80,6 +80,8 @@ static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
 
     total_size = ZBC_CHUNK_HDR_SIZE + ZBC_CNFG_PAYLOAD_SIZE;
     if (*pos + total_size > capacity) {
+        ZBC_LOG_ERROR("write_cnfg: buffer full (need %u, have %u)",
+                 (unsigned)(*pos + total_size), (unsigned)capacity);
         return ZBC_ERR_BUFFER_FULL;
     }
 
@@ -380,6 +382,7 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     /* Parse the entire RIFF structure */
     rc = zbc_riff_parse(&parsed, buf, capacity, state->int_size, state->endianness);
     if (rc != ZBC_OK) {
+        ZBC_LOG_ERROR("zbc_parse_response: zbc_riff_parse failed (%d)", rc);
         return ZBC_ERR_PARSE_ERROR;
     }
 
@@ -404,6 +407,7 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     }
 
     /* No RETN or ERRO found */
+    ZBC_LOG_ERROR("zbc_parse_response: no RETN or ERRO chunk in response");
     return ZBC_ERR_PARSE_ERROR;
 }
 
@@ -424,6 +428,7 @@ int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
 
     entry = zbc_opcode_lookup(opcode);
     if (!entry) {
+        ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)opcode);
         return ZBC_ERR_UNKNOWN_OPCODE;
     }
 
@@ -444,10 +449,12 @@ int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
     /* Parse response */
     rc = zbc_parse_response(response, (uint8_t *)buf, buf_size, state);
     if (rc != ZBC_OK) {
+        ZBC_LOG_ERROR("zbc_call: response parse failed (%d)", rc);
         return rc;
     }
 
     if (response->is_error) {
+        ZBC_LOG_WARN("zbc_call: protocol error %u", (unsigned)response->proto_error);
         return ZBC_ERR_DEVICE_ERROR;
     }
 

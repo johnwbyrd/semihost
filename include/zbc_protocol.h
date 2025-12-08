@@ -400,6 +400,64 @@ typedef struct {
     } while (0)
 
 /*========================================================================
+ * Logging (opt-in)
+ *
+ * By default, logging is disabled (zero overhead). To enable:
+ *
+ * Option A: Define your own log function before including headers:
+ *   #define ZBC_LOG(level, fmt, ...) my_log(level, fmt, ##__VA_ARGS__)
+ *   #include "zbc_semihost.h"
+ *
+ * Option B: Use the built-in printf-based logger (requires libc):
+ *   #define ZBC_LOG_ENABLE 1
+ *   #define ZBC_LOG_LEVEL ZBC_LOG_WARN
+ *   #include "zbc_semihost.h"
+ *
+ * Log levels:
+ *   ZBC_LOG_ERROR (1) - Unrecoverable failures, protocol violations
+ *   ZBC_LOG_WARN  (2) - Timeouts, retries, validation rejections
+ *   ZBC_LOG_INFO  (3) - Syscall dispatch, configuration
+ *   ZBC_LOG_DEBUG (4) - Chunk parsing, buffer operations
+ *========================================================================*/
+
+/* Log levels */
+#define ZBC_LOG_LVL_NONE  0
+#define ZBC_LOG_LVL_ERROR 1
+#define ZBC_LOG_LVL_WARN  2
+#define ZBC_LOG_LVL_INFO  3
+#define ZBC_LOG_LVL_DEBUG 4
+
+/* Default log level if not specified */
+#ifndef ZBC_LOG_LEVEL
+#define ZBC_LOG_LEVEL ZBC_LOG_LVL_WARN
+#endif
+
+/* User can define ZBC_LOG() directly for custom logging */
+#ifndef ZBC_LOG
+
+#if defined(ZBC_LOG_ENABLE) && ZBC_LOG_ENABLE
+  /* Built-in printf-based logger */
+  #include <stdio.h>
+  #define ZBC_LOG(level, fmt, ...) \
+      do { \
+          if ((level) <= ZBC_LOG_LEVEL) { \
+              fprintf(stderr, "[ZBC:%d] " fmt "\n", (level), ##__VA_ARGS__); \
+          } \
+      } while (0)
+#else
+  /* Logging disabled - zero overhead */
+  #define ZBC_LOG(level, fmt, ...) ((void)0)
+#endif
+
+#endif /* ZBC_LOG */
+
+/* Convenience macros */
+#define ZBC_LOG_ERROR(fmt, ...)  ZBC_LOG(ZBC_LOG_LVL_ERROR, fmt, ##__VA_ARGS__)
+#define ZBC_LOG_WARN(fmt, ...)   ZBC_LOG(ZBC_LOG_LVL_WARN, fmt, ##__VA_ARGS__)
+#define ZBC_LOG_INFO(fmt, ...)   ZBC_LOG(ZBC_LOG_LVL_INFO, fmt, ##__VA_ARGS__)
+#define ZBC_LOG_DEBUG(fmt, ...)  ZBC_LOG(ZBC_LOG_LVL_DEBUG, fmt, ##__VA_ARGS__)
+
+/*========================================================================
  * Alignment requirements
  *
  * On platforms with 4+ byte pointers, buffers are typically naturally

@@ -209,6 +209,7 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
 
     /* Check magic and get size */
     if (ZBC_READ_U32_LE(buf) != ZBC_ID_RIFF) {
+        ZBC_LOG_ERROR("parse_request: bad RIFF magic");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -217,6 +218,8 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
     riff_total_size = 4 + 4 + riff_size;
 
     if (riff_total_size > capacity) {
+        ZBC_LOG_ERROR("parse_request: RIFF size=%u exceeds work_buf=%u",
+                 (unsigned)riff_total_size, (unsigned)capacity);
         return ZBC_ERR_BUFFER_FULL;
     }
 
@@ -227,6 +230,7 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
     rc = zbc_riff_parse(parsed, buf, riff_total_size,
                         state->guest_int_size, state->guest_endianness);
     if (rc != ZBC_OK) {
+        ZBC_LOG_ERROR("parse_request: zbc_riff_parse failed (%d)", rc);
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -237,14 +241,19 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
         state->guest_ptr_size = parsed->ptr_size;
         state->guest_endianness = parsed->endianness;
         state->cnfg_received = 1;
+        ZBC_LOG_INFO("CNFG: int_size=%u ptr_size=%u endian=%u",
+                 (unsigned)parsed->int_size, (unsigned)parsed->ptr_size,
+                 (unsigned)parsed->endianness);
     }
 
     if (!state->cnfg_received) {
+        ZBC_LOG_ERROR("parse_request: missing CNFG chunk");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MISSING_CNFG);
         return ZBC_ERR_PARSE_ERROR;
     }
 
     if (!parsed->has_call) {
+        ZBC_LOG_ERROR("parse_request: missing CALL chunk");
         write_erro(state, riff_addr, ZBC_PROTO_ERR_INVALID_CHUNK);
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -266,6 +275,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
     int rc;
 
     if (!state || !state->work_buf || !state->backend) {
+        ZBC_LOG_ERROR("zbc_host_process: invalid arguments");
         return ZBC_ERR_INVALID_ARG;
     }
 
@@ -549,6 +559,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
         break;
 
     default:
+        ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)parsed.opcode);
         write_erro(state, riff_addr, ZBC_PROTO_ERR_UNSUPPORTED_OP);
         break;
     }

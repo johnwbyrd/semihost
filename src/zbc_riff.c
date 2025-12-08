@@ -383,16 +383,21 @@ int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
 
     /* Check we can read the header (12 bytes on wire) */
     if (buf_size < ZBC_RIFF_HDR_SIZE) {
+        ZBC_LOG_ERROR("RIFF header overflow: buf_size=%u < %u",
+                 (unsigned)buf_size, (unsigned)ZBC_RIFF_HDR_SIZE);
         return ZBC_ERR_HEADER_OVERFLOW;
     }
 
     /* Check magic */
     if (riff->riff_id != ZBC_ID_RIFF) {
+        ZBC_LOG_ERROR("bad RIFF magic: 0x%08x", (unsigned)riff->riff_id);
         return ZBC_ERR_BAD_RIFF_MAGIC;
     }
 
     /* Check form type */
     if (riff->form_type != expected_form) {
+        ZBC_LOG_ERROR("bad form type: 0x%08x (expected 0x%08x)",
+                 (unsigned)riff->form_type, (unsigned)expected_form);
         return ZBC_ERR_BAD_FORM_TYPE;
     }
 
@@ -400,6 +405,8 @@ int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
     /* Total = 4 (riff_id) + 4 (size field) + size */
     riff_total_size = 4 + 4 + riff->size;
     if (riff_total_size > buf_size) {
+        ZBC_LOG_ERROR("RIFF overflow: size=%u exceeds buf_size=%u",
+                 (unsigned)riff->size, (unsigned)buf_size);
         return ZBC_ERR_RIFF_OVERFLOW;
     }
 
@@ -527,6 +534,8 @@ int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
 
         /* Bounds check */
         if (chunk_data + size > riff_end_ptr) {
+            ZBC_LOG_ERROR("chunk data overflow: size=%u exceeds container",
+                     (unsigned)size);
             return ZBC_ERR_DATA_OVERFLOW;
         }
 
@@ -542,8 +551,19 @@ int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
                      out->int_size != 4 && out->int_size != 8) ||
                     (out->ptr_size != 1 && out->ptr_size != 2 &&
                      out->ptr_size != 4 && out->ptr_size != 8)) {
+                    ZBC_LOG_ERROR("CNFG: invalid int_size=%u or ptr_size=%u",
+                             (unsigned)out->int_size, (unsigned)out->ptr_size);
                     return ZBC_ERR_INVALID_ARG;
                 }
+#ifdef ZBC_HOST
+                /* Host-side: reject sizes larger than native can handle */
+                if (out->int_size > sizeof(uintptr_t) ||
+                    out->ptr_size > sizeof(uintptr_t)) {
+                    ZBC_LOG_ERROR("CNFG: sizes exceed host capacity (int=%u, ptr=%u)",
+                             (unsigned)out->int_size, (unsigned)out->ptr_size);
+                    return ZBC_ERR_INVALID_ARG;
+                }
+#endif
                 /* Update for sub-chunk parsing */
                 int_size = out->int_size;
                 ptr_size = out->ptr_size;
