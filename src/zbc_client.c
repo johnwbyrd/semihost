@@ -2,6 +2,7 @@
  * ZBC Semihosting Client Library
  *
  * Table-driven implementation using opcode metadata.
+ * Uses struct-based RIFF chunk access (no magic offsets).
  */
 
 #include "zbc_semihost.h"
@@ -61,182 +62,185 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state)
 }
 
 /*========================================================================
- * Request building (table-driven)
+ * Request building (struct-based, no magic offsets)
  *========================================================================*/
 
 /*
  * Write CNFG chunk if not yet sent.
+ * Uses zbc_chunk_t and zbc_cnfg_payload_t structs.
  */
-static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *offset,
+static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
                                 zbc_client_state_t *state)
 {
-    uint8_t *size_ptr;
-    uint8_t cnfg_data[4];
+    zbc_chunk_t *chunk;
+    zbc_cnfg_payload_t *cnfg;
+    size_t total_size;
 
     if (state->cnfg_sent) {
-        return 0;
+        return ZBC_OK;
     }
 
-    if (*offset + ZBC_CNFG_TOTAL_SIZE > capacity) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    total_size = ZBC_CHUNK_HDR_SIZE + ZBC_CNFG_PAYLOAD_SIZE;
+    if (*pos + total_size > capacity) {
+        return ZBC_ERR_BUFFER_FULL;
     }
 
-    size_ptr = zbc_riff_begin_chunk(buf, capacity, offset, ZBC_ID_CNFG);
-    if (!size_ptr) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
-    }
+    chunk = (zbc_chunk_t *)(buf + *pos);
+    chunk->id = ZBC_ID_CNFG;
+    chunk->size = ZBC_CNFG_PAYLOAD_SIZE;
 
-    cnfg_data[0] = state->int_size;
-    cnfg_data[1] = state->ptr_size;
-    cnfg_data[2] = state->endianness;
-    cnfg_data[3] = 0;  /* Reserved */
+    cnfg = (zbc_cnfg_payload_t *)chunk->data;
+    cnfg->int_size = state->int_size;
+    cnfg->ptr_size = state->ptr_size;
+    cnfg->endianness = state->endianness;
+    cnfg->reserved = 0;
 
-    if (zbc_riff_write_bytes(buf, capacity, offset, cnfg_data, 4) < 0) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
-    }
-
-    zbc_riff_patch_size(size_ptr, ZBC_CNFG_DATA_SIZE);
+    *pos += total_size;
     state->cnfg_sent = 1;
 
-    return 0;
+    return ZBC_OK;
 }
 
 /*
  * Write a PARM chunk with an integer value.
+ * Uses zbc_chunk_t and zbc_parm_payload_t structs.
  */
-static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *offset,
+static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
                             unsigned int value, int is_signed,
                             const zbc_client_state_t *state)
 {
-    uint8_t *size_ptr;
-    size_t data_size;
-    uint8_t type_hdr[4];
+    zbc_chunk_t *chunk;
+    zbc_parm_payload_t *parm;
+    size_t payload_size;
+    size_t total_size;
 
-    data_size = 4 + state->int_size;  /* type(1) + reserved(3) + value */
+    /* Payload = type(1) + reserved(3) + value(int_size) */
+    payload_size = ZBC_PARM_HDR_SIZE + state->int_size;
+    total_size = ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(payload_size);
 
-    size_ptr = zbc_riff_begin_chunk(buf, capacity, offset, ZBC_ID_PARM);
-    if (!size_ptr) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    if (*pos + total_size > capacity) {
+        return ZBC_ERR_BUFFER_FULL;
     }
 
-    type_hdr[0] = ZBC_PARM_TYPE_INT;
-    type_hdr[1] = 0;
-    type_hdr[2] = 0;
-    type_hdr[3] = 0;
+    chunk = (zbc_chunk_t *)(buf + *pos);
+    chunk->id = ZBC_ID_PARM;
+    chunk->size = (uint32_t)payload_size;
 
-    if (zbc_riff_write_bytes(buf, capacity, offset, type_hdr, 4) < 0) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
-    }
+    parm = (zbc_parm_payload_t *)chunk->data;
+    parm->type = ZBC_PARM_TYPE_INT;
+    parm->reserved[0] = 0;
+    parm->reserved[1] = 0;
+    parm->reserved[2] = 0;
+    zbc_write_native_uint(parm->value, value, state->int_size, state->endianness);
 
-    if (*offset + state->int_size > capacity) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
-    }
-
-    zbc_write_native_uint(buf + *offset, value, state->int_size,
-                          state->endianness);
-    *offset += state->int_size;
-
-    zbc_riff_patch_size(size_ptr, data_size);
+    *pos += total_size;
 
     (void)is_signed;  /* Currently unused, same encoding */
-    return 0;
+    return ZBC_OK;
 }
 
 /*
  * Write a DATA chunk with binary content.
+ * Uses zbc_chunk_t and zbc_data_payload_t structs.
  */
-static int write_data_chunk(uint8_t *buf, size_t capacity, size_t *offset,
+static int write_data_chunk(uint8_t *buf, size_t capacity, size_t *pos,
                             const void *data, size_t len, int data_type)
 {
-    uint8_t *size_ptr;
-    size_t data_size;
-    size_t padded_size;
-    uint8_t type_hdr[4];
+    zbc_chunk_t *chunk;
+    zbc_data_payload_t *data_payload;
+    size_t payload_size;
+    size_t total_size;
+    size_t i;
+    const uint8_t *src;
 
-    data_size = 4 + len;  /* type(1) + reserved(3) + payload */
-    padded_size = ZBC_PAD_SIZE(data_size);
+    /* Payload = type(1) + reserved(3) + data(len) */
+    payload_size = ZBC_DATA_HDR_SIZE + len;
+    total_size = ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(payload_size);
 
-    if (*offset + ZBC_CHUNK_HDR_SIZE + padded_size > capacity) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    if (*pos + total_size > capacity) {
+        return ZBC_ERR_BUFFER_FULL;
     }
 
-    size_ptr = zbc_riff_begin_chunk(buf, capacity, offset, ZBC_ID_DATA);
-    if (!size_ptr) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    chunk = (zbc_chunk_t *)(buf + *pos);
+    chunk->id = ZBC_ID_DATA;
+    chunk->size = (uint32_t)payload_size;
+
+    data_payload = (zbc_data_payload_t *)chunk->data;
+    data_payload->type = (uint8_t)data_type;
+    data_payload->reserved[0] = 0;
+    data_payload->reserved[1] = 0;
+    data_payload->reserved[2] = 0;
+
+    /* Copy data */
+    src = (const uint8_t *)data;
+    for (i = 0; i < len; i++) {
+        data_payload->payload[i] = src[i];
     }
 
-    type_hdr[0] = (uint8_t)data_type;
-    type_hdr[1] = 0;
-    type_hdr[2] = 0;
-    type_hdr[3] = 0;
-
-    if (zbc_riff_write_bytes(buf, capacity, offset, type_hdr, 4) < 0) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    /* Add padding byte if odd */
+    if (payload_size & 1) {
+        chunk->data[payload_size] = 0;
     }
 
-    if (len > 0 && data) {
-        if (zbc_riff_write_bytes(buf, capacity, offset, data, len) < 0) {
-            return ZBC_ERR_BUFFER_TOO_SMALL;
-        }
-    }
-
-    /* Pad if odd size */
-    if (data_size & 1) {
-        if (*offset < capacity) {
-            buf[*offset] = 0;
-            (*offset)++;
-        }
-    }
-
-    zbc_riff_patch_size(size_ptr, data_size);
-    return 0;
+    *pos += total_size;
+    return ZBC_OK;
 }
 
 /*
  * Build request from opcode table entry and args array.
+ * Uses zbc_riff_t, zbc_chunk_t, and zbc_call_header_t structs.
  */
 static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
                          zbc_client_state_t *state,
                          const zbc_opcode_entry_t *entry,
                          uintptr_t *args)
 {
-    uint8_t *riff_size_ptr;
-    uint8_t *call_size_ptr;
-    size_t offset;
-    size_t call_start;
+    zbc_riff_t *riff;
+    zbc_chunk_t *call_chunk;
+    zbc_call_header_t *call_hdr;
+    size_t pos;
+    size_t call_data_start;
     int i;
     int rc;
-    uint8_t opcode_hdr[4];
 
-    /* Start RIFF container */
-    riff_size_ptr = zbc_riff_begin_container(buf, capacity, &offset, ZBC_ID_SEMI);
-    if (!riff_size_ptr) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    /* Minimum size for RIFF header */
+    if (capacity < ZBC_RIFF_HDR_SIZE) {
+        return ZBC_ERR_BUFFER_FULL;
     }
 
+    /* Write RIFF header (size patched later) */
+    riff = (zbc_riff_t *)buf;
+    riff->riff_id = ZBC_ID_RIFF;
+    riff->size = 0;  /* Placeholder */
+    riff->form_type = ZBC_ID_SEMI;
+    pos = ZBC_RIFF_HDR_SIZE;
+
     /* CNFG chunk if needed */
-    rc = write_cnfg_if_needed(buf, capacity, &offset, state);
-    if (rc < 0) {
+    rc = write_cnfg_if_needed(buf, capacity, &pos, state);
+    if (rc != ZBC_OK) {
         return rc;
     }
 
-    /* CALL chunk */
-    call_start = offset;
-    call_size_ptr = zbc_riff_begin_chunk(buf, capacity, &offset, ZBC_ID_CALL);
-    if (!call_size_ptr) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
+    /* CALL chunk - write header, then sub-chunks */
+    if (pos + ZBC_CHUNK_HDR_SIZE + ZBC_CALL_HDR_PAYLOAD_SIZE > capacity) {
+        return ZBC_ERR_BUFFER_FULL;
     }
 
-    opcode_hdr[0] = entry->opcode;
-    opcode_hdr[1] = 0;
-    opcode_hdr[2] = 0;
-    opcode_hdr[3] = 0;
+    call_chunk = (zbc_chunk_t *)(buf + pos);
+    call_chunk->id = ZBC_ID_CALL;
+    call_chunk->size = 0;  /* Placeholder */
+    pos += ZBC_CHUNK_HDR_SIZE;
+    call_data_start = pos;
 
-    if (zbc_riff_write_bytes(buf, capacity, &offset, opcode_hdr, 4) < 0) {
-        return ZBC_ERR_BUFFER_TOO_SMALL;
-    }
+    /* CALL header (opcode) */
+    call_hdr = (zbc_call_header_t *)(buf + pos);
+    call_hdr->opcode = entry->opcode;
+    call_hdr->reserved[0] = 0;
+    call_hdr->reserved[1] = 0;
+    call_hdr->reserved[2] = 0;
+    pos += ZBC_CALL_HDR_PAYLOAD_SIZE;
 
-    /* Emit chunks based on table */
+    /* Emit sub-chunks based on table */
     for (i = 0; i < 4; i++) {
         const zbc_chunk_desc_t *desc = &entry->params[i];
 
@@ -246,17 +250,17 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
 
         switch (desc->type) {
         case ZBC_CHUNK_PARM_INT:
-            rc = write_parm_chunk(buf, capacity, &offset,
+            rc = write_parm_chunk(buf, capacity, &pos,
                                   (unsigned int)args[desc->slot], 1, state);
             break;
 
         case ZBC_CHUNK_PARM_UINT:
-            rc = write_parm_chunk(buf, capacity, &offset,
+            rc = write_parm_chunk(buf, capacity, &pos,
                                   (unsigned int)args[desc->slot], 0, state);
             break;
 
         case ZBC_CHUNK_DATA_PTR:
-            rc = write_data_chunk(buf, capacity, &offset,
+            rc = write_data_chunk(buf, capacity, &pos,
                                   (void *)args[desc->slot],
                                   (size_t)args[desc->len_slot],
                                   ZBC_DATA_TYPE_BINARY);
@@ -266,7 +270,7 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
             {
                 const char *str = (const char *)args[desc->slot];
                 size_t len = zbc_strlen(str) + 1;  /* Include null */
-                rc = write_data_chunk(buf, capacity, &offset, str, len,
+                rc = write_data_chunk(buf, capacity, &pos, str, len,
                                       ZBC_DATA_TYPE_STRING);
             }
             break;
@@ -274,28 +278,28 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
         case ZBC_CHUNK_DATA_BYTE:
             {
                 uint8_t byte = *(uint8_t *)args[desc->slot];
-                rc = write_data_chunk(buf, capacity, &offset, &byte, 1,
+                rc = write_data_chunk(buf, capacity, &pos, &byte, 1,
                                       ZBC_DATA_TYPE_BINARY);
             }
             break;
 
         default:
-            rc = ZBC_ERR_INVALID_ARG;
+            rc = ZBC_ERR_UNKNOWN_OPCODE;
             break;
         }
 
-        if (rc < 0) {
+        if (rc != ZBC_OK) {
             return rc;
         }
     }
 
-    /* Patch CALL size */
-    zbc_riff_patch_size(call_size_ptr, offset - call_start - ZBC_CHUNK_HDR_SIZE);
+    /* Patch CALL chunk size */
+    call_chunk->size = (uint32_t)(pos - call_data_start);
 
-    /* Patch RIFF size */
-    zbc_riff_patch_size(riff_size_ptr, offset - 8);
+    /* Patch RIFF size (everything after the size field: form_type + chunks) */
+    riff->size = (uint32_t)(pos - 4 - 4);
 
-    *out_size = offset;
+    *out_size = pos;
     return ZBC_OK;
 }
 
@@ -363,17 +367,15 @@ int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size)
 
 /*========================================================================
  * Response parsing
+ *
+ * Uses the unified zbc_riff_parse() to extract all fields at once.
  *========================================================================*/
 
 int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
                        size_t capacity, const zbc_client_state_t *state)
 {
-    uint32_t chunk_id;
-    uint32_t chunk_size;
-    size_t offset;
-    int int_size;
-    const uint8_t *retn_data;
-    size_t retn_offset;
+    zbc_parsed_t parsed;
+    int rc;
 
     if (!response || !buf || !state) {
         return ZBC_ERR_INVALID_ARG;
@@ -387,63 +389,30 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     response->is_error = 0;
     response->proto_error = 0;
 
-    int_size = state->int_size;
-
-    /* Validate RIFF header */
-    if (zbc_riff_validate_container(buf, capacity, ZBC_ID_SEMI) < 0) {
+    /* Parse the entire RIFF structure */
+    rc = zbc_riff_parse(buf, capacity, state->int_size, state->endianness, &parsed);
+    if (rc != ZBC_OK) {
         return ZBC_ERR_PARSE_ERROR;
     }
 
-    /* Iterate through chunks looking for RETN or ERRO */
-    offset = ZBC_HDR_SIZE;
-    while (offset + ZBC_CHUNK_HDR_SIZE <= capacity) {
-        if (zbc_riff_read_header(buf, capacity, offset, &chunk_id, &chunk_size) < 0) {
-            break;
+    /* Check for ERRO */
+    if (parsed.has_erro) {
+        response->is_error = 1;
+        response->proto_error = parsed.proto_error;
+        return ZBC_OK;
+    }
+
+    /* Check for RETN */
+    if (parsed.has_retn) {
+        response->result = parsed.result;
+        response->error_code = parsed.host_errno;
+
+        /* Get DATA if present */
+        if (parsed.data_count > 0) {
+            response->data = parsed.data[0].ptr;
+            response->data_size = parsed.data[0].size;
         }
-
-        if (chunk_id == ZBC_ID_ERRO) {
-            /* Found error response */
-            response->is_error = 1;
-            if (offset + ZBC_CHUNK_HDR_SIZE + 2 <= capacity) {
-                response->proto_error = ZBC_READ_U16_LE(buf + offset + 8);
-            }
-            return ZBC_OK;
-        }
-
-        if (chunk_id == ZBC_ID_RETN) {
-            /* Found return response - parse it */
-            if (offset + ZBC_CHUNK_HDR_SIZE + int_size + 4 > capacity) {
-                return ZBC_ERR_PARSE_ERROR;
-            }
-
-            retn_data = buf + offset + ZBC_CHUNK_HDR_SIZE;
-            response->result = zbc_read_native_int(retn_data, int_size,
-                                                   state->endianness);
-            response->error_code = (int)ZBC_READ_U32_LE(retn_data + int_size);
-
-            /* Check for DATA sub-chunk within RETN */
-            retn_offset = offset + ZBC_CHUNK_HDR_SIZE + int_size + 4;
-            if (retn_offset + ZBC_CHUNK_HDR_SIZE <= offset + ZBC_CHUNK_HDR_SIZE + chunk_size) {
-                uint32_t sub_id, sub_size;
-                if (zbc_riff_read_header(buf, capacity, retn_offset,
-                                         &sub_id, &sub_size) == 0) {
-                    if (sub_id == ZBC_ID_DATA && sub_size >= 4) {
-                        if (retn_offset + ZBC_CHUNK_HDR_SIZE + sub_size <= capacity) {
-                            response->data = buf + retn_offset + ZBC_CHUNK_HDR_SIZE + 4;
-                            response->data_size = sub_size - 4;
-                        }
-                    }
-                }
-            }
-
-            return ZBC_OK;
-        }
-
-        /* Skip to next chunk */
-        offset = zbc_riff_skip_chunk(buf, capacity, offset);
-        if (offset == 0) {
-            break;
-        }
+        return ZBC_OK;
     }
 
     /* No RETN or ERRO found */
@@ -489,19 +458,19 @@ uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
 
     /* Build request */
     rc = build_request((uint8_t *)buf, buf_size, &riff_size, state, entry, args);
-    if (rc < 0) {
+    if (rc != ZBC_OK) {
         return (uintptr_t)-1;
     }
 
     /* Submit and wait */
     rc = zbc_client_submit_poll(state, buf, riff_size);
-    if (rc < 0) {
+    if (rc != ZBC_OK) {
         return (uintptr_t)-1;
     }
 
     /* Parse response */
     rc = zbc_parse_response(&response, (uint8_t *)buf, buf_size, state);
-    if (rc < 0) {
+    if (rc != ZBC_OK) {
         return (uintptr_t)-1;
     }
 

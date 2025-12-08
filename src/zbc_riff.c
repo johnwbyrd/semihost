@@ -270,3 +270,311 @@ int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
 
     return 0;
 }
+
+/*========================================================================
+ * New chunk-based API (struct-based, no magic offsets)
+ *========================================================================*/
+
+int zbc_chunk_validate(const zbc_chunk_t *chunk, const uint8_t *container_end)
+{
+    const uint8_t *chunk_start;
+    const uint8_t *chunk_data_end;
+
+    if (!chunk || !container_end) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    chunk_start = (const uint8_t *)chunk;
+
+    /* Check header fits (8 bytes on wire, not sizeof which includes padding) */
+    if (chunk_start + ZBC_CHUNK_HDR_SIZE > container_end) {
+        return ZBC_ERR_HEADER_OVERFLOW;
+    }
+
+    /* Check data fits (including padding) */
+    chunk_data_end = chunk_start + ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(chunk->size);
+    if (chunk_data_end > container_end) {
+        return ZBC_ERR_DATA_OVERFLOW;
+    }
+
+    return ZBC_OK;
+}
+
+int zbc_chunk_next(const zbc_chunk_t *chunk, zbc_chunk_t **out)
+{
+    const uint8_t *next_ptr;
+
+    if (!chunk || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* Next chunk starts after this chunk's header + padded data */
+    next_ptr = (const uint8_t *)chunk + ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(chunk->size);
+    *out = (zbc_chunk_t *)next_ptr;
+
+    return ZBC_OK;
+}
+
+int zbc_chunk_first_sub(const zbc_chunk_t *container, size_t header_size,
+                        zbc_chunk_t **out)
+{
+    if (!container || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* Sub-chunks start after the container's header payload */
+    *out = (zbc_chunk_t *)(container->data + header_size);
+
+    return ZBC_OK;
+}
+
+int zbc_chunk_end(const zbc_chunk_t *chunk, const uint8_t **out)
+{
+    if (!chunk || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* End is first byte past the chunk's data (not including padding) */
+    *out = chunk->data + chunk->size;
+
+    return ZBC_OK;
+}
+
+int zbc_chunk_find(const uint8_t *start, const uint8_t *end,
+                   uint32_t id, zbc_chunk_t **out)
+{
+    zbc_chunk_t *chunk;
+    int err;
+
+    if (!start || !end || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    chunk = (zbc_chunk_t *)start;
+
+    while ((const uint8_t *)chunk < end) {
+        err = zbc_chunk_validate(chunk, end);
+        if (err != ZBC_OK) {
+            return err;
+        }
+
+        if (chunk->id == id) {
+            *out = chunk;
+            return ZBC_OK;
+        }
+
+        err = zbc_chunk_next(chunk, &chunk);
+        if (err != ZBC_OK) {
+            return err;
+        }
+    }
+
+    return ZBC_ERR_NOT_FOUND;
+}
+
+int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
+                      uint32_t expected_form)
+{
+    size_t riff_total_size;
+
+    if (!riff) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* Check we can read the header (12 bytes on wire) */
+    if (buf_size < ZBC_RIFF_HDR_SIZE) {
+        return ZBC_ERR_HEADER_OVERFLOW;
+    }
+
+    /* Check magic */
+    if (riff->riff_id != ZBC_ID_RIFF) {
+        return ZBC_ERR_BAD_RIFF_MAGIC;
+    }
+
+    /* Check form type */
+    if (riff->form_type != expected_form) {
+        return ZBC_ERR_BAD_FORM_TYPE;
+    }
+
+    /* Check size fits in buffer: size field counts bytes after itself */
+    /* Total = 4 (riff_id) + 4 (size field) + size */
+    riff_total_size = 4 + 4 + riff->size;
+    if (riff_total_size > buf_size) {
+        return ZBC_ERR_RIFF_OVERFLOW;
+    }
+
+    return ZBC_OK;
+}
+
+int zbc_riff_end(const zbc_riff_t *riff, const uint8_t **out)
+{
+    if (!riff || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* RIFF size counts everything after the size field itself.
+     * So end = start + 4 (riff_id) + 4 (size) + size
+     */
+    *out = (const uint8_t *)riff + 4 + 4 + riff->size;
+
+    return ZBC_OK;
+}
+
+/*========================================================================
+ * Unified RIFF parser
+ *
+ * Parse once, extract everything. No state machine.
+ *========================================================================*/
+
+/*
+ * Parse sub-chunks within a container (CALL or RETN).
+ * Extracts PARM and DATA chunks into the parsed structure.
+ */
+static void parse_subchunks(const uint8_t *start, const uint8_t *end,
+                            int int_size, int ptr_size, int endian,
+                            zbc_parsed_t *out)
+{
+    const uint8_t *pos = start;
+    uint32_t id, size;
+    const uint8_t *data;
+    int value_size;
+
+    while (pos + ZBC_CHUNK_HDR_SIZE <= end) {
+        id = ZBC_READ_U32_LE(pos);
+        size = ZBC_READ_U32_LE(pos + 4);
+        data = pos + ZBC_CHUNK_HDR_SIZE;
+
+        /* Bounds check */
+        if (data + size > end) {
+            break;
+        }
+
+        if (id == ZBC_ID_PARM && out->parm_count < ZBC_MAX_PARMS) {
+            /* PARM: type(1) + reserved(3) + value(int_size or ptr_size) */
+            if (size >= ZBC_PARM_HDR_SIZE) {
+                uint8_t parm_type = data[0];
+                value_size = (parm_type == ZBC_PARM_TYPE_PTR) ? ptr_size : int_size;
+
+                if (size >= ZBC_PARM_HDR_SIZE + (size_t)value_size) {
+                    out->parms[out->parm_count] = zbc_read_native_int(
+                        data + ZBC_PARM_HDR_SIZE, value_size, endian);
+                    out->parm_count++;
+                }
+            }
+        } else if (id == ZBC_ID_DATA && out->data_count < ZBC_MAX_DATA) {
+            /* DATA: type(1) + reserved(3) + payload */
+            if (size >= ZBC_DATA_HDR_SIZE) {
+                out->data[out->data_count].ptr = data + ZBC_DATA_HDR_SIZE;
+                out->data[out->data_count].size = size - ZBC_DATA_HDR_SIZE;
+                out->data_count++;
+            }
+        }
+
+        /* Advance to next chunk (with padding) */
+        pos += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(size);
+    }
+}
+
+/*
+ * Parse a RIFF SEMI buffer into a zbc_parsed_t structure.
+ */
+int zbc_riff_parse(const uint8_t *buf, size_t buf_size,
+                   int int_size, int endian, zbc_parsed_t *out)
+{
+    const zbc_riff_t *riff;
+    const uint8_t *riff_end_ptr;
+    const uint8_t *pos;
+    uint32_t id, size;
+    const uint8_t *chunk_data;
+    int ptr_size;
+    int rc;
+
+    if (!buf || !out) {
+        return ZBC_ERR_NULL_ARG;
+    }
+
+    /* Zero the output structure */
+    {
+        uint8_t *p = (uint8_t *)out;
+        size_t i;
+        for (i = 0; i < sizeof(*out); i++) {
+            p[i] = 0;
+        }
+    }
+
+    /* Default to provided int_size for ptr_size until we see CNFG */
+    ptr_size = int_size;
+
+    /* Validate RIFF container */
+    riff = (const zbc_riff_t *)buf;
+    rc = zbc_riff_validate(riff, buf_size, ZBC_ID_SEMI);
+    if (rc != ZBC_OK) {
+        return rc;
+    }
+
+    rc = zbc_riff_end(riff, &riff_end_ptr);
+    if (rc != ZBC_OK) {
+        return rc;
+    }
+
+    /* Walk all top-level chunks */
+    pos = buf + ZBC_RIFF_HDR_SIZE;
+
+    while (pos + ZBC_CHUNK_HDR_SIZE <= riff_end_ptr) {
+        id = ZBC_READ_U32_LE(pos);
+        size = ZBC_READ_U32_LE(pos + 4);
+        chunk_data = pos + ZBC_CHUNK_HDR_SIZE;
+
+        /* Bounds check */
+        if (chunk_data + size > riff_end_ptr) {
+            return ZBC_ERR_DATA_OVERFLOW;
+        }
+
+        if (id == ZBC_ID_CNFG) {
+            /* CNFG: int_size(1) + ptr_size(1) + endian(1) + reserved(1) */
+            if (size >= ZBC_CNFG_PAYLOAD_SIZE) {
+                out->int_size = chunk_data[0];
+                out->ptr_size = chunk_data[1];
+                out->endianness = chunk_data[2];
+                out->has_cnfg = 1;
+                /* Update for sub-chunk parsing */
+                int_size = out->int_size;
+                ptr_size = out->ptr_size;
+                endian = out->endianness;
+            }
+        } else if (id == ZBC_ID_CALL) {
+            /* CALL: opcode(1) + reserved(3) + sub-chunks */
+            if (size >= ZBC_CALL_HDR_PAYLOAD_SIZE) {
+                out->opcode = chunk_data[0];
+                out->has_call = 1;
+                /* Parse sub-chunks within CALL */
+                parse_subchunks(chunk_data + ZBC_CALL_HDR_PAYLOAD_SIZE,
+                                chunk_data + size,
+                                int_size, ptr_size, endian, out);
+            }
+        } else if (id == ZBC_ID_RETN) {
+            /* RETN: result(int_size) + errno(4) + optional sub-chunks */
+            if (size >= (size_t)int_size + 4) {
+                out->result = zbc_read_native_int(chunk_data, int_size, endian);
+                out->host_errno = (int)ZBC_READ_U32_LE(chunk_data + int_size);
+                out->has_retn = 1;
+                /* Parse sub-chunks within RETN (for DATA) */
+                parse_subchunks(chunk_data + int_size + 4,
+                                chunk_data + size,
+                                int_size, ptr_size, endian, out);
+            }
+        } else if (id == ZBC_ID_ERRO) {
+            /* ERRO: error_code(2) + reserved(2) */
+            if (size >= ZBC_ERRO_PAYLOAD_SIZE) {
+                out->proto_error = ZBC_READ_U16_LE(chunk_data);
+                out->has_erro = 1;
+            }
+        }
+        /* Skip unknown chunks silently */
+
+        /* Advance to next chunk (with padding) */
+        pos += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(size);
+    }
+
+    return ZBC_OK;
+}
