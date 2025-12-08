@@ -537,6 +537,13 @@ int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
                 out->ptr_size = chunk_data[1];
                 out->endianness = chunk_data[2];
                 out->has_cnfg = 1;
+                /* Validate sizes - must be 1, 2, 4, or 8 */
+                if ((out->int_size != 1 && out->int_size != 2 &&
+                     out->int_size != 4 && out->int_size != 8) ||
+                    (out->ptr_size != 1 && out->ptr_size != 2 &&
+                     out->ptr_size != 4 && out->ptr_size != 8)) {
+                    return ZBC_ERR_INVALID_ARG;
+                }
                 /* Update for sub-chunk parsing */
                 int_size = out->int_size;
                 ptr_size = out->ptr_size;

@@ -41,7 +41,7 @@ def fourcc(s):
 # Chunk header: fourcc + size
 # CNFG payload: int_size(1) + ptr_size(1) + endianness(1) + reserved(1) = 4 bytes
 
-print("Generating evil corpus files...")
+print("Generating malformed corpus files...")
 
 # --- RIFF size edge cases ---
 
@@ -206,6 +206,27 @@ write_corpus("malformed_cnfg_int_size_huge",
 write_corpus("malformed_cnfg_ptr_size_zero",
     fourcc("RIFF") + u32le(12) + fourcc("SEMI") +
     fourcc("CNFG") + u32le(4) + bytes([4, 0, 0, 0]))  # ptr_size=0
+
+
+# --- Malformed CNFG + CALL combinations (triggers response writing) ---
+
+# CNFG with huge int_size + valid CALL (triggers write_retn overflow)
+write_corpus("malformed_cnfg_huge_with_call",
+    fourcc("RIFF") + u32le(28) + fourcc("SEMI") +
+    fourcc("CNFG") + u32le(4) + bytes([255, 4, 0, 0]) +  # int_size=255
+    fourcc("CALL") + u32le(4) + bytes([0x13, 0, 0, 0]))  # SYS_ERRNO opcode
+
+# CNFG with int_size=0 + valid CALL
+write_corpus("malformed_cnfg_zero_with_call",
+    fourcc("RIFF") + u32le(28) + fourcc("SEMI") +
+    fourcc("CNFG") + u32le(4) + bytes([0, 4, 0, 0]) +  # int_size=0
+    fourcc("CALL") + u32le(4) + bytes([0x13, 0, 0, 0]))  # SYS_ERRNO opcode
+
+# CNFG with ptr_size=0 + valid CALL
+write_corpus("malformed_cnfg_ptr_zero_with_call",
+    fourcc("RIFF") + u32le(28) + fourcc("SEMI") +
+    fourcc("CNFG") + u32le(4) + bytes([4, 0, 0, 0]) +  # ptr_size=0
+    fourcc("CALL") + u32le(4) + bytes([0x13, 0, 0, 0]))  # SYS_ERRNO opcode
 
 
 print(f"\nGenerated files in {CORPUS_DIR}")
