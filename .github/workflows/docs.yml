@@ -5,12 +5,14 @@ on:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'include/**'
       - 'README.rst'
       - '.github/workflows/docs.yml'
   pull_request:
     branches: [main]
     paths:
       - 'docs/**'
+      - 'include/**'
       - 'README.rst'
       - '.github/workflows/docs.yml'
   workflow_dispatch:
@@ -35,6 +37,12 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install libclang
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libclang-14-dev
+          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib/libclang.so" >> $GITHUB_ENV
 
       - name: Install dependencies
         run: |

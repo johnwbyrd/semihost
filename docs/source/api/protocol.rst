@@ -88,219 +88,88 @@ Device Register Offsets
 Structures
 ----------
 
-zbc_chunk_t
-^^^^^^^^^^^
+.. autoctype:: zbc_protocol.h::zbc_chunk_t
 
-Generic RIFF chunk structure.
+.. autoctype:: zbc_protocol.h::zbc_riff_t
 
-.. code-block:: c
-
-   typedef struct {
-       uint32_t id;      /* FourCC, little-endian */
-       uint32_t size;    /* Payload size (excluding header) */
-       uint8_t  data[1]; /* Payload (variable length) */
-   } zbc_chunk_t;
-
-zbc_riff_t
-^^^^^^^^^^
-
-RIFF container structure.
-
-.. code-block:: c
-
-   typedef struct {
-       uint32_t riff_id;    /* Must be ZBC_ID_RIFF */
-       uint32_t size;       /* Size after this field */
-       uint32_t form_type;  /* e.g., ZBC_ID_SEMI */
-       uint8_t  data[1];    /* Container chunks */
-   } zbc_riff_t;
-
-zbc_parsed_t
-^^^^^^^^^^^^
-
-Result of parsing a RIFF SEMI buffer.
-
-.. code-block:: c
-
-   typedef struct {
-       /* From CNFG chunk */
-       uint8_t int_size;
-       uint8_t ptr_size;
-       uint8_t endianness;
-       uint8_t has_cnfg;
-
-       /* From CALL chunk */
-       uint8_t opcode;
-       uint8_t has_call;
-
-       /* Parameters from PARM sub-chunks */
-       int parm_count;
-       int parms[ZBC_MAX_PARMS];
-
-       /* Data from DATA sub-chunks */
-       int data_count;
-       struct {
-           const uint8_t *ptr;
-           size_t size;
-       } data[ZBC_MAX_DATA];
-
-       /* From RETN chunk */
-       int result;
-       int host_errno;
-       uint8_t has_retn;
-
-       /* From ERRO chunk */
-       uint16_t proto_error;
-       uint8_t has_erro;
-   } zbc_parsed_t;
+.. autoctype:: zbc_protocol.h::zbc_parsed_t
 
 Chunk Functions
 ---------------
 
-.. c:function:: int zbc_chunk_validate(const zbc_chunk_t *chunk, const uint8_t *container_end)
+.. autocfunction:: zbc_protocol.h::zbc_chunk_validate
 
-   Validate that a chunk fits within container bounds.
+.. autocfunction:: zbc_protocol.h::zbc_chunk_next
 
-   :param chunk: Chunk to validate
-   :param container_end: First byte past the container
-   :returns: ``ZBC_OK``, ``ZBC_ERR_NULL_ARG``, ``ZBC_ERR_HEADER_OVERFLOW``, or ``ZBC_ERR_DATA_OVERFLOW``
+.. autocfunction:: zbc_protocol.h::zbc_chunk_first_sub
 
-.. c:function:: int zbc_chunk_next(zbc_chunk_t **out, const zbc_chunk_t *chunk)
+.. autocfunction:: zbc_protocol.h::zbc_chunk_end
 
-   Get pointer to next sibling chunk.
-
-   :param out: Receives pointer to next chunk
-   :param chunk: Current chunk
-   :returns: ``ZBC_OK`` or ``ZBC_ERR_NULL_ARG``
-
-   Caller must validate the returned chunk before accessing.
-
-.. c:function:: int zbc_chunk_first_sub(zbc_chunk_t **out, const zbc_chunk_t *container, size_t header_size)
-
-   Get pointer to first sub-chunk within a container.
-
-   :param out: Receives pointer to first sub-chunk
-   :param container: Parent chunk (e.g., CALL)
-   :param header_size: Bytes to skip before sub-chunks
-   :returns: ``ZBC_OK`` or ``ZBC_ERR_NULL_ARG``
-
-.. c:function:: int zbc_chunk_end(const uint8_t **out, const zbc_chunk_t *chunk)
-
-   Get end pointer for a chunk.
-
-   :param out: Receives pointer past chunk data
-   :param chunk: The chunk
-   :returns: ``ZBC_OK`` or ``ZBC_ERR_NULL_ARG``
-
-.. c:function:: int zbc_chunk_find(zbc_chunk_t **out, const uint8_t *start, const uint8_t *end, uint32_t id)
-
-   Find chunk by ID within bounds.
-
-   :param out: Receives pointer to found chunk
-   :param start: Start of search region
-   :param end: End of search region
-   :param id: FourCC to find
-   :returns: ``ZBC_OK``, ``ZBC_ERR_NOT_FOUND``, or validation error
+.. autocfunction:: zbc_protocol.h::zbc_chunk_find
 
 RIFF Functions
 --------------
 
-.. c:function:: int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size, uint32_t expected_form)
+.. autocfunction:: zbc_protocol.h::zbc_riff_validate
 
-   Validate RIFF container.
+.. autocfunction:: zbc_protocol.h::zbc_riff_end
 
-   :param riff: Pointer to RIFF container
-   :param buf_size: Total buffer size
-   :param expected_form: Expected form type (e.g., ``ZBC_ID_SEMI``)
-   :returns: ``ZBC_OK`` or validation error
+.. autocfunction:: zbc_protocol.h::zbc_riff_parse
 
-.. c:function:: int zbc_riff_end(const uint8_t **out, const zbc_riff_t *riff)
+**Example:**
 
-   Get end pointer for RIFF container.
+.. code-block:: c
 
-   :param out: Receives pointer past RIFF data
-   :param riff: The RIFF container
-   :returns: ``ZBC_OK`` or ``ZBC_ERR_NULL_ARG``
-
-.. c:function:: int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size, int int_size, int endian)
-
-   Parse a RIFF SEMI buffer.
-
-   :param out: Receives parsed structure
-   :param buf: RIFF buffer to parse
-   :param buf_size: Size of buffer
-   :param int_size: Guest int size (for decoding values)
-   :param endian: Guest endianness (``ZBC_ENDIAN_*``)
-   :returns: ``ZBC_OK`` or parse error
-
-   This is the main parsing entry point. It walks all chunks and
-   populates the ``zbc_parsed_t`` structure. After calling:
-
-   .. code-block:: c
-
-      zbc_parsed_t parsed;
-      int rc = zbc_riff_parse(&parsed, buf, size, 4, ZBC_ENDIAN_LITTLE);
-      if (rc == ZBC_OK) {
-          if (parsed.has_retn) {
-              /* Use parsed.result, parsed.host_errno */
-          }
-          if (parsed.has_erro) {
-              /* Handle protocol error */
-          }
-      }
+   zbc_parsed_t parsed;
+   int rc = zbc_riff_parse(&parsed, buf, size, 4, ZBC_ENDIAN_LITTLE);
+   if (rc == ZBC_OK) {
+       if (parsed.has_retn) {
+           /* Use parsed.result, parsed.host_errno */
+       }
+       if (parsed.has_erro) {
+           /* Handle protocol error */
+       }
+   }
 
 Helper Functions
 ----------------
 
-.. c:function:: size_t zbc_strlen(const char *s)
+.. autocfunction:: zbc_protocol.h::zbc_strlen
 
-   String length (no libc dependency).
+.. autocfunction:: zbc_protocol.h::zbc_write_native_uint
 
-   :param s: Null-terminated string
-   :returns: Length in bytes (excluding null)
+.. autocfunction:: zbc_protocol.h::zbc_read_native_int
 
-.. c:function:: void zbc_write_native_uint(uint8_t *buf, unsigned int value, int size, int endianness)
+.. autocfunction:: zbc_protocol.h::zbc_read_native_uint
 
-   Write integer in specified endianness.
+RIFF Writing Functions
+----------------------
 
-   :param buf: Destination buffer
-   :param value: Value to write
-   :param size: Size in bytes (1-4)
-   :param endianness: ``ZBC_ENDIAN_LITTLE`` or ``ZBC_ENDIAN_BIG``
+.. autocfunction:: zbc_protocol.h::zbc_riff_begin_chunk
 
-.. c:function:: int zbc_read_native_int(const uint8_t *buf, int size, int endianness)
+.. autocfunction:: zbc_protocol.h::zbc_riff_patch_size
 
-   Read signed integer in specified endianness.
+.. autocfunction:: zbc_protocol.h::zbc_riff_write_bytes
 
-   :param buf: Source buffer
-   :param size: Size in bytes (1-4)
-   :param endianness: ``ZBC_ENDIAN_LITTLE`` or ``ZBC_ENDIAN_BIG``
-   :returns: Signed integer value
+.. autocfunction:: zbc_protocol.h::zbc_riff_pad
 
-.. c:function:: unsigned int zbc_read_native_uint(const uint8_t *buf, int size, int endianness)
+.. autocfunction:: zbc_protocol.h::zbc_riff_begin_container
 
-   Read unsigned integer in specified endianness.
+.. autocfunction:: zbc_protocol.h::zbc_riff_validate_container
 
-   :param buf: Source buffer
-   :param size: Size in bytes (1-4)
-   :param endianness: ``ZBC_ENDIAN_LITTLE`` or ``ZBC_ENDIAN_BIG``
-   :returns: Unsigned integer value
+RIFF Reading Functions
+----------------------
+
+.. autocfunction:: zbc_protocol.h::zbc_riff_read_header
+
+.. autocfunction:: zbc_protocol.h::zbc_riff_skip_chunk
 
 Opcode Table
 ------------
 
-.. c:function:: const zbc_opcode_entry_t *zbc_opcode_lookup(int opcode)
+.. autocfunction:: zbc_protocol.h::zbc_opcode_lookup
 
-   Look up opcode in the syscall table.
-
-   :param opcode: ``SH_SYS_*`` opcode
-   :returns: Pointer to table entry, or NULL if not found
-
-.. c:function:: int zbc_opcode_count(void)
-
-   Get number of entries in opcode table.
-
-   :returns: Count of supported opcodes
+.. autocfunction:: zbc_protocol.h::zbc_opcode_count
 
 Byte Manipulation Macros
 ------------------------

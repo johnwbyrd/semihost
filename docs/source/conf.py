@@ -14,7 +14,20 @@ release = '0.1.0'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []
+# Set libclang path for sphinx-c-autodoc if specified via environment
+import os
+if 'LIBCLANG_PATH' in os.environ:
+    import clang.cindex
+    clang.cindex.Config.set_library_file(os.environ['LIBCLANG_PATH'])
+
+extensions = [
+    'sphinx_c_autodoc',
+    'sphinx_c_autodoc.napoleon',
+]
+
+# -- Options for sphinx-c-autodoc --------------------------------------------
+
+c_autodoc_roots = ['../../include']
 
 templates_path = ['_templates']
 exclude_patterns = []

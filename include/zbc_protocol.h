@@ -1,5 +1,6 @@
-/*
- * ZBC Semihosting Protocol Definitions
+/**
+ * @file zbc_protocol.h
+ * @brief ZBC Semihosting Protocol Definitions
  *
  * Wire protocol constants: opcodes, RIFF FourCC codes, register definitions,
  * error codes, and byte manipulation helpers.
@@ -214,24 +215,25 @@ typedef uint32_t uintptr_t;
  * on the data field.
  *========================================================================*/
 
-/*
- * Generic RIFF chunk: id(4) + size(4) + data[size]
+/**
+ * Generic RIFF chunk: id(4) + size(4) + data[size].
+ *
  * All chunk access goes through this struct - no magic offsets.
  */
 typedef struct {
-    uint32_t id;      /* FourCC, little-endian */
-    uint32_t size;    /* Payload size in bytes (not including this header) */
-    uint8_t  data[1]; /* Chunk payload (variable length, [1] for C90) */
+    uint32_t id;      /**< FourCC, little-endian */
+    uint32_t size;    /**< Payload size in bytes (not including this header) */
+    uint8_t  data[1]; /**< Chunk payload (variable length, [1] for C90) */
 } zbc_chunk_t;
 
-/*
+/**
  * RIFF container: "RIFF"(4) + size(4) + form_type(4) + chunks...
  */
 typedef struct {
-    uint32_t riff_id;    /* Must be ZBC_ID_RIFF */
-    uint32_t size;       /* Size of everything after this field */
-    uint32_t form_type;  /* e.g., ZBC_ID_SEMI */
-    uint8_t  data[1];    /* Container chunks (variable length, [1] for C90) */
+    uint32_t riff_id;    /**< Must be ZBC_ID_RIFF */
+    uint32_t size;       /**< Size of everything after this field */
+    uint32_t form_type;  /**< e.g., ZBC_ID_SEMI */
+    uint8_t  data[1];    /**< Container chunks (variable length, [1] for C90) */
 } zbc_riff_t;
 
 /*========================================================================
@@ -240,38 +242,38 @@ typedef struct {
  * Each chunk type has a payload struct. Access fields by name, not offset.
  *========================================================================*/
 
-/* CNFG chunk payload */
+/** CNFG chunk payload */
 typedef struct {
-    uint8_t int_size;     /* Guest integer size (1-4) */
-    uint8_t ptr_size;     /* Guest pointer size (1-8) */
-    uint8_t endianness;   /* 0=little, 1=big */
-    uint8_t reserved;
+    uint8_t int_size;     /**< Guest integer size (1-4) */
+    uint8_t ptr_size;     /**< Guest pointer size (1-8) */
+    uint8_t endianness;   /**< 0=little, 1=big */
+    uint8_t reserved;     /**< Reserved for future use */
 } zbc_cnfg_payload_t;
 
-/* CALL chunk header (before sub-chunks) */
+/** CALL chunk header (before sub-chunks) */
 typedef struct {
-    uint8_t opcode;       /* SH_SYS_* */
-    uint8_t reserved[3];
+    uint8_t opcode;       /**< SH_SYS_* opcode */
+    uint8_t reserved[3];  /**< Reserved for future use */
 } zbc_call_header_t;
 
-/* PARM chunk payload */
+/** PARM chunk payload */
 typedef struct {
-    uint8_t type;         /* ZBC_PARM_TYPE_INT or ZBC_PARM_TYPE_PTR */
-    uint8_t reserved[3];
-    uint8_t value[1];     /* int_size or ptr_size bytes, native endian ([1] for C90) */
+    uint8_t type;         /**< ZBC_PARM_TYPE_INT or ZBC_PARM_TYPE_PTR */
+    uint8_t reserved[3];  /**< Reserved for future use */
+    uint8_t value[1];     /**< int_size or ptr_size bytes, native endian ([1] for C90) */
 } zbc_parm_payload_t;
 
-/* DATA chunk payload */
+/** DATA chunk payload */
 typedef struct {
-    uint8_t type;         /* ZBC_DATA_TYPE_BINARY or ZBC_DATA_TYPE_STRING */
-    uint8_t reserved[3];
-    uint8_t payload[1];   /* Variable-length data ([1] for C90) */
+    uint8_t type;         /**< ZBC_DATA_TYPE_BINARY or ZBC_DATA_TYPE_STRING */
+    uint8_t reserved[3];  /**< Reserved for future use */
+    uint8_t payload[1];   /**< Variable-length data ([1] for C90) */
 } zbc_data_payload_t;
 
-/* ERRO chunk payload */
+/** ERRO chunk payload */
 typedef struct {
-    uint16_t error_code;  /* Protocol error code, little-endian */
-    uint8_t reserved[2];
+    uint16_t error_code;  /**< Protocol error code, little-endian */
+    uint8_t reserved[2];  /**< Reserved for future use */
     /* Optional error message follows */
 } zbc_erro_payload_t;
 
@@ -432,39 +434,156 @@ typedef struct {
     uint8_t resp_len_slot;       /* args[] index for max length */
 } zbc_opcode_entry_t;
 
-/* Opcode table lookup */
+/**
+ * Look up an opcode table entry by opcode number.
+ *
+ * @param opcode  The SH_SYS_* opcode to look up
+ * @return Pointer to opcode entry, or NULL if not found
+ */
 const zbc_opcode_entry_t *zbc_opcode_lookup(int opcode);
+
+/**
+ * Get the number of entries in the opcode table.
+ *
+ * @return Number of defined opcodes
+ */
 int zbc_opcode_count(void);
 
 /*========================================================================
  * RIFF helper functions (shared by client and host)
  *========================================================================*/
 
-/* String length (no libc) */
+/**
+ * Calculate string length without libc dependency.
+ *
+ * @param s  Null-terminated string
+ * @return Length of string (not including null terminator)
+ */
 size_t zbc_strlen(const char *s);
 
-/* Native endianness read/write */
+/**
+ * Write an unsigned integer in specified endianness.
+ *
+ * @param buf         Destination buffer
+ * @param value       Value to write
+ * @param size        Size in bytes (1-4)
+ * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
+ */
 void zbc_write_native_uint(uint8_t *buf, unsigned int value, int size,
                            int endianness);
+
+/**
+ * Read a signed integer in specified endianness.
+ *
+ * @param buf         Source buffer
+ * @param size        Size in bytes (1-4)
+ * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
+ * @return Signed integer value
+ */
 int zbc_read_native_int(const uint8_t *buf, int size, int endianness);
+
+/**
+ * Read an unsigned integer in specified endianness.
+ *
+ * @param buf         Source buffer
+ * @param size        Size in bytes (1-4)
+ * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
+ * @return Unsigned integer value
+ */
 unsigned int zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
 
-/* RIFF chunk writing */
+/**
+ * Begin writing a new RIFF chunk.
+ *
+ * Writes the FourCC ID and reserves space for the size field.
+ * Returns pointer to the size field so caller can patch it later.
+ *
+ * @param buf       Buffer to write to
+ * @param capacity  Total buffer capacity
+ * @param offset    Current write offset (updated on return)
+ * @param fourcc    FourCC chunk ID
+ * @return Pointer to size field for later patching, or NULL if no space
+ */
 uint8_t *zbc_riff_begin_chunk(uint8_t *buf, size_t capacity, size_t *offset,
                               uint32_t fourcc);
+
+/**
+ * Patch the size field of a chunk after writing its data.
+ *
+ * @param size_ptr   Pointer returned by zbc_riff_begin_chunk()
+ * @param data_size  Actual size of chunk data
+ */
 void zbc_riff_patch_size(uint8_t *size_ptr, size_t data_size);
+
+/**
+ * Write raw bytes to a RIFF buffer.
+ *
+ * @param buf       Buffer to write to
+ * @param capacity  Total buffer capacity
+ * @param offset    Current write offset (updated on return)
+ * @param data      Data to write
+ * @param size      Number of bytes to write
+ * @return ZBC_OK on success, ZBC_ERR_BUFFER_FULL if no space
+ */
 int zbc_riff_write_bytes(uint8_t *buf, size_t capacity, size_t *offset,
                          const void *data, size_t size);
+
+/**
+ * Add padding byte if needed for RIFF word alignment.
+ *
+ * RIFF requires chunks to be word-aligned (2-byte boundary).
+ *
+ * @param buf       Buffer to write to
+ * @param capacity  Total buffer capacity
+ * @param offset    Current write offset (updated on return)
+ */
 void zbc_riff_pad(uint8_t *buf, size_t capacity, size_t *offset);
 
-/* RIFF chunk reading */
+/**
+ * Read a RIFF chunk header.
+ *
+ * @param buf       Buffer to read from
+ * @param capacity  Total buffer capacity
+ * @param offset    Offset to chunk header
+ * @param[out] fourcc  Receives FourCC chunk ID
+ * @param[out] size    Receives chunk data size
+ * @return ZBC_OK on success, error code on failure
+ */
 int zbc_riff_read_header(const uint8_t *buf, size_t capacity, size_t offset,
                          uint32_t *fourcc, uint32_t *size);
+
+/**
+ * Skip past a chunk to the next sibling.
+ *
+ * @param buf       Buffer containing chunk
+ * @param capacity  Total buffer capacity
+ * @param offset    Offset to current chunk header
+ * @return Offset to next chunk, or capacity if at end
+ */
 size_t zbc_riff_skip_chunk(const uint8_t *buf, size_t capacity, size_t offset);
 
-/* RIFF container */
+/**
+ * Begin writing a RIFF container.
+ *
+ * Writes "RIFF", reserves space for size, and writes form type.
+ *
+ * @param buf        Buffer to write to
+ * @param capacity   Total buffer capacity
+ * @param offset     Current write offset (updated on return)
+ * @param form_type  Form type FourCC (e.g., ZBC_ID_SEMI)
+ * @return Pointer to size field for later patching, or NULL if no space
+ */
 uint8_t *zbc_riff_begin_container(uint8_t *buf, size_t capacity, size_t *offset,
                                   uint32_t form_type);
+
+/**
+ * Validate a RIFF container header.
+ *
+ * @param buf                Buffer containing RIFF data
+ * @param capacity           Total buffer capacity
+ * @param expected_form_type Expected form type (e.g., ZBC_ID_SEMI)
+ * @return ZBC_OK on success, error code on failure
+ */
 int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
                                 uint32_t expected_form_type);
 
@@ -472,84 +591,81 @@ int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
  * New chunk-based API (struct-based, no magic offsets)
  *========================================================================*/
 
-/*
- * Validate chunk fits within container bounds.
+/**
+ * Validate that a chunk fits within container bounds.
  *
- * chunk         - pointer to chunk to validate
- * container_end - first byte PAST the valid container region
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_HEADER_OVERFLOW, ZBC_ERR_DATA_OVERFLOW
+ * @param chunk          Pointer to chunk to validate
+ * @param container_end  First byte PAST the valid container region
+ * @return ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_HEADER_OVERFLOW, or
+ *         ZBC_ERR_DATA_OVERFLOW
  */
 int zbc_chunk_validate(const zbc_chunk_t *chunk, const uint8_t *container_end);
 
-/*
+/**
  * Get pointer to next sibling chunk.
+ *
  * Caller MUST validate the returned chunk before accessing it.
  *
- * out   - receives pointer to next chunk
- * chunk - current chunk
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
+ * @param[out] out  Receives pointer to next chunk
+ * @param chunk     Current chunk
+ * @return ZBC_OK or ZBC_ERR_NULL_ARG
  */
 int zbc_chunk_next(zbc_chunk_t **out, const zbc_chunk_t *chunk);
 
-/*
+/**
  * Get pointer to first sub-chunk within a container chunk.
  *
- * out         - receives pointer to first sub-chunk
- * container   - parent chunk (e.g., CALL) that contains sub-chunks
- * header_size - bytes to skip before sub-chunks (e.g., sizeof(zbc_call_header_t))
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
+ * @param[out] out     Receives pointer to first sub-chunk
+ * @param container    Parent chunk (e.g., CALL) that contains sub-chunks
+ * @param header_size  Bytes to skip before sub-chunks
+ *                     (e.g., sizeof(zbc_call_header_t))
+ * @return ZBC_OK or ZBC_ERR_NULL_ARG
  */
 int zbc_chunk_first_sub(zbc_chunk_t **out, const zbc_chunk_t *container,
                         size_t header_size);
 
-/*
+/**
  * Get container end pointer (for validating sub-chunks).
  *
- * out   - receives pointer to first byte past chunk data
- * chunk - the container chunk
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
+ * @param[out] out  Receives pointer to first byte past chunk data
+ * @param chunk     The container chunk
+ * @return ZBC_OK or ZBC_ERR_NULL_ARG
  */
 int zbc_chunk_end(const uint8_t **out, const zbc_chunk_t *chunk);
 
-/*
+/**
  * Find chunk by ID within container bounds.
+ *
  * Validates each chunk while searching.
  *
- * out   - receives pointer to found chunk
- * start - start of search region (first chunk)
- * end   - first byte PAST the search region
- * id    - FourCC to find
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_NOT_FOUND,
- *          ZBC_ERR_HEADER_OVERFLOW, ZBC_ERR_DATA_OVERFLOW
+ * @param[out] out  Receives pointer to found chunk
+ * @param start     Start of search region (first chunk)
+ * @param end       First byte PAST the search region
+ * @param id        FourCC to find
+ * @return ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_NOT_FOUND,
+ *         ZBC_ERR_HEADER_OVERFLOW, or ZBC_ERR_DATA_OVERFLOW
  */
 int zbc_chunk_find(zbc_chunk_t **out, const uint8_t *start, const uint8_t *end,
                    uint32_t id);
 
-/*
+/**
  * Validate RIFF container.
  *
- * riff          - pointer to RIFF container
- * buf_size      - total buffer size
- * expected_form - expected form type (e.g., ZBC_ID_SEMI)
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_BAD_RIFF_MAGIC,
- *          ZBC_ERR_BAD_FORM_TYPE, ZBC_ERR_RIFF_OVERFLOW
+ * @param riff           Pointer to RIFF container
+ * @param buf_size       Total buffer size
+ * @param expected_form  Expected form type (e.g., ZBC_ID_SEMI)
+ * @return ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_BAD_RIFF_MAGIC,
+ *         ZBC_ERR_BAD_FORM_TYPE, or ZBC_ERR_RIFF_OVERFLOW
  */
 int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
                       uint32_t expected_form);
 
-/*
+/**
  * Get end pointer for RIFF container.
  *
- * out  - receives pointer to first byte past RIFF data
- * riff - the RIFF container
- *
- * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
+ * @param[out] out  Receives pointer to first byte past RIFF data
+ * @param riff      The RIFF container
+ * @return ZBC_OK or ZBC_ERR_NULL_ARG
  */
 int zbc_riff_end(const uint8_t **out, const zbc_riff_t *riff);
 
@@ -560,56 +676,62 @@ int zbc_riff_end(const uint8_t **out, const zbc_riff_t *riff);
  * validation. Just pointers into the original buffer.
  *========================================================================*/
 
-#define ZBC_MAX_PARMS 8
-#define ZBC_MAX_DATA  4
+#define ZBC_MAX_PARMS 8   /**< Maximum PARM chunks in parsed structure */
+#define ZBC_MAX_DATA  4   /**< Maximum DATA chunks in parsed structure */
 
+/**
+ * Parsed RIFF SEMI structure.
+ *
+ * Parse once with zbc_riff_parse(), then access fields directly.
+ * Pointers reference the original buffer (no copies).
+ */
 typedef struct {
     /* Guest configuration (from CNFG chunk) */
-    uint8_t int_size;
-    uint8_t ptr_size;
-    uint8_t endianness;
-    uint8_t has_cnfg;
+    uint8_t int_size;     /**< Guest integer size (1-4) */
+    uint8_t ptr_size;     /**< Guest pointer size (1-8) */
+    uint8_t endianness;   /**< Guest endianness (ZBC_ENDIAN_*) */
+    uint8_t has_cnfg;     /**< 1 if CNFG chunk was present */
 
     /* Request: CALL chunk info */
-    uint8_t opcode;
-    uint8_t has_call;
+    uint8_t opcode;       /**< SH_SYS_* opcode from CALL chunk */
+    uint8_t has_call;     /**< 1 if CALL chunk was present */
 
     /* Request: parameters from PARM sub-chunks */
-    int parm_count;
-    int parms[ZBC_MAX_PARMS];
+    int parm_count;       /**< Number of PARM values parsed */
+    int parms[ZBC_MAX_PARMS];  /**< Decoded parameter values */
 
     /* Request/Response: data from DATA sub-chunks */
-    int data_count;
+    int data_count;       /**< Number of DATA chunks parsed */
     struct {
-        const uint8_t *ptr;
-        size_t size;
-    } data[ZBC_MAX_DATA];
+        const uint8_t *ptr;  /**< Pointer to data payload */
+        size_t size;         /**< Size of data payload */
+    } data[ZBC_MAX_DATA];    /**< DATA chunk references */
 
     /* Response: RETN chunk info */
-    int result;
-    int host_errno;
-    uint8_t has_retn;
+    int result;           /**< Return value from RETN chunk */
+    int host_errno;       /**< Errno value from RETN chunk */
+    uint8_t has_retn;     /**< 1 if RETN chunk was present */
 
     /* Response: ERRO chunk info */
-    uint16_t proto_error;
-    uint8_t has_erro;
+    uint16_t proto_error; /**< Protocol error code from ERRO chunk */
+    uint8_t has_erro;     /**< 1 if ERRO chunk was present */
 } zbc_parsed_t;
 
-/*
+/**
  * Parse a RIFF SEMI buffer into a zbc_parsed_t structure.
  *
  * This is the single entry point for parsing. It walks all chunks,
  * extracts relevant fields, and populates the parsed structure.
  * After this call, the caller can simply check fields like:
- *   if (parsed.has_retn) { use parsed.result; }
  *
- * out      - receives parsed structure
- * buf      - RIFF buffer to parse
- * buf_size - size of buffer
- * int_size - guest int size (for decoding PARM/RETN values)
- * endian   - guest endianness (ZBC_ENDIAN_*)
+ *     if (parsed.has_retn) { use parsed.result; }
  *
- * Returns: ZBC_OK on success, error code on parse failure
+ * @param[out] out  Receives parsed structure
+ * @param buf       RIFF buffer to parse
+ * @param buf_size  Size of buffer
+ * @param int_size  Guest int size (for decoding PARM/RETN values)
+ * @param endian    Guest endianness (ZBC_ENDIAN_*)
+ * @return ZBC_OK on success, error code on parse failure
  */
 int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
                    int int_size, int endian);
