@@ -19,5 +19,7 @@ cmake --build build
 $CC $CFLAGS -I include -c fuzz/fuzz_riff_parser.c -o fuzz_riff_parser.o
 $CC $CFLAGS $LIB_FUZZING_ENGINE fuzz_riff_parser.o build/libzbc_semi_host.a -o $OUT/fuzz_riff_parser
 
-# Copy seed corpus
+# Generate and copy seed corpus
+mkdir -p fuzz/corpus/riff_parser
+python3 fuzz/gen_malformed_corpus.py fuzz/corpus/riff_parser
 cp -r fuzz/corpus/riff_parser $OUT/fuzz_riff_parser_seed_corpus
