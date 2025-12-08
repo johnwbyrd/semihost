@@ -106,8 +106,8 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr);
  * @param size  Size of integer in bytes
  * @return Integer value
  */
-int zbc_host_read_guest_int(const zbc_host_state_t *state,
-                            const uint8_t *data, size_t size);
+int64_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+                                const uint8_t *data, size_t size);
 
 /**
  * Write an integer in guest-endian format.
@@ -120,7 +120,7 @@ int zbc_host_read_guest_int(const zbc_host_state_t *state,
  * @param size  Size of integer in bytes
  */
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, int value, size_t size);
+                              uint8_t *data, uint64_t value, size_t size);
 
 #ifdef __cplusplus
 }

@@ -640,28 +640,28 @@ size_t zbc_strlen(const char *s);
  * @param size        Size in bytes (1-4)
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  */
-void zbc_write_native_uint(uint8_t *buf, unsigned int value, int size,
+void zbc_write_native_uint(uint8_t *buf, uint64_t value, int size,
                            int endianness);
 
 /**
  * Read a signed integer in specified endianness.
  *
  * @param buf         Source buffer
- * @param size        Size in bytes (1-4)
+ * @param size        Size in bytes (1-8)
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Signed integer value
  */
-int zbc_read_native_int(const uint8_t *buf, int size, int endianness);
+int64_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
 
 /**
  * Read an unsigned integer in specified endianness.
  *
  * @param buf         Source buffer
- * @param size        Size in bytes (1-4)
+ * @param size        Size in bytes (1-8)
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Unsigned integer value
  */
-unsigned int zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
+uint64_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
 
 /**
  * Begin writing a new RIFF chunk.
@@ -870,7 +870,7 @@ typedef struct {
 
     /* Request: parameters from PARM sub-chunks */
     int parm_count;       /**< Number of PARM values parsed */
-    int parms[ZBC_MAX_PARMS];  /**< Decoded parameter values */
+    int64_t parms[ZBC_MAX_PARMS];  /**< Decoded parameter values (up to 64-bit) */
 
     /* Request/Response: data from DATA sub-chunks */
     int data_count;       /**< Number of DATA chunks parsed */
@@ -880,7 +880,7 @@ typedef struct {
     } data[ZBC_MAX_DATA];    /**< DATA chunk references */
 
     /* Response: RETN chunk info */
-    int result;           /**< Return value from RETN chunk */
+    int64_t result;       /**< Return value from RETN chunk (up to 64-bit) */
     int host_errno;       /**< Errno value from RETN chunk */
     uint8_t has_retn;     /**< 1 if RETN chunk was present */
 

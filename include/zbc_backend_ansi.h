@@ -144,9 +144,8 @@ typedef struct zbc_ansi_state_s {
 
     /*--- Internal: other state ---*/
     int last_errno;
-    /* TODO: uint32_t will overflow after ~497 days of centiseconds.
-     * Consider using uint64_t or detecting/handling overflow. */
-    uint32_t start_clock;              /**< Stored as uint32_t to avoid time.h */
+    /* Clock accumulator using 64-bit time */
+    uint64_t start_clock;              /**< Stored as uint64_t to avoid time.h */
     char path_buf[ZBC_ANSI_PATH_BUF_MAX];
     int initialized;
 } zbc_ansi_state_t;
@@ -232,9 +231,8 @@ typedef struct zbc_ansi_insecure_state_s {
 
     /*--- Internal: other state ---*/
     int last_errno;
-    /* TODO: uint32_t will overflow after ~497 days of centiseconds.
-     * Consider using uint64_t or detecting/handling overflow. */
-    uint32_t start_clock;              /**< Stored as uint32_t to avoid time.h */
+    /* Clock accumulator using 64-bit time */
+    uint64_t start_clock;              /**< Stored as uint64_t to avoid time.h */
     char path_buf[ZBC_ANSI_PATH_BUF_MAX];  /**< For null-terminating paths */
     int initialized;
 } zbc_ansi_insecure_state_t;

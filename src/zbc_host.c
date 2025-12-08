@@ -71,17 +71,16 @@ static void write_guest(zbc_host_state_t *state, uint64_t addr,
  * Value conversion (guest endianness)
  *========================================================================*/
 
-int zbc_host_read_guest_int(const zbc_host_state_t *state,
-                            const uint8_t *data, size_t size)
+int64_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+                                const uint8_t *data, size_t size)
 {
     return zbc_read_native_int(data, (int)size, state->guest_endianness);
 }
 
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, int value, size_t size)
+                              uint8_t *data, uint64_t value, size_t size)
 {
-    zbc_write_native_uint(data, (unsigned int)value, (int)size,
-                          state->guest_endianness);
+    zbc_write_native_uint(data, value, (int)size, state->guest_endianness);
 }
 
 /*========================================================================
@@ -125,7 +124,7 @@ static void write_erro(zbc_host_state_t *state, uint64_t addr, int error_code)
  * Write RETN response chunk to guest memory.
  */
 static void write_retn(zbc_host_state_t *state, uint64_t addr,
-                       int result, int err,
+                       int64_t result, int err,
                        const void *data, size_t data_size)
 {
     uint8_t buf[128];
@@ -146,7 +145,7 @@ static void write_retn(zbc_host_state_t *state, uint64_t addr,
     retn_payload_start = pos;
 
     /* RETN payload: result[int_size] + errno[4] */
-    zbc_host_write_guest_int(state, buf + pos, result, int_size);
+    zbc_host_write_guest_int(state, buf + pos, (uint64_t)result, int_size);
     pos += int_size;
     ZBC_WRITE_U32_LE(buf + pos, (uint32_t)err);
     pos += 4;
@@ -270,7 +269,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
     zbc_parsed_t parsed;
     const zbc_backend_t *be;
     void *ctx;
-    int result = 0;
+    int64_t result = 0;
     int err = 0;
     int rc;
 
@@ -524,12 +523,7 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
         break;
 
     case SH_SYS_HEAPINFO:
-        if (be->heapinfo) {
-            unsigned int heap_base, heap_limit, stack_base, stack_limit;
-            result = be->heapinfo(ctx, &heap_base, &heap_limit,
-                                  &stack_base, &stack_limit);
-            /* TODO: Write 4 PARM chunks with pointer values */
-        }
+        /* Heap info retrieval not yet fully implemented */
         write_retn(state, riff_addr, -1, ENOSYS, NULL, 0);
         break;
 

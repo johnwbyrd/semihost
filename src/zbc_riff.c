@@ -34,7 +34,7 @@ size_t zbc_strlen(const char *s)
  * Write an unsigned integer in native endianness.
  * Used for PARM/DATA values that are in guest's native format.
  */
-void zbc_write_native_uint(uint8_t *buf, unsigned int value, int size,
+void zbc_write_native_uint(uint8_t *buf, uint64_t value, int size,
                            int endianness)
 {
     int i;
@@ -56,12 +56,12 @@ void zbc_write_native_uint(uint8_t *buf, unsigned int value, int size,
 /*
  * Read a signed integer in native endianness with sign extension.
  */
-int zbc_read_native_int(const uint8_t *buf, int size, int endianness)
+int64_t zbc_read_native_int(const uint8_t *buf, int size, int endianness)
 {
-    unsigned int value = 0;
+    uint64_t value = 0;
     int i;
-    unsigned int sign_bit;
-    unsigned int sign_extend;
+    uint64_t sign_bit;
+    uint64_t sign_extend;
 
     if (endianness == ZBC_ENDIAN_LITTLE) {
         for (i = size - 1; i >= 0; i--) {
@@ -75,23 +75,23 @@ int zbc_read_native_int(const uint8_t *buf, int size, int endianness)
     }
 
     /* Sign extend if necessary */
-    if (size < (int)sizeof(int)) {
-        sign_bit = 1U << (size * 8 - 1);
+    if (size < 8) {
+        sign_bit = (uint64_t)1U << (size * 8 - 1);
         if (value & sign_bit) {
-            sign_extend = ~((1U << (size * 8)) - 1);
+            sign_extend = ~(((uint64_t)1U << (size * 8)) - 1);
             value |= sign_extend;
         }
     }
 
-    return (int)value;
+    return (int64_t)value;
 }
 
 /*
  * Read an unsigned integer in native endianness.
  */
-unsigned int zbc_read_native_uint(const uint8_t *buf, int size, int endianness)
+uint64_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness)
 {
-    unsigned int value = 0;
+    uint64_t value = 0;
     int i;
 
     if (endianness == ZBC_ENDIAN_LITTLE) {

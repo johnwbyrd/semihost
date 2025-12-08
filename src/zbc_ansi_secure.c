@@ -468,7 +468,7 @@ static int ansi_seek(void *ctx, int fd, int pos)
     return 0;
 }
 
-static int ansi_flen(void *ctx, int fd)
+static int64_t ansi_flen(void *ctx, int fd)
 {
     zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     FILE *fp;
@@ -508,7 +508,7 @@ static int ansi_flen(void *ctx, int fd)
         return -1;
     }
 
-    return (int)end_pos;
+    return (int64_t)end_pos;
 }
 
 static int ansi_remove_file(void *ctx, const char *path, size_t path_len)
@@ -649,14 +649,14 @@ static int ansi_clock_func(void *ctx)
 {
     zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     clock_t now;
-    clock_t elapsed;
+    uint64_t elapsed;
 
     if (!state || !state->initialized) {
         return -1;
     }
 
     now = clock();
-    elapsed = now - (clock_t)state->start_clock;
+    elapsed = (uint64_t)(now - (clock_t)state->start_clock);
 
     /* Convert to centiseconds */
     return (int)((elapsed * 100) / CLOCKS_PER_SEC);
@@ -672,17 +672,17 @@ static int ansi_elapsed(void *ctx, unsigned int *lo, unsigned int *hi)
 {
     zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
     clock_t now;
-    clock_t elapsed;
+    uint64_t elapsed;
 
     if (!state || !state->initialized) {
         return -1;
     }
 
     now = clock();
-    elapsed = now - (clock_t)state->start_clock;
+    elapsed = (uint64_t)(now - (clock_t)state->start_clock);
 
-    *lo = (unsigned int)elapsed;
-    *hi = 0;
+    *lo = (unsigned int)(elapsed & 0xFFFFFFFF);
+    *hi = (unsigned int)(elapsed >> 32);
 
     return 0;
 }
@@ -741,9 +741,9 @@ static int ansi_get_cmdline(void *ctx, char *buf, size_t buf_size)
     return zbc_ansi_get_cmdline(buf, buf_size);
 }
 
-static int ansi_heapinfo(void *ctx, unsigned int *heap_base,
-                         unsigned int *heap_limit, unsigned int *stack_base,
-                         unsigned int *stack_limit)
+static int ansi_heapinfo(void *ctx, uint64_t *heap_base,
+                         uint64_t *heap_limit, uint64_t *stack_base,
+                         uint64_t *stack_limit)
 {
     (void)ctx;
     return zbc_ansi_heapinfo(heap_base, heap_limit, stack_base, stack_limit);
@@ -870,7 +870,7 @@ void zbc_ansi_init(zbc_ansi_state_t *state, const char *sandbox_dir)
         state->fd_pool[i].next = NULL;
     }
 
-    state->start_clock = (uint32_t)clock();
+    state->start_clock = (uint64_t)clock();
     state->initialized = 1;
 }
 

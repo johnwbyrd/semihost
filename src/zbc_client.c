@@ -111,7 +111,7 @@ static int write_cnfg_if_needed(uint8_t *buf, size_t capacity, size_t *pos,
  * Write a PARM chunk with an integer value.
  */
 static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
-                            unsigned int value, int is_signed,
+                            uintptr_t value, int is_signed,
                             const zbc_client_state_t *state)
 {
     size_t payload_size;
@@ -135,7 +135,8 @@ static int write_parm_chunk(uint8_t *buf, size_t capacity, size_t *pos,
     payload[1] = 0;  /* reserved */
     payload[2] = 0;
     payload[3] = 0;
-    zbc_write_native_uint(payload + 4, value, state->int_size, state->endianness);
+    zbc_write_native_uint(payload + 4, (uint64_t)value, state->int_size,
+                          state->endianness);
 
     *pos += total_size;
 
@@ -247,12 +248,12 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
         switch (desc->type) {
         case ZBC_CHUNK_PARM_INT:
             rc = write_parm_chunk(buf, capacity, &pos,
-                                  (unsigned int)args[desc->slot], 1, state);
+                                  args[desc->slot], 1, state);
             break;
 
         case ZBC_CHUNK_PARM_UINT:
             rc = write_parm_chunk(buf, capacity, &pos,
-                                  (unsigned int)args[desc->slot], 0, state);
+                                  args[desc->slot], 0, state);
             break;
 
         case ZBC_CHUNK_DATA_PTR:
