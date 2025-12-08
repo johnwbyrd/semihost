@@ -33,8 +33,8 @@ Backends
 - **Init**: ``zbc_ansi_init(&state, "/path/to/sandbox/");``
 - **Risk**: Still vulnerable to symlink attacks, DoS via large files.
 
-**Dummy Backend** (`zbc_backend_dummy`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Dummy Backend (`zbc_backend_dummy`)**
+---------------------------------------
 
 - **No-op**: All ops succeed without side effects.
 - **Use case**: Testing host integration without I/O.
