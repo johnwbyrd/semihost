@@ -41,26 +41,29 @@ if (!zbc_client_check_signature(&client)) {
 All semihosting calls go through `zbc_call()`:
 
 ```c
-uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
-                   int opcode, uintptr_t *args);
+int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
+             void *buf, size_t buf_size, int opcode, uintptr_t *args);
 ```
 
+- `response` - receives parsed response
 - `state` - initialized client state
 - `buf` - working buffer for RIFF protocol (you provide this)
 - `buf_size` - size of buffer
 - `opcode` - syscall number (`SH_SYS_*` constants from `zbc_protocol.h`)
 - `args` - array of arguments, layout depends on opcode
 
-Returns the syscall result, or `(uintptr_t)-1` on error.
+Returns `ZBC_OK` on success, or `ZBC_ERR_*` on protocol/transport error.
+On success, `response->result` contains the syscall return value, and `response->error_code` contains the host errno.
 
 ### Console Output
 
 Write a string to console (SYS_WRITE0):
 
 ```c
+zbc_response_t response;
 uintptr_t args[1];
 args[0] = (uintptr_t)"Hello, world!\n";
-zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_WRITE0, args);
+zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_WRITE0, args);
 ```
 
 ### Opening a File
@@ -69,15 +72,17 @@ SYS_OPEN takes path pointer, mode, and path length:
 
 ```c
 const char *path = "/tmp/test.txt";
+zbc_response_t response;
 uintptr_t args[3];
 args[0] = (uintptr_t)path;
 args[1] = SH_OPEN_W;  /* write mode */
 args[2] = strlen(path);
 
-uintptr_t fd = zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_OPEN, args);
-if (fd == (uintptr_t)-1) {
+int rc = zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_OPEN, args);
+if (rc != ZBC_OK || response.result < 0) {
     /* open failed */
 }
+int fd = response.result;
 ```
 
 ### Writing to a File
@@ -87,13 +92,14 @@ SYS_WRITE takes fd, buffer pointer, and count. Returns bytes NOT written (0 = su
 ```c
 const char *data = "Hello\n";
 size_t len = 6;
+zbc_response_t response;
 uintptr_t args[3];
 args[0] = fd;
 args[1] = (uintptr_t)data;
 args[2] = len;
 
-uintptr_t not_written = zbc_call(&client, riff_buf, sizeof(riff_buf),
-                                  SH_SYS_WRITE, args);
+zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_WRITE, args);
+int not_written = response.result;
 ```
 
 ### Reading from a File
@@ -102,22 +108,23 @@ SYS_READ takes fd, buffer pointer, and count. Returns bytes NOT read:
 
 ```c
 char buf[256];
+zbc_response_t response;
 uintptr_t args[3];
 args[0] = fd;
 args[1] = (uintptr_t)buf;
 args[2] = sizeof(buf);
 
-uintptr_t not_read = zbc_call(&client, riff_buf, sizeof(riff_buf),
-                               SH_SYS_READ, args);
-size_t bytes_read = sizeof(buf) - not_read;
+zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_READ, args);
+size_t bytes_read = sizeof(buf) - response.result;
 ```
 
 ### Closing a File
 
 ```c
+zbc_response_t response;
 uintptr_t args[1];
 args[0] = fd;
-zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_CLOSE, args);
+zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_CLOSE, args);
 ```
 
 ### Getting the Time
@@ -125,8 +132,9 @@ zbc_call(&client, riff_buf, sizeof(riff_buf), SH_SYS_CLOSE, args);
 SYS_TIME returns seconds since Unix epoch:
 
 ```c
-uintptr_t seconds = zbc_call(&client, riff_buf, sizeof(riff_buf),
-                              SH_SYS_TIME, NULL);
+zbc_response_t response;
+zbc_call(&response, &client, riff_buf, sizeof(riff_buf), SH_SYS_TIME, NULL);
+uintptr_t seconds = response.result;
 ```
 
 ## Syscall Reference
@@ -180,7 +188,7 @@ The library never allocates memory. You provide the RIFF buffer for each call.
 - 512 bytes is comfortable for file operations
 - Match your largest read/write size plus ~64 bytes overhead
 
-The buffer is reused for both request and response. After `zbc_call()` returns, the buffer contains the response data (for syscalls like SYS_READ that return data, the library copies it to your destination buffer automatically).
+The buffer is reused for both request and response. After `zbc_call()` returns, the buffer contains the response data. For syscalls that return data (like SYS_READ), `response->data` points into this buffer and `response->data_size` gives its length. Copy the data before making another call.
 
 ## picolibc Integration
 

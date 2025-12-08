@@ -300,11 +300,11 @@ int zbc_chunk_validate(const zbc_chunk_t *chunk, const uint8_t *container_end)
     return ZBC_OK;
 }
 
-int zbc_chunk_next(const zbc_chunk_t *chunk, zbc_chunk_t **out)
+int zbc_chunk_next(zbc_chunk_t **out, const zbc_chunk_t *chunk)
 {
     const uint8_t *next_ptr;
 
-    if (!chunk || !out) {
+    if (!out || !chunk) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -315,10 +315,10 @@ int zbc_chunk_next(const zbc_chunk_t *chunk, zbc_chunk_t **out)
     return ZBC_OK;
 }
 
-int zbc_chunk_first_sub(const zbc_chunk_t *container, size_t header_size,
-                        zbc_chunk_t **out)
+int zbc_chunk_first_sub(zbc_chunk_t **out, const zbc_chunk_t *container,
+                        size_t header_size)
 {
-    if (!container || !out) {
+    if (!out || !container) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -328,9 +328,9 @@ int zbc_chunk_first_sub(const zbc_chunk_t *container, size_t header_size,
     return ZBC_OK;
 }
 
-int zbc_chunk_end(const zbc_chunk_t *chunk, const uint8_t **out)
+int zbc_chunk_end(const uint8_t **out, const zbc_chunk_t *chunk)
 {
-    if (!chunk || !out) {
+    if (!out || !chunk) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -340,13 +340,13 @@ int zbc_chunk_end(const zbc_chunk_t *chunk, const uint8_t **out)
     return ZBC_OK;
 }
 
-int zbc_chunk_find(const uint8_t *start, const uint8_t *end,
-                   uint32_t id, zbc_chunk_t **out)
+int zbc_chunk_find(zbc_chunk_t **out, const uint8_t *start, const uint8_t *end,
+                   uint32_t id)
 {
     zbc_chunk_t *chunk;
     int err;
 
-    if (!start || !end || !out) {
+    if (!out || !start || !end) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -363,7 +363,7 @@ int zbc_chunk_find(const uint8_t *start, const uint8_t *end,
             return ZBC_OK;
         }
 
-        err = zbc_chunk_next(chunk, &chunk);
+        err = zbc_chunk_next(&chunk, chunk);
         if (err != ZBC_OK) {
             return err;
         }
@@ -406,9 +406,9 @@ int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
     return ZBC_OK;
 }
 
-int zbc_riff_end(const zbc_riff_t *riff, const uint8_t **out)
+int zbc_riff_end(const uint8_t **out, const zbc_riff_t *riff)
 {
-    if (!riff || !out) {
+    if (!out || !riff) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -478,8 +478,8 @@ static void parse_subchunks(const uint8_t *start, const uint8_t *end,
 /*
  * Parse a RIFF SEMI buffer into a zbc_parsed_t structure.
  */
-int zbc_riff_parse(const uint8_t *buf, size_t buf_size,
-                   int int_size, int endian, zbc_parsed_t *out)
+int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
+                   int int_size, int endian)
 {
     const zbc_riff_t *riff;
     const uint8_t *riff_end_ptr;
@@ -489,7 +489,7 @@ int zbc_riff_parse(const uint8_t *buf, size_t buf_size,
     int ptr_size;
     int rc;
 
-    if (!buf || !out) {
+    if (!out || !buf) {
         return ZBC_ERR_NULL_ARG;
     }
 
@@ -512,7 +512,7 @@ int zbc_riff_parse(const uint8_t *buf, size_t buf_size,
         return rc;
     }
 
-    rc = zbc_riff_end(riff, &riff_end_ptr);
+    rc = zbc_riff_end(&riff_end_ptr, riff);
     if (rc != ZBC_OK) {
         return rc;
     }

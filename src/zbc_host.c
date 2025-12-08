@@ -224,8 +224,8 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
     read_guest(state, buf, riff_addr, riff_total_size);
 
     /* Parse everything at once */
-    rc = zbc_riff_parse(buf, riff_total_size,
-                        state->guest_int_size, state->guest_endianness, parsed);
+    rc = zbc_riff_parse(parsed, buf, riff_total_size,
+                        state->guest_int_size, state->guest_endianness);
     if (rc != ZBC_OK) {
         write_erro(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
         return ZBC_ERR_PARSE_ERROR;

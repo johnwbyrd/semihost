@@ -390,7 +390,7 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     response->proto_error = 0;
 
     /* Parse the entire RIFF structure */
-    rc = zbc_riff_parse(buf, capacity, state->int_size, state->endianness, &parsed);
+    rc = zbc_riff_parse(&parsed, buf, capacity, state->int_size, state->endianness);
     if (rc != ZBC_OK) {
         return ZBC_ERR_PARSE_ERROR;
     }
@@ -420,38 +420,23 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
 }
 
 /*========================================================================
- * Copy helper (no libc)
- *========================================================================*/
-
-static void copy_bytes(void *dest, const void *src, size_t n)
-{
-    size_t i;
-    uint8_t *d = (uint8_t *)dest;
-    const uint8_t *s = (const uint8_t *)src;
-    for (i = 0; i < n; i++) {
-        d[i] = s[i];
-    }
-}
-
-/*========================================================================
  * Main entry points
  *========================================================================*/
 
-uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
-                   int opcode, uintptr_t *args)
+int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
+             void *buf, size_t buf_size, int opcode, uintptr_t *args)
 {
     const zbc_opcode_entry_t *entry;
-    zbc_response_t response;
     size_t riff_size;
     int rc;
 
-    if (!state || !buf) {
-        return (uintptr_t)-1;
+    if (!response || !state || !buf) {
+        return ZBC_ERR_INVALID_ARG;
     }
 
     entry = zbc_opcode_lookup(opcode);
     if (!entry) {
-        return (uintptr_t)-1;
+        return ZBC_ERR_UNKNOWN_OPCODE;
     }
 
     /* args may be NULL for operations with no parameters */
@@ -459,60 +444,39 @@ uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
     /* Build request */
     rc = build_request((uint8_t *)buf, buf_size, &riff_size, state, entry, args);
     if (rc != ZBC_OK) {
-        return (uintptr_t)-1;
+        return rc;
     }
 
     /* Submit and wait */
     rc = zbc_client_submit_poll(state, buf, riff_size);
     if (rc != ZBC_OK) {
-        return (uintptr_t)-1;
+        return rc;
     }
 
     /* Parse response */
-    rc = zbc_parse_response(&response, (uint8_t *)buf, buf_size, state);
+    rc = zbc_parse_response(response, (uint8_t *)buf, buf_size, state);
     if (rc != ZBC_OK) {
-        return (uintptr_t)-1;
+        return rc;
     }
 
-    if (response.is_error) {
-        return (uintptr_t)-1;
+    if (response->is_error) {
+        return ZBC_ERR_DEVICE_ERROR;
     }
 
-    /* Handle response data based on response type */
-    switch (entry->resp_type) {
-    case ZBC_RESP_DATA:
-        if (response.data && response.data_size > 0) {
-            size_t max_len = (size_t)args[entry->resp_len_slot];
-            size_t copy_size = (response.data_size < max_len) ?
-                               response.data_size : max_len;
-            copy_bytes((void *)args[entry->resp_dest], response.data, copy_size);
-            /* Null-terminate if it's a string destination */
-            if (copy_size < max_len) {
-                ((char *)args[entry->resp_dest])[copy_size] = '\0';
-            }
-        }
-        break;
-
-    case ZBC_RESP_ELAPSED:
-        if (response.data && response.data_size >= 8) {
-            copy_bytes((void *)args[entry->resp_dest], response.data, 8);
-        }
-        break;
-
-    case ZBC_RESP_HEAPINFO:
-        /* TODO: Parse 4 PARM chunks for heap info */
-        break;
-
-    default:
-        break;
-    }
-
-    return (uintptr_t)response.result;
+    return ZBC_OK;
 }
 
 uintptr_t zbc_semihost(zbc_client_state_t *state, uint8_t *riff_buf,
                        size_t riff_buf_size, uintptr_t op, uintptr_t param)
 {
+    zbc_response_t response;
     uintptr_t *args = (uintptr_t *)param;
-    return zbc_call(state, riff_buf, riff_buf_size, (int)op, args);
+    int rc;
+
+    rc = zbc_call(&response, state, riff_buf, riff_buf_size, (int)op, args);
+    if (rc != ZBC_OK) {
+        return (uintptr_t)-1;
+    }
+
+    return (uintptr_t)response.result;
 }

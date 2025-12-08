@@ -486,49 +486,49 @@ int zbc_chunk_validate(const zbc_chunk_t *chunk, const uint8_t *container_end);
  * Get pointer to next sibling chunk.
  * Caller MUST validate the returned chunk before accessing it.
  *
- * chunk - current chunk
  * out   - receives pointer to next chunk
+ * chunk - current chunk
  *
  * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
  */
-int zbc_chunk_next(const zbc_chunk_t *chunk, zbc_chunk_t **out);
+int zbc_chunk_next(zbc_chunk_t **out, const zbc_chunk_t *chunk);
 
 /*
  * Get pointer to first sub-chunk within a container chunk.
  *
+ * out         - receives pointer to first sub-chunk
  * container   - parent chunk (e.g., CALL) that contains sub-chunks
  * header_size - bytes to skip before sub-chunks (e.g., sizeof(zbc_call_header_t))
- * out         - receives pointer to first sub-chunk
  *
  * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
  */
-int zbc_chunk_first_sub(const zbc_chunk_t *container, size_t header_size,
-                        zbc_chunk_t **out);
+int zbc_chunk_first_sub(zbc_chunk_t **out, const zbc_chunk_t *container,
+                        size_t header_size);
 
 /*
  * Get container end pointer (for validating sub-chunks).
  *
- * chunk - the container chunk
  * out   - receives pointer to first byte past chunk data
+ * chunk - the container chunk
  *
  * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
  */
-int zbc_chunk_end(const zbc_chunk_t *chunk, const uint8_t **out);
+int zbc_chunk_end(const uint8_t **out, const zbc_chunk_t *chunk);
 
 /*
  * Find chunk by ID within container bounds.
  * Validates each chunk while searching.
  *
+ * out   - receives pointer to found chunk
  * start - start of search region (first chunk)
  * end   - first byte PAST the search region
  * id    - FourCC to find
- * out   - receives pointer to found chunk
  *
  * Returns: ZBC_OK, ZBC_ERR_NULL_ARG, ZBC_ERR_NOT_FOUND,
  *          ZBC_ERR_HEADER_OVERFLOW, ZBC_ERR_DATA_OVERFLOW
  */
-int zbc_chunk_find(const uint8_t *start, const uint8_t *end,
-                   uint32_t id, zbc_chunk_t **out);
+int zbc_chunk_find(zbc_chunk_t **out, const uint8_t *start, const uint8_t *end,
+                   uint32_t id);
 
 /*
  * Validate RIFF container.
@@ -546,12 +546,12 @@ int zbc_riff_validate(const zbc_riff_t *riff, size_t buf_size,
 /*
  * Get end pointer for RIFF container.
  *
- * riff - the RIFF container
  * out  - receives pointer to first byte past RIFF data
+ * riff - the RIFF container
  *
  * Returns: ZBC_OK, ZBC_ERR_NULL_ARG
  */
-int zbc_riff_end(const zbc_riff_t *riff, const uint8_t **out);
+int zbc_riff_end(const uint8_t **out, const zbc_riff_t *riff);
 
 /*========================================================================
  * Parsed RIFF structure
@@ -603,16 +603,16 @@ typedef struct {
  * After this call, the caller can simply check fields like:
  *   if (parsed.has_retn) { use parsed.result; }
  *
+ * out      - receives parsed structure
  * buf      - RIFF buffer to parse
  * buf_size - size of buffer
  * int_size - guest int size (for decoding PARM/RETN values)
  * endian   - guest endianness (ZBC_ENDIAN_*)
- * out      - receives parsed structure
  *
  * Returns: ZBC_OK on success, error code on parse failure
  */
-int zbc_riff_parse(const uint8_t *buf, size_t buf_size,
-                   int int_size, int endian, zbc_parsed_t *out);
+int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
+                   int int_size, int endian);
 
 #ifdef __cplusplus
 }

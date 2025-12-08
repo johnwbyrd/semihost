@@ -77,16 +77,18 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state);
  * Main syscall entry point.
  * Builds RIFF request from opcode table, submits, parses response.
  *
+ * response - receives parsed response (result, errno, data pointer)
  * state    - initialized client state
  * buf      - RIFF buffer (caller-provided)
  * buf_size - size of buffer
  * opcode   - SH_SYS_* opcode
  * args     - array of arguments (interpretation depends on opcode)
  *
- * Returns syscall result, or (uintptr_t)-1 on error.
+ * Returns ZBC_OK on success, ZBC_ERR_* on protocol/transport error.
+ * On success, check response->result for the syscall return value.
  */
-uintptr_t zbc_call(zbc_client_state_t *state, void *buf, size_t buf_size,
-                   int opcode, uintptr_t *args);
+int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
+             void *buf, size_t buf_size, int opcode, uintptr_t *args);
 
 /*
  * ARM-compatible semihost entry point.
