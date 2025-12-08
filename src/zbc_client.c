@@ -29,17 +29,20 @@ void zbc_client_init(zbc_client_state_t *state, volatile void *dev_base)
 int zbc_client_check_signature(const zbc_client_state_t *state)
 {
     if (!state || !state->dev_base) {
-        return 0;
+        return ZBC_ERR_NULL_ARG;
     }
 
-    return (state->dev_base[ZBC_REG_SIGNATURE + 0] == ZBC_SIGNATURE_BYTE0 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 1] == ZBC_SIGNATURE_BYTE1 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 2] == ZBC_SIGNATURE_BYTE2 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 3] == ZBC_SIGNATURE_BYTE3 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 4] == ZBC_SIGNATURE_BYTE4 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 5] == ZBC_SIGNATURE_BYTE5 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 6] == ZBC_SIGNATURE_BYTE6 &&
-            state->dev_base[ZBC_REG_SIGNATURE + 7] == ZBC_SIGNATURE_BYTE7);
+    if (state->dev_base[ZBC_REG_SIGNATURE + 0] == ZBC_SIGNATURE_BYTE0 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 1] == ZBC_SIGNATURE_BYTE1 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 2] == ZBC_SIGNATURE_BYTE2 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 3] == ZBC_SIGNATURE_BYTE3 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 4] == ZBC_SIGNATURE_BYTE4 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 5] == ZBC_SIGNATURE_BYTE5 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 6] == ZBC_SIGNATURE_BYTE6 &&
+        state->dev_base[ZBC_REG_SIGNATURE + 7] == ZBC_SIGNATURE_BYTE7) {
+        return ZBC_OK;
+    }
+    return ZBC_ERR_DEVICE_ERROR;
 }
 
 int zbc_client_device_present(const zbc_client_state_t *state)
@@ -47,11 +50,14 @@ int zbc_client_device_present(const zbc_client_state_t *state)
     uint8_t status;
 
     if (!state || !state->dev_base) {
-        return 0;
+        return ZBC_ERR_NULL_ARG;
     }
 
     status = state->dev_base[ZBC_REG_STATUS];
-    return (status & ZBC_STATUS_DEVICE_PRESENT) != 0;
+    if (status & ZBC_STATUS_DEVICE_PRESENT) {
+        return ZBC_OK;
+    }
+    return ZBC_ERR_DEVICE_ERROR;
 }
 
 void zbc_client_reset_cnfg(zbc_client_state_t *state)

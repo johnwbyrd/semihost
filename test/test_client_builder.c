@@ -58,7 +58,7 @@ static void test_client_check_signature(void) {
     setup_client_state(&state, &dev);
 
     result = zbc_client_check_signature(&state);
-    TEST_ASSERT_EQ(result, 1);
+    TEST_ASSERT_EQ(result, ZBC_OK);
 }
 
 static void test_client_device_present(void) {
@@ -70,7 +70,7 @@ static void test_client_device_present(void) {
     setup_client_state(&state, &dev);
 
     result = zbc_client_device_present(&state);
-    TEST_ASSERT_EQ(result, 1);
+    TEST_ASSERT_EQ(result, ZBC_OK);
 }
 
 /*------------------------------------------------------------------------

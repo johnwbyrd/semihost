@@ -144,7 +144,7 @@ void zbc_riff_patch_size(uint8_t *size_ptr, size_t data_size)
 
 /*
  * Write bytes to buffer with bounds checking.
- * Returns 0 on success, -1 on overflow.
+ * Returns ZBC_OK on success, ZBC_ERR_BUFFER_FULL on overflow.
  */
 int zbc_riff_write_bytes(uint8_t *buf, size_t capacity, size_t *offset,
                          const void *data, size_t size)
@@ -153,7 +153,7 @@ int zbc_riff_write_bytes(uint8_t *buf, size_t capacity, size_t *offset,
     const uint8_t *src;
 
     if (*offset + size > capacity) {
-        return -1;
+        return ZBC_ERR_BUFFER_FULL;
     }
 
     src = (const uint8_t *)data;
@@ -162,7 +162,7 @@ int zbc_riff_write_bytes(uint8_t *buf, size_t capacity, size_t *offset,
     }
     *offset += size;
 
-    return 0;
+    return ZBC_OK;
 }
 
 /*
@@ -182,20 +182,20 @@ void zbc_riff_pad(uint8_t *buf, size_t capacity, size_t *offset)
 
 /*
  * Read a chunk header.
- * Returns 0 on success, fills fourcc and size.
- * Returns -1 if not enough data.
+ * Returns ZBC_OK on success, fills fourcc and size.
+ * Returns ZBC_ERR_HEADER_OVERFLOW if not enough data.
  */
 int zbc_riff_read_header(const uint8_t *buf, size_t capacity, size_t offset,
                          uint32_t *fourcc, uint32_t *size)
 {
     if (offset + ZBC_CHUNK_HDR_SIZE > capacity) {
-        return -1;
+        return ZBC_ERR_HEADER_OVERFLOW;
     }
 
     *fourcc = ZBC_READ_U32_LE(buf + offset);
     *size = ZBC_READ_U32_LE(buf + offset + 4);
 
-    return 0;
+    return ZBC_OK;
 }
 
 /*
@@ -206,7 +206,7 @@ size_t zbc_riff_skip_chunk(const uint8_t *buf, size_t capacity, size_t offset)
 {
     uint32_t fourcc, size;
 
-    if (zbc_riff_read_header(buf, capacity, offset, &fourcc, &size) < 0) {
+    if (zbc_riff_read_header(buf, capacity, offset, &fourcc, &size) != ZBC_OK) {
         return 0;
     }
 
@@ -247,7 +247,8 @@ uint8_t *zbc_riff_begin_container(uint8_t *buf, size_t capacity, size_t *offset,
 
 /*
  * Validate RIFF container header.
- * Returns 0 on success, -1 on error.
+ * Returns ZBC_OK on success, or ZBC_ERR_HEADER_OVERFLOW/ZBC_ERR_BAD_RIFF_MAGIC/
+ * ZBC_ERR_BAD_FORM_TYPE on error.
  */
 int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
                                 uint32_t expected_form_type)
@@ -255,20 +256,20 @@ int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
     uint32_t id, form_type;
 
     if (capacity < ZBC_HDR_SIZE) {
-        return -1;
+        return ZBC_ERR_HEADER_OVERFLOW;
     }
 
     id = ZBC_READ_U32_LE(buf);
     if (id != ZBC_ID_RIFF) {
-        return -1;
+        return ZBC_ERR_BAD_RIFF_MAGIC;
     }
 
     form_type = ZBC_READ_U32_LE(buf + 8);
     if (form_type != expected_form_type) {
-        return -1;
+        return ZBC_ERR_BAD_FORM_TYPE;
     }
 
-    return 0;
+    return ZBC_OK;
 }
 
 /*========================================================================

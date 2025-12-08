@@ -89,7 +89,9 @@ void zbc_client_init(zbc_client_state_t *state, volatile void *dev_base);
  * Call this before making semihosting calls to verify the device exists.
  *
  * @param state Initialized client state
- * @return 1 if device signature matches "SEMIHOST", 0 otherwise
+ * @return ZBC_OK if device signature matches "SEMIHOST",
+ *         ZBC_ERR_NULL_ARG if state or dev_base is NULL,
+ *         ZBC_ERR_DEVICE_ERROR if signature mismatch
  */
 int zbc_client_check_signature(const zbc_client_state_t *state);
 
@@ -97,7 +99,9 @@ int zbc_client_check_signature(const zbc_client_state_t *state);
  * Check device present bit in status register.
  *
  * @param state Initialized client state
- * @return 1 if device present bit is set, 0 otherwise
+ * @return ZBC_OK if device present bit is set,
+ *         ZBC_ERR_NULL_ARG if state or dev_base is NULL,
+ *         ZBC_ERR_DEVICE_ERROR if device not present
  */
 int zbc_client_device_present(const zbc_client_state_t *state);
 

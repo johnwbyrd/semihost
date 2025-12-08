@@ -74,13 +74,13 @@ __attribute__((section(".text.startup"))) void _start(void)
     zbc_client_init(&client, SEMIHOST_BASE);
 
     /* Test 1: Check device signature */
-    if (!zbc_client_check_signature(&client)) {
+    if (zbc_client_check_signature(&client) != ZBC_OK) {
         print("FAIL: signature check\n");
         do_exit(1);
     }
 
     /* Test 2: Check device present bit */
-    if (!zbc_client_device_present(&client)) {
+    if (zbc_client_device_present(&client) != ZBC_OK) {
         print("FAIL: device not present\n");
         do_exit(2);
     }

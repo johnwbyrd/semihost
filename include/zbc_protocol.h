@@ -708,7 +708,7 @@ void zbc_riff_pad(uint8_t *buf, size_t capacity, size_t *offset);
  * @param offset    Offset to chunk header
  * @param[out] fourcc  Receives FourCC chunk ID
  * @param[out] size    Receives chunk data size
- * @return ZBC_OK on success, error code on failure
+ * @return ZBC_OK on success, ZBC_ERR_HEADER_OVERFLOW if not enough data
  */
 int zbc_riff_read_header(const uint8_t *buf, size_t capacity, size_t offset,
                          uint32_t *fourcc, uint32_t *size);
@@ -743,7 +743,8 @@ uint8_t *zbc_riff_begin_container(uint8_t *buf, size_t capacity, size_t *offset,
  * @param buf                Buffer containing RIFF data
  * @param capacity           Total buffer capacity
  * @param expected_form_type Expected form type (e.g., ZBC_ID_SEMI)
- * @return ZBC_OK on success, error code on failure
+ * @return ZBC_OK on success, ZBC_ERR_HEADER_OVERFLOW if buffer too small,
+ *         ZBC_ERR_BAD_RIFF_MAGIC if not "RIFF", ZBC_ERR_BAD_FORM_TYPE if wrong form
  */
 int zbc_riff_validate_container(const uint8_t *buf, size_t capacity,
                                 uint32_t expected_form_type);
