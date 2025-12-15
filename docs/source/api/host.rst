@@ -46,7 +46,7 @@ Functions
 
 .. code-block:: c
 
-   void on_doorbell_write(uint64_t riff_ptr) {
+   void on_doorbell_write(uintptr_t riff_ptr) {
        int rc = zbc_host_process(&host, riff_ptr);
        if (rc == ZBC_OK) {
            set_status_response_ready();

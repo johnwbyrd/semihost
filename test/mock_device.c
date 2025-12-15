@@ -10,21 +10,21 @@
  * Internal: mock memory ops that read/write directly to riff_buf
  *------------------------------------------------------------------------*/
 
-static uint8_t mock_dev_read_u8(uint64_t addr, void *ctx) {
+static uint8_t mock_dev_read_u8(uintptr_t addr, void *ctx) {
   mock_device_t *dev = (mock_device_t *)ctx;
   if (!dev || !dev->riff_buf)
     return 0;
   return dev->riff_buf[addr];
 }
 
-static void mock_dev_write_u8(uint64_t addr, uint8_t val, void *ctx) {
+static void mock_dev_write_u8(uintptr_t addr, uint8_t val, void *ctx) {
   mock_device_t *dev = (mock_device_t *)ctx;
   if (!dev || !dev->riff_buf)
     return;
   dev->riff_buf[addr] = val;
 }
 
-static void mock_dev_read_block(void *dest, uint64_t addr, size_t size,
+static void mock_dev_read_block(void *dest, uintptr_t addr, size_t size,
                                 void *ctx) {
   mock_device_t *dev = (mock_device_t *)ctx;
   if (!dev || !dev->riff_buf || !dest)
@@ -32,7 +32,7 @@ static void mock_dev_read_block(void *dest, uint64_t addr, size_t size,
   memcpy(dest, dev->riff_buf + addr, size);
 }
 
-static void mock_dev_write_block(uint64_t addr, const void *src, size_t size,
+static void mock_dev_write_block(uintptr_t addr, const void *src, size_t size,
                                  void *ctx) {
   mock_device_t *dev = (mock_device_t *)ctx;
   if (!dev || !dev->riff_buf || !src)

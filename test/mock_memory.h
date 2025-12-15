@@ -28,10 +28,10 @@ typedef struct mock_memory {
  * Mock memory operations (for zbc_host_mem_ops_t)
  *------------------------------------------------------------------------*/
 
-uint8_t mock_mem_read_u8(uint64_t addr, void *ctx);
-void mock_mem_write_u8(uint64_t addr, uint8_t val, void *ctx);
-void mock_mem_read_block(void *dest, uint64_t addr, size_t size, void *ctx);
-void mock_mem_write_block(uint64_t addr, const void *src, size_t size,
+uint8_t mock_mem_read_u8(uintptr_t addr, void *ctx);
+void mock_mem_write_u8(uintptr_t addr, uint8_t val, void *ctx);
+void mock_mem_read_block(void *dest, uintptr_t addr, size_t size, void *ctx);
+void mock_mem_write_block(uintptr_t addr, const void *src, size_t size,
                           void *ctx);
 
 /*------------------------------------------------------------------------

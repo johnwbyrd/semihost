@@ -164,10 +164,10 @@ Mock Memory for Host Testing
        int      write_count;
    } mock_memory_t;
 
-   uint8_t mock_mem_read_u8(uint64_t addr, void *ctx);
-   void mock_mem_write_u8(uint64_t addr, uint8_t val, void *ctx);
-   void mock_mem_read_block(void *dest, uint64_t addr, size_t size, void *ctx);
-   void mock_mem_write_block(uint64_t addr, const void *src, size_t size, void *ctx);
+   uint8_t mock_mem_read_u8(uintptr_t addr, void *ctx);
+   void mock_mem_write_u8(uintptr_t addr, uint8_t val, void *ctx);
+   void mock_mem_read_block(void *dest, uintptr_t addr, size_t size, void *ctx);
+   void mock_mem_write_block(uintptr_t addr, const void *src, size_t size, void *ctx);
 
 Test Categories
 ---------------
@@ -519,7 +519,7 @@ Example:
        state.int_size = 4;
        state.endianness = ZBC_ENDIAN_BIG;
 
-       int64_t val = zbc_host_read_int(&state, buf);
+       intmax_t val = zbc_host_read_int(&state, buf);
        TEST_ASSERT_EQ(val, 0x12345678);
    }
 

@@ -233,7 +233,7 @@ static int ansi_insecure_seek(void *ctx, int fd, int pos)
     return 0;
 }
 
-static int64_t ansi_insecure_flen(void *ctx, int fd)
+static intmax_t ansi_insecure_flen(void *ctx, int fd)
 {
     zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
     FILE *fp;
@@ -273,7 +273,7 @@ static int64_t ansi_insecure_flen(void *ctx, int fd)
         return -1;
     }
 
-    return (int64_t)end_pos;
+    return (intmax_t)end_pos;
 }
 
 static int ansi_insecure_remove_file(void *ctx, const char *path,
@@ -444,10 +444,10 @@ static int ansi_insecure_get_cmdline(void *ctx, char *buf, size_t buf_size)
     return zbc_ansi_get_cmdline(buf, buf_size);
 }
 
-static int ansi_insecure_heapinfo(void *ctx, uint64_t *heap_base,
-                                  uint64_t *heap_limit,
-                                  uint64_t *stack_base,
-                                  uint64_t *stack_limit)
+static int ansi_insecure_heapinfo(void *ctx, uintptr_t *heap_base,
+                                  uintptr_t *heap_limit,
+                                  uintptr_t *stack_base,
+                                  uintptr_t *stack_limit)
 {
     (void)ctx;
     return zbc_ansi_heapinfo(heap_base, heap_limit, stack_base, stack_limit);

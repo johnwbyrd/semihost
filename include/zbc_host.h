@@ -26,10 +26,10 @@ extern "C" {
  * through from zbc_host_init().
  */
 typedef struct {
-    uint8_t (*read_u8)(uint64_t addr, void *ctx);     /**< Read single byte */
-    void (*write_u8)(uint64_t addr, uint8_t val, void *ctx);  /**< Write single byte */
-    void (*read_block)(void *dest, uint64_t addr, size_t size, void *ctx);  /**< Read block */
-    void (*write_block)(uint64_t addr, const void *src, size_t size, void *ctx);  /**< Write block */
+    uint8_t (*read_u8)(uintptr_t addr, void *ctx);     /**< Read single byte */
+    void (*write_u8)(uintptr_t addr, uint8_t val, void *ctx);  /**< Write single byte */
+    void (*read_block)(void *dest, uintptr_t addr, size_t size, void *ctx);  /**< Read block */
+    void (*write_block)(uintptr_t addr, const void *src, size_t size, void *ctx);  /**< Write block */
 } zbc_host_mem_ops_t;
 
 /*========================================================================
@@ -94,7 +94,7 @@ void zbc_host_init(zbc_host_state_t *state,
  * @param riff_addr Guest address of RIFF buffer
  * @return ZBC_OK on success, error code on failure
  */
-int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr);
+int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr);
 
 /**
  * Read an integer from guest-endian data.
@@ -106,8 +106,8 @@ int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr);
  * @param size  Size of integer in bytes
  * @return Integer value
  */
-int64_t zbc_host_read_guest_int(const zbc_host_state_t *state,
-                                const uint8_t *data, size_t size);
+intmax_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+                                 const uint8_t *data, size_t size);
 
 /**
  * Write an integer in guest-endian format.
@@ -120,7 +120,7 @@ int64_t zbc_host_read_guest_int(const zbc_host_state_t *state,
  * @param size  Size of integer in bytes
  */
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, uint64_t value, size_t size);
+                              uint8_t *data, uintmax_t value, size_t size);
 
 #ifdef __cplusplus
 }

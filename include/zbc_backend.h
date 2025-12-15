@@ -47,7 +47,7 @@ typedef struct zbc_backend_s {
     /** Seek to absolute position. */
     int (*seek)(void *ctx, int fd, int pos);
     /** Return file length. */
-    int64_t (*flen)(void *ctx, int fd);
+    intmax_t (*flen)(void *ctx, int fd);
     /** Delete a file. Path is NOT null-terminated. */
     int (*remove)(void *ctx, const char *path, size_t path_len);
     /** Rename a file. Paths are NOT null-terminated. */
@@ -81,8 +81,8 @@ typedef struct zbc_backend_s {
     /** Get command line. Write to buf, return 0 on success. */
     int (*get_cmdline)(void *ctx, char *buf, size_t buf_size);
     /** Get heap/stack info. Fill all four values, return 0 on success. */
-    int (*heapinfo)(void *ctx, uint64_t *heap_base, uint64_t *heap_limit,
-                    uint64_t *stack_base, uint64_t *stack_limit);
+    int (*heapinfo)(void *ctx, uintptr_t *heap_base, uintptr_t *heap_limit,
+                    uintptr_t *stack_base, uintptr_t *stack_limit);
     /** Guest is exiting. Handle as appropriate (stop emulation, etc.). */
     void (*do_exit)(void *ctx, unsigned int reason, unsigned int subcode);
     /** Return last errno value. */

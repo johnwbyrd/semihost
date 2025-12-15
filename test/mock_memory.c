@@ -33,7 +33,7 @@ void mock_memory_fill_pattern(mock_memory_t *mem) {
   }
 }
 
-uint8_t mock_mem_read_u8(uint64_t addr, void *ctx) {
+uint8_t mock_mem_read_u8(uintptr_t addr, void *ctx) {
   mock_memory_t *mem = (mock_memory_t *)ctx;
 
   if (!mem || !mem->data)
@@ -48,7 +48,7 @@ uint8_t mock_mem_read_u8(uint64_t addr, void *ctx) {
   return mem->data[addr];
 }
 
-void mock_mem_write_u8(uint64_t addr, uint8_t val, void *ctx) {
+void mock_mem_write_u8(uintptr_t addr, uint8_t val, void *ctx) {
   mock_memory_t *mem = (mock_memory_t *)ctx;
 
   if (!mem || !mem->data)
@@ -63,7 +63,7 @@ void mock_mem_write_u8(uint64_t addr, uint8_t val, void *ctx) {
   mem->data[addr] = val;
 }
 
-void mock_mem_read_block(void *dest, uint64_t addr, size_t size, void *ctx) {
+void mock_mem_read_block(void *dest, uintptr_t addr, size_t size, void *ctx) {
   mock_memory_t *mem = (mock_memory_t *)ctx;
   size_t i;
   uint8_t *d;
@@ -83,7 +83,7 @@ void mock_mem_read_block(void *dest, uint64_t addr, size_t size, void *ctx) {
   }
 }
 
-void mock_mem_write_block(uint64_t addr, const void *src, size_t size,
+void mock_mem_write_block(uintptr_t addr, const void *src, size_t size,
                           void *ctx) {
   mock_memory_t *mem = (mock_memory_t *)ctx;
   size_t i;

@@ -25,7 +25,7 @@ typedef struct {
     uint8_t work_buf[4096];
 } fuzz_ctx_t;
 
-static uint8_t fuzz_read_u8(uint64_t addr, void *ctx)
+static uint8_t fuzz_read_u8(uintptr_t addr, void *ctx)
 {
     fuzz_ctx_t *fctx = (fuzz_ctx_t *)ctx;
     if (addr >= fctx->size) {
@@ -34,7 +34,7 @@ static uint8_t fuzz_read_u8(uint64_t addr, void *ctx)
     return fctx->data[addr];
 }
 
-static void fuzz_write_u8(uint64_t addr, uint8_t val, void *ctx)
+static void fuzz_write_u8(uintptr_t addr, uint8_t val, void *ctx)
 {
     fuzz_ctx_t *fctx = (fuzz_ctx_t *)ctx;
     /* Write to work buffer if in range, else ignore */
@@ -43,7 +43,7 @@ static void fuzz_write_u8(uint64_t addr, uint8_t val, void *ctx)
     }
 }
 
-static void fuzz_read_block(void *dest, uint64_t addr, size_t size, void *ctx)
+static void fuzz_read_block(void *dest, uintptr_t addr, size_t size, void *ctx)
 {
     fuzz_ctx_t *fctx = (fuzz_ctx_t *)ctx;
     size_t i;
@@ -58,7 +58,7 @@ static void fuzz_read_block(void *dest, uint64_t addr, size_t size, void *ctx)
     }
 }
 
-static void fuzz_write_block(uint64_t addr, const void *src, size_t size,
+static void fuzz_write_block(uintptr_t addr, const void *src, size_t size,
                              void *ctx)
 {
     fuzz_ctx_t *fctx = (fuzz_ctx_t *)ctx;

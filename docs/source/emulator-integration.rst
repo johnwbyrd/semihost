@@ -82,29 +82,29 @@ You provide callbacks so the host library can read and write guest memory:
 .. code-block:: c
 
    typedef struct {
-       uint8_t (*read_u8)(uint64_t addr, void *ctx);
-       void (*write_u8)(uint64_t addr, uint8_t val, void *ctx);
-       void (*read_block)(void *dest, uint64_t addr, size_t size, void *ctx);
-       void (*write_block)(uint64_t addr, const void *src, size_t size, void *ctx);
+       uint8_t (*read_u8)(uintptr_t addr, void *ctx);
+       void (*write_u8)(uintptr_t addr, uint8_t val, void *ctx);
+       void (*read_block)(void *dest, uintptr_t addr, size_t size, void *ctx);
+       void (*write_block)(uintptr_t addr, const void *src, size_t size, void *ctx);
    } zbc_host_mem_ops_t;
 
 Implement these to access your emulator's guest memory:
 
 .. code-block:: c
 
-   static uint8_t my_read_u8(uint64_t addr, void *ctx) {
+   static uint8_t my_read_u8(uintptr_t addr, void *ctx) {
        return guest_memory[addr];
    }
 
-   static void my_write_u8(uint64_t addr, uint8_t val, void *ctx) {
+   static void my_write_u8(uintptr_t addr, uint8_t val, void *ctx) {
        guest_memory[addr] = val;
    }
 
-   static void my_read_block(void *dest, uint64_t addr, size_t size, void *ctx) {
+   static void my_read_block(void *dest, uintptr_t addr, size_t size, void *ctx) {
        memcpy(dest, &guest_memory[addr], size);
    }
 
-   static void my_write_block(uint64_t addr, const void *src, size_t size, void *ctx) {
+   static void my_write_block(uintptr_t addr, const void *src, size_t size, void *ctx) {
        memcpy(&guest_memory[addr], src, size);
    }
 
@@ -143,7 +143,7 @@ When the guest writes to DOORBELL, call ``zbc_host_process()``:
 
 .. code-block:: c
 
-   void on_doorbell_write(uint64_t riff_ptr) {
+   void on_doorbell_write(uintptr_t riff_ptr) {
        zbc_host_process(&host, riff_ptr);
        /* Set STATUS bit 0 in your device register emulation */
    }

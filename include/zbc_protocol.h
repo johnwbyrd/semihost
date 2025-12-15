@@ -30,9 +30,13 @@ typedef signed int int32_t;
 #ifdef _MSC_VER
 typedef unsigned __int64 uint64_t;
 typedef signed __int64 int64_t;
+typedef unsigned __int64 uintmax_t;
+typedef signed __int64 intmax_t;
 #else
 typedef unsigned long long uint64_t;
 typedef signed long long int64_t;
+typedef unsigned long long uintmax_t;
+typedef signed long long intmax_t;
 #endif
 #if defined(_WIN64) || defined(__x86_64__) || defined(__aarch64__) || \
     defined(__LP64__)
@@ -646,7 +650,7 @@ size_t zbc_strlen(const char *s);
  * @param size        Size in bytes (1-4)
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  */
-void zbc_write_native_uint(uint8_t *buf, uint64_t value, int size,
+void zbc_write_native_uint(uint8_t *buf, uintmax_t value, int size,
                            int endianness);
 
 /**
@@ -657,7 +661,7 @@ void zbc_write_native_uint(uint8_t *buf, uint64_t value, int size,
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Signed integer value
  */
-int64_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
+intmax_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
 
 /**
  * Read an unsigned integer in specified endianness.
@@ -667,7 +671,7 @@ int64_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Unsigned integer value
  */
-uint64_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
+uintmax_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
 
 /**
  * Begin writing a new RIFF chunk.
@@ -876,7 +880,7 @@ typedef struct {
 
     /* Request: parameters from PARM sub-chunks */
     int parm_count;       /**< Number of PARM values parsed */
-    int64_t parms[ZBC_MAX_PARMS];  /**< Decoded parameter values (up to 64-bit) */
+    intmax_t parms[ZBC_MAX_PARMS];  /**< Decoded parameter values */
 
     /* Request/Response: data from DATA sub-chunks */
     int data_count;       /**< Number of DATA chunks parsed */
@@ -886,7 +890,7 @@ typedef struct {
     } data[ZBC_MAX_DATA];    /**< DATA chunk references */
 
     /* Response: RETN chunk info */
-    int64_t result;       /**< Return value from RETN chunk (up to 64-bit) */
+    intmax_t result;      /**< Return value from RETN chunk */
     int host_errno;       /**< Errno value from RETN chunk */
     uint8_t has_retn;     /**< 1 if RETN chunk was present */
 

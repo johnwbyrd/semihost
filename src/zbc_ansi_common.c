@@ -215,8 +215,8 @@ int zbc_ansi_get_cmdline(char *buf, size_t buf_size)
     return 0;
 }
 
-int zbc_ansi_heapinfo(uint64_t *heap_base, uint64_t *heap_limit,
-                      uint64_t *stack_base, uint64_t *stack_limit)
+int zbc_ansi_heapinfo(uintptr_t *heap_base, uintptr_t *heap_limit,
+                      uintptr_t *stack_base, uintptr_t *stack_limit)
 {
     *heap_base = 0;
     *heap_limit = 0;

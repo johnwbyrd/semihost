@@ -39,7 +39,7 @@ void zbc_host_init(zbc_host_state_t *state,
  * Guest memory access
  *========================================================================*/
 
-static void read_guest(zbc_host_state_t *state, void *dest, uint64_t addr,
+static void read_guest(zbc_host_state_t *state, void *dest, uintptr_t addr,
                        size_t size)
 {
     if (state->mem_ops.read_block) {
@@ -53,7 +53,7 @@ static void read_guest(zbc_host_state_t *state, void *dest, uint64_t addr,
     }
 }
 
-static void write_guest(zbc_host_state_t *state, uint64_t addr,
+static void write_guest(zbc_host_state_t *state, uintptr_t addr,
                         const void *src, size_t size)
 {
     if (state->mem_ops.write_block) {
@@ -71,14 +71,14 @@ static void write_guest(zbc_host_state_t *state, uint64_t addr,
  * Value conversion (guest endianness)
  *========================================================================*/
 
-int64_t zbc_host_read_guest_int(const zbc_host_state_t *state,
-                                const uint8_t *data, size_t size)
+intmax_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+                                 const uint8_t *data, size_t size)
 {
     return zbc_read_native_int(data, (int)size, state->guest_endianness);
 }
 
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, uint64_t value, size_t size)
+                              uint8_t *data, uintmax_t value, size_t size)
 {
     zbc_write_native_uint(data, value, (int)size, state->guest_endianness);
 }
@@ -95,7 +95,7 @@ void zbc_host_write_guest_int(const zbc_host_state_t *state,
  * Write ERRO payload to pre-allocated ERRO chunk.
  * Only writes the payload (error_code + reserved), not the chunk header.
  */
-static void write_erro_payload(zbc_host_state_t *state, uint64_t riff_addr,
+static void write_erro_payload(zbc_host_state_t *state, uintptr_t riff_addr,
                                const zbc_parsed_t *parsed, int error_code)
 {
     uint8_t buf[ZBC_ERRO_PAYLOAD_SIZE];
@@ -117,9 +117,9 @@ static void write_erro_payload(zbc_host_state_t *state, uint64_t riff_addr,
  * Write RETN payload to pre-allocated RETN chunk.
  * Only writes the payload contents, not the chunk header.
  */
-static void write_retn_payload(zbc_host_state_t *state, uint64_t riff_addr,
+static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
                                const zbc_parsed_t *parsed,
-                               int64_t result, int err,
+                               intmax_t result, int err,
                                const void *data, size_t data_size)
 {
     uint8_t buf[256];
@@ -137,7 +137,7 @@ static void write_retn_payload(zbc_host_state_t *state, uint64_t riff_addr,
     pos = 0;
 
     /* RETN payload: result[int_size] + errno[ZBC_RETN_ERRNO_SIZE] */
-    zbc_host_write_guest_int(state, buf + pos, (uint64_t)result, int_size);
+    zbc_host_write_guest_int(state, buf + pos, (uintmax_t)result, int_size);
     pos += (size_t)int_size;
     ZBC_WRITE_U32_LE(buf + pos, (uint32_t)err);
     pos += ZBC_RETN_ERRNO_SIZE;
@@ -189,7 +189,7 @@ static void write_retn_payload(zbc_host_state_t *state, uint64_t riff_addr,
  * It overwrites at the first chunk position - not ideal but necessary
  * for protocol errors that prevent parsing the RIFF structure.
  */
-static void write_erro_early(zbc_host_state_t *state, uint64_t addr, int error_code)
+static void write_erro_early(zbc_host_state_t *state, uintptr_t addr, int error_code)
 {
     uint8_t buf[ZBC_CHUNK_HDR_SIZE + ZBC_ERRO_PAYLOAD_SIZE];
 
@@ -210,7 +210,7 @@ static void write_erro_early(zbc_host_state_t *state, uint64_t addr, int error_c
  * Uses the unified zbc_riff_parse() to extract all fields at once.
  *========================================================================*/
 
-static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
+static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
                          zbc_parsed_t *parsed)
 {
     uint8_t *buf = state->work_buf;
@@ -289,12 +289,12 @@ static int parse_request(zbc_host_state_t *state, uint64_t riff_addr,
  * Backend dispatch
  *========================================================================*/
 
-int zbc_host_process(zbc_host_state_t *state, uint64_t riff_addr)
+int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr)
 {
     zbc_parsed_t parsed;
     const zbc_backend_t *be;
     void *ctx;
-    int64_t result = 0;
+    intmax_t result = 0;
     int err = 0;
     int rc;
 
