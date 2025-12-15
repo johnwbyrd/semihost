@@ -581,21 +581,29 @@ int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
                                 int_size, ptr_size, endian, out);
             }
         } else if (id == ZBC_ID_RETN) {
-            /* RETN: result(int_size) + errno(4) + optional sub-chunks */
-            if (size >= (size_t)int_size + 4) {
+            /* RETN: result(int_size) + errno(ZBC_RETN_ERRNO_SIZE) + optional sub-chunks */
+            out->has_retn = 1;
+            /* Record offset and capacity for host-side writing */
+            out->retn_payload_offset = (size_t)(chunk_data - buf);
+            out->retn_payload_capacity = size;
+            /* Parse contents if present (for client-side reading) */
+            if (size >= (size_t)int_size + ZBC_RETN_ERRNO_SIZE) {
                 out->result = zbc_read_native_int(chunk_data, int_size, endian);
                 out->host_errno = (int)ZBC_READ_U32_LE(chunk_data + int_size);
-                out->has_retn = 1;
                 /* Parse sub-chunks within RETN (for DATA) */
-                parse_subchunks(chunk_data + int_size + 4,
+                parse_subchunks(chunk_data + int_size + ZBC_RETN_ERRNO_SIZE,
                                 chunk_data + size,
                                 int_size, ptr_size, endian, out);
             }
         } else if (id == ZBC_ID_ERRO) {
             /* ERRO: error_code(2) + reserved(2) */
+            out->has_erro = 1;
+            /* Record offset and capacity for host-side writing */
+            out->erro_payload_offset = (size_t)(chunk_data - buf);
+            out->erro_payload_capacity = size;
+            /* Parse contents if present (for client-side reading) */
             if (size >= ZBC_ERRO_PAYLOAD_SIZE) {
                 out->proto_error = ZBC_READ_U16_LE(chunk_data);
-                out->has_erro = 1;
             }
         }
         /* Skip unknown chunks silently */

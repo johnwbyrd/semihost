@@ -68,6 +68,56 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state)
 }
 
 /*========================================================================
+ * RETN capacity calculation
+ *========================================================================*/
+
+/*
+ * Calculate the required RETN payload capacity for a given opcode.
+ *
+ * RETN payload layout:
+ *   result[int_size] + errno[ZBC_RETN_ERRNO_SIZE] + optional DATA sub-chunk
+ *
+ * The DATA sub-chunk (if needed) is:
+ *   chunk header (ZBC_CHUNK_HDR_SIZE) + type/reserved (ZBC_DATA_HDR_SIZE) + payload
+ */
+static size_t calculate_retn_capacity(const zbc_opcode_entry_t *entry,
+                                      const zbc_client_state_t *state,
+                                      uintptr_t *args)
+{
+    size_t base_size;
+    size_t data_len;
+
+    /* Base: result[int_size] + errno[ZBC_RETN_ERRNO_SIZE] */
+    base_size = state->int_size + ZBC_RETN_ERRNO_SIZE;
+
+    switch (entry->resp_type) {
+    case ZBC_RESP_INT:
+        /* No DATA sub-chunk needed */
+        return base_size;
+
+    case ZBC_RESP_DATA:
+        /* DATA sub-chunk for read operations; length from args[resp_len_slot] */
+        data_len = args ? (size_t)args[entry->resp_len_slot] : 256;
+        return base_size + ZBC_CHUNK_HDR_SIZE + ZBC_DATA_HDR_SIZE +
+               ZBC_PAD_SIZE(data_len);
+
+    case ZBC_RESP_HEAPINFO:
+        /* 4 pointers worth of data */
+        data_len = 4 * state->ptr_size;
+        return base_size + ZBC_CHUNK_HDR_SIZE + ZBC_DATA_HDR_SIZE +
+               ZBC_PAD_SIZE(data_len);
+
+    case ZBC_RESP_ELAPSED:
+        /* Spec says 8 bytes for 64-bit tick count (line 1027-1046) */
+        return base_size + ZBC_CHUNK_HDR_SIZE + ZBC_DATA_HDR_SIZE +
+               ZBC_PAD_SIZE(8);
+
+    default:
+        return base_size;
+    }
+}
+
+/*========================================================================
  * Request building (struct-based, no magic offsets)
  *========================================================================*/
 
@@ -293,8 +343,54 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
     /* Patch CALL chunk size (alignment-safe) */
     ZBC_PATCH_U32(buf + call_chunk_pos + 4, (uint32_t)(pos - call_data_start));
 
-    /* Patch RIFF size (alignment-safe) */
-    ZBC_PATCH_U32(buf + 4, (uint32_t)(pos - 4 - 4));
+    /*
+     * Write pre-allocated RETN chunk.
+     * The host will fill this with: result[int_size] + errno[ZBC_RETN_ERRNO_SIZE]
+     * + optional DATA sub-chunk.
+     */
+    {
+        size_t retn_capacity = calculate_retn_capacity(entry, state, args);
+        size_t retn_total = ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(retn_capacity);
+        size_t j;
+
+        if (pos + retn_total > capacity) {
+            ZBC_LOG_ERROR("build_request: no space for RETN (need %u, have %u)",
+                     (unsigned)(pos + retn_total), (unsigned)capacity);
+            return ZBC_ERR_BUFFER_FULL;
+        }
+
+        ZBC_CHUNK_WRITE_HDR(buf + pos, ZBC_ID_RETN, (uint32_t)retn_capacity);
+        /* Zero-fill the RETN payload area */
+        for (j = 0; j < ZBC_PAD_SIZE(retn_capacity); j++) {
+            buf[pos + ZBC_CHUNK_HDR_SIZE + j] = 0;
+        }
+        pos += retn_total;
+    }
+
+    /*
+     * Write pre-allocated ERRO chunk.
+     * The host fills this only on protocol errors.
+     */
+    {
+        size_t erro_total = ZBC_CHUNK_HDR_SIZE + ZBC_ERRO_PREALLOC_SIZE;
+        size_t j;
+
+        if (pos + erro_total > capacity) {
+            ZBC_LOG_ERROR("build_request: no space for ERRO (need %u, have %u)",
+                     (unsigned)(pos + erro_total), (unsigned)capacity);
+            return ZBC_ERR_BUFFER_FULL;
+        }
+
+        ZBC_CHUNK_WRITE_HDR(buf + pos, ZBC_ID_ERRO, ZBC_ERRO_PREALLOC_SIZE);
+        /* Zero-fill the ERRO payload area */
+        for (j = 0; j < ZBC_ERRO_PREALLOC_SIZE; j++) {
+            buf[pos + ZBC_CHUNK_HDR_SIZE + j] = 0;
+        }
+        pos += erro_total;
+    }
+
+    /* Patch RIFF size: everything after the size field = form_type + all chunks */
+    ZBC_PATCH_U32(buf + 4, (uint32_t)(pos - ZBC_RIFF_HDR_SIZE + 4));
 
     *out_size = pos;
     return ZBC_OK;
@@ -393,14 +489,17 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
         return ZBC_ERR_PARSE_ERROR;
     }
 
-    /* Check for ERRO */
-    if (parsed.has_erro) {
+    /*
+     * With pre-allocated chunks, both RETN and ERRO are present.
+     * Check for actual error first (non-zero proto_error), then check RETN.
+     */
+    if (parsed.has_erro && parsed.proto_error != 0) {
         response->is_error = 1;
         response->proto_error = parsed.proto_error;
         return ZBC_OK;
     }
 
-    /* Check for RETN */
+    /* Check for RETN (normal response) */
     if (parsed.has_retn) {
         response->result = parsed.result;
         response->error_code = parsed.host_errno;
@@ -413,8 +512,8 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
         return ZBC_OK;
     }
 
-    /* No RETN or ERRO found */
-    ZBC_LOG_ERROR_S("zbc_parse_response: no RETN or ERRO chunk in response");
+    /* No RETN found and no actual error - this shouldn't happen */
+    ZBC_LOG_ERROR_S("zbc_parse_response: no RETN chunk in response");
     return ZBC_ERR_PARSE_ERROR;
 }
 

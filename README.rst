@@ -2,7 +2,7 @@ Zero Board Computer Semihosting
 ===============================
 
 The Zero Board Computer is the hardware equivalent of **Hello World.**
-It's the minimum viable computer — just enough to prove your CPU and
+It's the minimum viable computer -- just enough to prove your CPU and
 toolchain work.
 
 The `Zero Board Computer <https://www.zeroboardcomputer.com>` is an

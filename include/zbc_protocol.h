@@ -328,6 +328,12 @@ typedef struct {
 /* ERRO payload: error_code(2) + reserved(2) = 4 bytes */
 #define ZBC_ERRO_PAYLOAD_SIZE    4
 
+/* RETN errno field is always 32-bit little-endian (spec line 667) */
+#define ZBC_RETN_ERRNO_SIZE      4
+
+/* Recommended ERRO pre-allocation size (error code + optional message) */
+#define ZBC_ERRO_PREALLOC_SIZE   64
+
 /*========================================================================
  * Legacy defines (kept for compatibility)
  *========================================================================*/
@@ -887,6 +893,18 @@ typedef struct {
     /* Response: ERRO chunk info */
     uint16_t proto_error; /**< Protocol error code from ERRO chunk */
     uint8_t has_erro;     /**< 1 if ERRO chunk was present */
+
+    /*
+     * Host-side: offsets to pre-allocated response chunks.
+     *
+     * These are byte offsets from the start of the RIFF buffer to the
+     * chunk payload (after the chunk header). The host writes response
+     * data directly to these locations within the pre-allocated space.
+     */
+    size_t retn_payload_offset;   /**< Offset to RETN chunk payload */
+    size_t retn_payload_capacity; /**< Size field from RETN chunk header */
+    size_t erro_payload_offset;   /**< Offset to ERRO chunk payload */
+    size_t erro_payload_capacity; /**< Size field from ERRO chunk header */
 } zbc_parsed_t;
 
 /**
