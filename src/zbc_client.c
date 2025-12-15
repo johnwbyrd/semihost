@@ -564,6 +564,27 @@ int zbc_call(zbc_response_t *response, zbc_client_state_t *state,
         return ZBC_ERR_DEVICE_ERROR;
     }
 
+    /*
+     * Copy response DATA to destination buffer for ZBC_RESP_DATA operations.
+     * The opcode table specifies:
+     *   resp_dest     - args[] index of destination pointer
+     *   resp_len_slot - args[] index of max length
+     */
+    if (entry->resp_type == ZBC_RESP_DATA && args && response->data && response->data_size > 0) {
+        uint8_t *dest = (uint8_t *)args[entry->resp_dest];
+        size_t max_len = (size_t)args[entry->resp_len_slot];
+        size_t copy_len = response->data_size;
+        size_t i;
+
+        if (copy_len > max_len) {
+            copy_len = max_len;
+        }
+
+        for (i = 0; i < copy_len; i++) {
+            dest[i] = response->data[i];
+        }
+    }
+
     return ZBC_OK;
 }
 
