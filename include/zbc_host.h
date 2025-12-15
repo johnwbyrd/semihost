@@ -106,7 +106,7 @@ int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr);
  * @param size  Size of integer in bytes
  * @return Integer value
  */
-intmax_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+intptr_t zbc_host_read_guest_int(const zbc_host_state_t *state,
                                  const uint8_t *data, size_t size);
 
 /**
@@ -120,7 +120,7 @@ intmax_t zbc_host_read_guest_int(const zbc_host_state_t *state,
  * @param size  Size of integer in bytes
  */
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, uintmax_t value, size_t size);
+                              uint8_t *data, uintptr_t value, size_t size);
 
 #ifdef __cplusplus
 }

@@ -71,14 +71,14 @@ static void write_guest(zbc_host_state_t *state, uintptr_t addr,
  * Value conversion (guest endianness)
  *========================================================================*/
 
-intmax_t zbc_host_read_guest_int(const zbc_host_state_t *state,
+intptr_t zbc_host_read_guest_int(const zbc_host_state_t *state,
                                  const uint8_t *data, size_t size)
 {
     return zbc_read_native_int(data, (int)size, state->guest_endianness);
 }
 
 void zbc_host_write_guest_int(const zbc_host_state_t *state,
-                              uint8_t *data, uintmax_t value, size_t size)
+                              uint8_t *data, uintptr_t value, size_t size)
 {
     zbc_write_native_uint(data, value, (int)size, state->guest_endianness);
 }
@@ -119,7 +119,7 @@ static void write_erro_payload(zbc_host_state_t *state, uintptr_t riff_addr,
  */
 static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
                                const zbc_parsed_t *parsed,
-                               intmax_t result, int err,
+                               intptr_t result, int err,
                                const void *data, size_t data_size)
 {
     uint8_t buf[256];
@@ -137,7 +137,7 @@ static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
     pos = 0;
 
     /* RETN payload: result[int_size] + errno[ZBC_RETN_ERRNO_SIZE] */
-    zbc_host_write_guest_int(state, buf + pos, (uintmax_t)result, int_size);
+    zbc_host_write_guest_int(state, buf + pos, (uintptr_t)result, int_size);
     pos += (size_t)int_size;
     ZBC_WRITE_U32_LE(buf + pos, (uint32_t)err);
     pos += ZBC_RETN_ERRNO_SIZE;
@@ -294,7 +294,7 @@ int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr)
     zbc_parsed_t parsed;
     const zbc_backend_t *be;
     void *ctx;
-    intmax_t result = 0;
+    intptr_t result = 0;
     int err = 0;
     int rc;
 

@@ -650,7 +650,7 @@ size_t zbc_strlen(const char *s);
  * @param size        Size in bytes (1-4)
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  */
-void zbc_write_native_uint(uint8_t *buf, uintmax_t value, int size,
+void zbc_write_native_uint(uint8_t *buf, uintptr_t value, int size,
                            int endianness);
 
 /**
@@ -661,7 +661,7 @@ void zbc_write_native_uint(uint8_t *buf, uintmax_t value, int size,
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Signed integer value
  */
-intmax_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
+intptr_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
 
 /**
  * Read an unsigned integer in specified endianness.
@@ -671,7 +671,7 @@ intmax_t zbc_read_native_int(const uint8_t *buf, int size, int endianness);
  * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
  * @return Unsigned integer value
  */
-uintmax_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
+uintptr_t zbc_read_native_uint(const uint8_t *buf, int size, int endianness);
 
 /**
  * Begin writing a new RIFF chunk.
@@ -880,7 +880,7 @@ typedef struct {
 
     /* Request: parameters from PARM sub-chunks */
     int parm_count;       /**< Number of PARM values parsed */
-    intmax_t parms[ZBC_MAX_PARMS];  /**< Decoded parameter values */
+    intptr_t parms[ZBC_MAX_PARMS];  /**< Decoded parameter values */
 
     /* Request/Response: data from DATA sub-chunks */
     int data_count;       /**< Number of DATA chunks parsed */
@@ -890,7 +890,7 @@ typedef struct {
     } data[ZBC_MAX_DATA];    /**< DATA chunk references */
 
     /* Response: RETN chunk info */
-    intmax_t result;      /**< Return value from RETN chunk */
+    intptr_t result;      /**< Return value from RETN chunk */
     int host_errno;       /**< Errno value from RETN chunk */
     uint8_t has_retn;     /**< 1 if RETN chunk was present */
 
