@@ -92,6 +92,12 @@ endif()
 enable_testing()
 add_subdirectory(test)
 
+# On-target tests (optional, requires cross-compiler and emulator)
+option(ZBC_TARGET_TESTS "Enable on-target tests for emulated ZBC platforms (requires MAME)" OFF)
+if(ZBC_TARGET_TESTS)
+    add_subdirectory(test/target)
+endif()
+
 # Fuzzing (optional, requires Clang)
 option(ENABLE_FUZZING "Enable libFuzzer-based fuzz targets (requires Clang)" OFF)
 if(ENABLE_FUZZING)
