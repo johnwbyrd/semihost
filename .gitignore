@@ -2,5 +2,6 @@
 .claude
 *.bin
 *.elf
+*.cfg
 build*/
 fuzz/corpus/
