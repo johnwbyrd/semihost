@@ -21,7 +21,7 @@ MAME_OPTS = -window -skip_gameinfo -share_directory $(SHARE_DIR)
 
 # ============================================================
 # Platform Definitions
-# Each platform needs: CC, CFLAGS, OBJCOPY, MAME_MACHINE
+# Each platform needs: CC, CFLAGS, MAME_MACHINE
 # ============================================================
 
 PLATFORMS = i386
@@ -33,7 +33,6 @@ PLATFORMS = i386
 i386_CC       = gcc
 i386_CFLAGS   = -m32 -march=i386 -T zbci386.ld
 i386_LDFLAGS  =
-i386_OBJCOPY  = objcopy
 i386_MAME     = zbci386
 i386_EXTRA    = crti386.S
 
@@ -41,7 +40,6 @@ i386_EXTRA    = crti386.S
 amd64_CC      = gcc
 amd64_CFLAGS  =
 amd64_LDFLAGS =
-amd64_OBJCOPY = objcopy
 amd64_MAME    = zbcamd64
 
 # --- m6502 (MOS Technology 6502) ---
@@ -53,7 +51,6 @@ m6502_CC      = $(LLVM_MOS)/clang
 # Removed -flto to prevent excessive inlining; added -fno-inline-functions
 m6502_CFLAGS  = --target=mos -Oz -fno-inline-functions -T zbc6502.ld
 m6502_LDFLAGS =
-m6502_OBJCOPY = $(LLVM_MOS)/llvm-objcopy
 m6502_MAME    = zbcm6502
 m6502_EXTRA   = crt6502.S crt6502.c
 
@@ -61,7 +58,6 @@ m6502_EXTRA   = crt6502.S crt6502.c
 # PLATFORMS += arm
 # arm_CC       = arm-none-eabi-gcc
 # arm_CFLAGS   = -mcpu=arm7tdmi -mthumb
-# arm_OBJCOPY  = arm-none-eabi-objcopy
 # arm_MAME     = zbcarm7
 
 # ============================================================
@@ -93,15 +89,12 @@ hello_$(1).elf: hello.c $$(CLIENT_SRCS) $$($(1)_EXTRA)
 	$$($(1)_CC) $$($(1)_CFLAGS) $$(COMMON_CFLAGS) $$($(1)_LDFLAGS) $$(COMMON_LDFLAGS) \
 		-o $$@ hello.c $$(CLIENT_SRCS) $$($(1)_EXTRA)
 
-hello_$(1).bin: hello_$(1).elf
-	$$($(1)_OBJCOPY) -O binary -j .text -j .rodata -j .data $$< $$@
-
 test-$(1): hello_$(1).elf
 	@echo "Testing $(1) on $$($(1)_MAME)..."
 	@$$(MAME) $$($(1)_MAME) $$(MAME_OPTS) -elfload $$< -seconds_to_run 5 && echo "PASS: $(1)" || (echo "FAIL: $(1)"; exit 1)
 
 clean-$(1):
-	rm -f hello_$(1).elf hello_$(1).bin
+	rm -f hello_$(1).elf
 
 .PHONY: test-$(1) clean-$(1)
 
@@ -113,7 +106,7 @@ $(foreach p,$(PLATFORMS),$(eval $(call PLATFORM_RULES,$(p))))
 # Aggregate Targets
 # ============================================================
 
-all: $(foreach p,$(PLATFORMS),hello_$(p).bin)
+all: $(foreach p,$(PLATFORMS),hello_$(p).elf)
 
 test: $(foreach p,$(PLATFORMS),test-$(p))
 	@echo "=========================================="
@@ -132,7 +125,7 @@ help:
 	@echo "ZBC Semihosting MAME Integration Tests"
 	@echo ""
 	@echo "Targets:"
-	@echo "  all          - Build test binaries for all platforms"
+	@echo "  all          - Build ELF executables for all platforms"
 	@echo "  test         - Run tests on all platforms"
 	@echo "  test-<plat>  - Run test on specific platform (e.g., test-i386)"
 	@echo "  clean        - Remove all build artifacts"
