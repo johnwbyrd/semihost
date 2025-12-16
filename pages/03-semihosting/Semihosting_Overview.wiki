@@ -54,12 +54,14 @@ The semihosting peripheral uses the '''RIFF protocol''' (Resource Interchange Fi
 === Basic Operation Flow ===
 
 # '''Guest allocates buffer''' - Creates a RIFF structure in its own RAM
-# '''Guest builds request''' - Fills RIFF buffer with configuration and syscall data
+# '''Guest builds request''' - Fills RIFF buffer with configuration, syscall data, and '''pre-allocated RETN and ERRO chunks'''
 # '''Guest writes pointer''' - Stores buffer address in RIFF_PTR device register
 # '''Guest triggers request''' - Writes to DOORBELL register to start processing
 # '''Device processes''' - Reads RIFF buffer, executes syscall on host
-# '''Device writes response''' - Overwrites request with return values in same buffer
+# '''Device writes response''' - Fills the '''pre-allocated RETN chunk''' with return values (or ERRO on error)
 # '''Guest reads result''' - Examines RETN chunk in buffer for syscall results
+
+{{Note|The guest must pre-allocate RETN and ERRO chunks in the RIFF buffer before triggering the request. The device fills these chunks in place but never modifies the RIFF structure.}}
 
 This approach keeps the '''device footprint minimal''' (32 bytes) while allowing '''variable-sized communication''' (guest controls buffer size).
 
@@ -96,20 +98,32 @@ The semihosting peripheral presents 32 bytes of memory-mapped registers:
 {| class="wikitable"
 ! Offset !! Size !! Name !! Access !! Description
 |-
-| 0x00 || 16 bytes || RIFF_PTR || RW || Pointer to RIFF buffer in guest RAM
+| 0x00 || 8 bytes || SIGNATURE || R || ASCII "SEMIHOST" (device identification)
 |-
-| 0x10 || 1 byte || DOORBELL || W || Write any value to trigger request
+| 0x08 || 16 bytes || RIFF_PTR || RW || Pointer to RIFF buffer in guest RAM
 |-
-| 0x11 || 1 byte || IRQ_STATUS || R || Interrupt status flags
+| 0x18 || 1 byte || DOORBELL || W || Write any value to trigger request
 |-
-| 0x12 || 1 byte || IRQ_ENABLE || RW || Interrupt enable mask
+| 0x19 || 1 byte || IRQ_STATUS || R || Interrupt status flags
 |-
-| 0x13 || 1 byte || IRQ_ACK || W || Write 1s to clear interrupt bits
+| 0x1A || 1 byte || IRQ_ENABLE || RW || Interrupt enable mask
 |-
-| 0x14 || 1 byte || STATUS || R || Device status flags
+| 0x1B || 1 byte || IRQ_ACK || W || Write 1s to clear interrupt bits
 |-
-| 0x15 || 11 bytes || RESERVED || - || Reserved for future use
+| 0x1C || 1 byte || STATUS || R || Device status flags
+|-
+| 0x1D || 3 bytes || RESERVED || - || Reserved for future use
 |}
+
+=== SIGNATURE Register ===
+
+Device identification register containing ASCII string "SEMIHOST".
+
+* '''Format''': 8 bytes containing ASCII characters 'S', 'E', 'M', 'I', 'H', 'O', 'S', 'T' (0x53, 0x45, 0x4D, 0x49, 0x48, 0x4F, 0x53, 0x54)
+* '''Purpose''': Allows guest software to verify device presence before attempting operations
+* '''Usage''': Read these 8 bytes at device base address; if they match "SEMIHOST", device is present
+
+This is more reliable than checking a single status bit and enables detection of different devices at the same address.
 
 === RIFF_PTR Register ===
 
@@ -147,9 +161,9 @@ Guest polls bit 0 to wait for completion without using interrupts.
 
 For asynchronous operation:
 
-* '''IRQ_STATUS''' (0x11) - Which interrupt conditions are active
-* '''IRQ_ENABLE''' (0x12) - Which conditions can trigger CPU interrupt
-* '''IRQ_ACK''' (0x13) - Write 1s to clear interrupt bits
+* '''IRQ_STATUS''' (0x19) - Which interrupt conditions are active
+* '''IRQ_ENABLE''' (0x1A) - Which conditions can trigger CPU interrupt
+* '''IRQ_ACK''' (0x1B) - Write 1s to clear interrupt bits
 
 See [[Operation Modes]] for details on interrupt-driven operation.
 
@@ -284,18 +298,24 @@ For strings (type 0x02), payload includes null terminator.
 
 === RETN Chunk - Return Value ===
 
-Device response containing syscall result:
+'''Pre-allocated''' container for device response containing syscall result:
 
 <pre>
-Chunk: 'RETN' (variable size)
+Chunk: 'RETN' (variable size, pre-allocated by guest)
   result   (int_size bytes) - Return value in guest endianness
   errno    (4 bytes, LE)    - POSIX errno (0=success)
   sub-chunks...             - Optional DATA chunks for read operations
 </pre>
 
+'''Guest allocation:''' The guest '''must''' pre-allocate the RETN chunk with sufficient space for the expected response:
+* '''Minimum size:''' <code>int_size + 4</code> bytes (result + errno) for syscalls with no data return
+* '''For SYS_READ:''' <code>int_size + 4 + 12 + requested_bytes</code> (result + errno + DATA header + read data)
+* '''For other data-returning syscalls:''' sized according to maximum expected response
+
 '''Result field''' interpretation depends on syscall:
 * File descriptor (SYS_OPEN)
-* Byte count (SYS_READ, SYS_WRITE)
+* Bytes NOT written (SYS_WRITE) — 0 means success
+* Bytes NOT read (SYS_READ) — 0 means complete read
 * Status code (SYS_CLOSE)
 * Typically -1 indicates error
 
@@ -305,18 +325,22 @@ Chunk: 'RETN' (variable size)
 * 13 = EACCES (permission denied)
 * (see errno.h for complete list)
 
-The device '''overwrites the CALL chunk''' with RETN in the same buffer location.
+'''Device behavior:''' The device writes response data '''within''' the pre-allocated RETN chunk bounds. The device '''never modifies the RIFF structure''' — only the contents of RETN. If the response would exceed the allocated RETN size, the device writes an error to the ERRO chunk instead.
 
 === ERRO Chunk - Error Response ===
 
-Written by device when request is malformed:
+'''Pre-allocated''' container for device error response when request is malformed:
 
 <pre>
-Chunk: 'ERRO' (variable size)
+Chunk: 'ERRO' (variable size, pre-allocated by guest)
   error_code (2 bytes, LE)    - Error code
   reserved   (2 bytes)        - Must be 0x00
   message    (N bytes)        - Optional ASCII error message
 </pre>
+
+'''Guest allocation:''' The guest '''must''' pre-allocate the ERRO chunk with sufficient space:
+* '''Minimum size:''' 4 bytes (error_code + reserved)
+* '''Recommended size:''' 64 bytes (allows for error message)
 
 '''Error codes:'''
 * 0x01: Invalid chunk structure
@@ -324,6 +348,11 @@ Chunk: 'ERRO' (variable size)
 * 0x03: Missing CNFG chunk
 * 0x04: Unsupported opcode
 * 0x05: Invalid parameter count
+* 0x06: Missing RETN chunk (guest must pre-allocate RETN)
+* 0x07: Missing ERRO chunk (guest must pre-allocate ERRO)
+* 0x08: RETN too small (pre-allocated RETN cannot hold response)
+
+'''Device behavior:''' Device writes error data '''within''' the pre-allocated ERRO chunk bounds when it cannot parse or execute the request. If ERRO itself is missing or too small, the device cannot report the error and sets only the IRQ_STATUS error bit.
 
 == ARM Semihosting Compatibility ==
 
@@ -371,17 +400,59 @@ Common syscalls available:
 
 See [[Syscall Reference]] for complete documentation of all syscalls.
 
+=== Special Return Value Encoding ===
+
+Some syscalls return values that may exceed the guest's natural integer size. These use special encoding.
+
+==== SYS_ELAPSED (0x30) — 64-bit Tick Count ====
+
+Returns elapsed tick count since an arbitrary epoch.
+
+'''RETN chunk:'''
+* If <code>int_size >= 8</code>: Result field contains the 64-bit tick count directly
+* If <code>int_size < 8</code>: Result field is 0, and a DATA sub-chunk contains the 64-bit value
+
+'''DATA chunk format (when int_size < 8):'''
+* data_type: 0x01 (binary)
+* payload: 8 bytes, '''little-endian''' (regardless of guest endianness)
+* Byte 0-3: Low 32 bits of tick count
+* Byte 4-7: High 32 bits of tick count
+
+This ensures 64-bit tick counts work on 16-bit and 32-bit platforms where the result field cannot hold the full value.
+
+==== SYS_HEAPINFO (0x16) — Memory Layout Information ====
+
+Returns heap and stack boundary addresses.
+
+'''RETN chunk:'''
+* Result field: 0 on success, -1 on error
+* Four PARM sub-chunks (type 0x02 = pointer), in order:
+
+{| class="wikitable"
+! Order !! Field !! Description
+|-
+| 1 || heap_base || Start of heap region
+|-
+| 2 || heap_limit || End of heap region (exclusive)
+|-
+| 3 || stack_base || Bottom of stack (lowest address)
+|-
+| 4 || stack_limit || Top of stack (highest address)
+|}
+
+Using individual PARM chunks for each pointer (rather than a binary blob) maintains the self-describing nature of the RIFF protocol. Each pointer is explicitly typed and sized according to the CNFG ptr_size.
+
 == Operation Modes ==
 
 === Synchronous Mode (Polling) ===
 
 Guest blocks waiting for completion:
 
-# Build RIFF request in buffer
+# Build RIFF request in buffer with CALL chunk, pre-allocated RETN chunk, and pre-allocated ERRO chunk
 # Write buffer address to RIFF_PTR
 # Write to DOORBELL register
 # Poll STATUS register until bit 0 set
-# Read RETN chunk from buffer
+# Read response from RETN chunk (or ERRO chunk if error occurred)
 
 '''Advantages:'''
 * Simple to implement
@@ -399,12 +470,12 @@ See [[Synchronous Operation]] for programming examples.
 Guest continues work while device processes request:
 
 # Enable interrupts via IRQ_ENABLE register
-# Build RIFF request in buffer
+# Build RIFF request in buffer with CALL chunk, pre-allocated RETN chunk, and pre-allocated ERRO chunk
 # Write buffer address to RIFF_PTR
 # Write to DOORBELL register
 # Continue other work or enter low-power mode
 # Device asserts interrupt when complete
-# Interrupt handler reads RETN chunk
+# Interrupt handler reads response from RETN chunk (or ERRO chunk)
 # Handler writes IRQ_ACK to clear interrupt
 
 '''Advantages:'''

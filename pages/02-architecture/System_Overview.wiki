@@ -186,9 +186,9 @@ See [[Interrupt System (JP1 Jumper)]] for programming details.
 
 The semihosting device can optionally generate interrupts when I/O operations complete:
 
-* '''IRQ_STATUS register''' (0x11): Indicates interrupt conditions
-* '''IRQ_ENABLE register''' (0x12): Controls which conditions trigger interrupts
-* '''IRQ_ACK register''' (0x13): Acknowledge and clear interrupts
+* '''IRQ_STATUS register''' (0x19): Indicates interrupt conditions
+* '''IRQ_ENABLE register''' (0x1A): Controls which conditions trigger interrupts
+* '''IRQ_ACK register''' (0x1B): Acknowledge and clear interrupts
 
 Interrupt-driven semihosting allows programs to perform other work while waiting for I/O, enabling true asynchronous operation.
 
