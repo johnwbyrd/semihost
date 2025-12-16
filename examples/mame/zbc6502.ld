@@ -46,8 +46,9 @@ PROVIDE(__rc30 = __rc29 + 1);
 __rc31 = __rc30 + 1;
 
 MEMORY {
-    zp  (rw) : ORIGIN = __rc31 + 1, LENGTH = 0x100 - (__rc31 + 1)
-    ram (rwx) : ORIGIN = 0x0200, LENGTH = 0xFAC0    /* 0x200 - 0xFCBF */
+    zp      (rw)  : ORIGIN = __rc31 + 1, LENGTH = 0x100 - (__rc31 + 1)
+    ram     (rwx) : ORIGIN = 0x0200, LENGTH = 0xFAC0    /* 0x200 - 0xFCBF */
+    vectors (r)   : ORIGIN = 0xFFFA, LENGTH = 6         /* 6502 vectors */
 }
 
 REGION_ALIAS("c_readonly", ram);
@@ -86,6 +87,13 @@ SECTIONS {
     .zp.data : {
         *(.zp.data .zp.data.*)
     } > zp AT > ram
+
+    /* 6502 interrupt vectors at 0xFFFA-0xFFFF */
+    .vectors : {
+        SHORT(0x0000)   /* 0xFFFA: NMI vector (unused) */
+        SHORT(_start)   /* 0xFFFC: Reset vector -> _start */
+        SHORT(0x0000)   /* 0xFFFE: IRQ/BRK vector (unused) */
+    } > vectors
 
     /* Discard exception handling (not needed for bare metal) */
     /DISCARD/ : {

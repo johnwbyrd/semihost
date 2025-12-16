@@ -27,12 +27,14 @@ MAME_OPTS = -window -skip_gameinfo -share_directory $(SHARE_DIR)
 PLATFORMS = i386
 
 # --- i386 (32-bit x86) ---
-# Load address = 1 << (1 + addr_bits/2) = 1 << 17 = 0x20000 for 32-bit
+# Uses custom linker script with reset vector at 0xFFFFFFF0
+# Boot stub switches from 16-bit real mode to 32-bit protected mode
 i386_CC       = gcc
-i386_CFLAGS   = -m32
-i386_LDFLAGS  = -Wl,-Ttext=0x20000
+i386_CFLAGS   = -m32 -march=i386 -T zbci386.ld
+i386_LDFLAGS  =
 i386_OBJCOPY  = objcopy
 i386_MAME     = zbci386
+i386_EXTRA    = crti386.S
 
 # --- amd64 (64-bit x86) ---
 amd64_CC      = gcc
@@ -72,7 +74,9 @@ COMMON_CFLAGS += -I$(SEMIHOST)/include
 COMMON_CFLAGS += -DZBC_CLIENT
 COMMON_CFLAGS += -Wall -Wextra
 
-COMMON_LDFLAGS = -Wl,-e_start -Wl,--build-id=none
+# Entry point varies by platform - some use _start, some use _reset
+# The linker script ENTRY() directive takes precedence
+COMMON_LDFLAGS = -Wl,--build-id=none
 
 # Client library sources
 CLIENT_SRCS = $(SEMIHOST)/src/zbc_client.c \
@@ -92,9 +96,9 @@ hello_$(1).elf: hello.c $$(CLIENT_SRCS) $$($(1)_EXTRA)
 hello_$(1).bin: hello_$(1).elf
 	$$($(1)_OBJCOPY) -O binary -j .text -j .rodata -j .data $$< $$@
 
-test-$(1): hello_$(1).bin
+test-$(1): hello_$(1).elf
 	@echo "Testing $(1) on $$($(1)_MAME)..."
-	@$$(MAME) $$($(1)_MAME) $$(MAME_OPTS) -quik $$< -seconds_to_run 5 && echo "PASS: $(1)" || (echo "FAIL: $(1)"; exit 1)
+	@$$(MAME) $$($(1)_MAME) $$(MAME_OPTS) -elfload $$< -seconds_to_run 5 && echo "PASS: $(1)" || (echo "FAIL: $(1)"; exit 1)
 
 clean-$(1):
 	rm -f hello_$(1).elf hello_$(1).bin
