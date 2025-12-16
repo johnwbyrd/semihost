@@ -114,14 +114,14 @@ RIFF Functions
 
 .. autocfunction:: zbc_protocol.h::zbc_riff_end
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_parse
+.. autocfunction:: zbc_protocol.h::zbc_riff_parse_request
 
 **Example:**
 
 .. code-block:: c
 
    zbc_parsed_t parsed;
-   int rc = zbc_riff_parse(&parsed, buf, size, 4, ZBC_ENDIAN_LITTLE);
+   int rc = zbc_riff_parse_request(&parsed, buf, size, 4, ZBC_ENDIAN_LITTLE);
    if (rc == ZBC_OK) {
        if (parsed.has_retn) {
            /* Use parsed.result, parsed.host_errno */

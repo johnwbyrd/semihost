@@ -27,6 +27,23 @@ Options
    cmake -B build -DZBC_USE_SECCOMP=ON     # Linux seccomp sandbox
    cmake -B build-fuzz -DENABLE_FUZZING=ON # Fuzz targets (Clang)
 
+On-Target Tests
+---------------
+
+Build cross-compiled tests for emulated platforms:
+
+.. code-block:: bash
+
+   cmake -B build -DZBC_TARGET_TESTS=ON
+   cmake -B build -DMAME_PATH=/path/to/mame
+   cmake -B build -DZBC_TARGET_PLATFORMS="i386;m6502"
+
+Platform requirements:
+
+- **i386**: gcc-multilib (``apt install gcc-multilib``)
+- **m6502**: llvm-mos toolchain (set ``LLVM_MOS_PATH``)
+- **MAME**: With ZBC machine support (``zbci386``, ``zbcm6502``)
+
 Sanitizers
 ----------
 

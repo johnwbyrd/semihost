@@ -19,10 +19,10 @@
  *========================================================================*/
 
 typedef struct zbc_ansi_fd_state_s {
-    void *files[ZBC_ANSI_MAX_FILES];
-    zbc_ansi_fd_node_t fd_pool[ZBC_ANSI_MAX_FILES];
-    zbc_ansi_fd_node_t *free_fd_list;
-    int next_fd;
+  void *files[ZBC_ANSI_MAX_FILES];
+  zbc_ansi_fd_node_t fd_pool[ZBC_ANSI_MAX_FILES];
+  zbc_ansi_fd_node_t *free_fd_list;
+  int next_fd;
 } zbc_ansi_fd_state_t;
 
 /*========================================================================
