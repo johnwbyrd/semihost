@@ -56,8 +56,17 @@ Quick Start
 
 .. code-block:: bash
 
-   cmake -B build && cmake --build build
-   ctest --test-dir build
+    # Basic build + host tests
+    cmake -B build && cmake --build build && ctest --test-dir build
+
+    # With on-target tests (requires MAME + cross-compilers)
+    cmake -B build -DZBC_TARGET_TESTS=ON
+
+    # With seccomp sandbox (Linux)
+    cmake -B build -DZBC_USE_SECCOMP=ON
+
+    # With fuzzing (requires Clang)
+    cmake -B build-fuzz -DENABLE_FUZZING=ON
 
 License
 -------

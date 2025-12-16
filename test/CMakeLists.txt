@@ -1,38 +1,14 @@
 # ZBC Semihosting Test Suite
 #
 # Build with: cmake -B build && cmake --build build && ctest --test-dir build
+#
+# Directory structure:
+#   test/
+#   ├── common/     - Shared test infrastructure (harness, mocks)
+#   ├── host/       - Tests that run on build machine
+#   └── target/     - Cross-compiled tests for emulators
 
 cmake_minimum_required(VERSION 3.10)
-
-# Test executable
-add_executable(zbc_tests
-    test_harness.c
-    mock_device.c
-    mock_memory.c
-    test_client_builder.c
-    test_roundtrip.c
-    test_ansi_insecure.c
-    test_ansi_secure.c
-    test_main.c
-)
-
-# Include paths
-target_include_directories(zbc_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}
-)
-
-# Tests need both client and host definitions
-target_compile_definitions(zbc_tests PRIVATE ZBC_CLIENT ZBC_HOST)
-
-# Link against the semihosting libraries
-target_link_libraries(zbc_tests
-    zbc_semi_client
-    zbc_semi_host
-)
-
-# Register test with CTest
-add_test(NAME zbc_semihost_tests COMMAND zbc_tests)
 
 # Static allocation check
 # Verify that library sources don't use malloc/calloc/realloc/free
@@ -61,16 +37,5 @@ endforeach()
 
 message(STATUS "Static allocation check passed - no malloc/calloc/realloc in library sources (ANSI backend exempt)")
 
-# Sandbox tests - separate binary due to fork() requirement for test isolation
-# (seccomp activation is irreversible within a process)
-add_executable(zbc_sandbox_tests test_sandbox.c)
-target_include_directories(zbc_sandbox_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(zbc_sandbox_tests zbc_semi_host)
-
-# Pass through seccomp define from parent
-if(ZBC_USE_SECCOMP)
-    target_compile_definitions(zbc_sandbox_tests PRIVATE ZBC_HAVE_SECCOMP)
-    target_link_libraries(zbc_sandbox_tests ${SECCOMP_LIBRARIES})
-endif()
-
-add_test(NAME zbc_sandbox_tests COMMAND zbc_sandbox_tests)
+# Host tests (always built)
+add_subdirectory(host)
