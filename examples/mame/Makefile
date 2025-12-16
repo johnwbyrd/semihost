@@ -10,10 +10,14 @@
 SEMIHOST ?= ../..
 MAME ?= ~/git/mame/mame
 
+# Semihost share directory for file I/O operations
+SHARE_DIR ?= $(HOME)/.mame/semihost
+
 # MAME options for automated testing (no user interaction)
 # -window: don't take over the display
 # -skip_gameinfo: skip the game info screen
-MAME_OPTS = -window -skip_gameinfo
+# -share_directory: root directory for semihost file I/O
+MAME_OPTS = -window -skip_gameinfo -share_directory $(SHARE_DIR)
 
 # ============================================================
 # Platform Definitions
@@ -44,7 +48,8 @@ amd64_MAME    = zbcamd64
 PLATFORMS += m6502
 LLVM_MOS   = $(HOME)/git/llvm-mos/build/install/bin
 m6502_CC      = $(LLVM_MOS)/clang
-m6502_CFLAGS  = --target=mos -T zbc6502.ld
+# Removed -flto to prevent excessive inlining; added -fno-inline-functions
+m6502_CFLAGS  = --target=mos -Oz -fno-inline-functions -T zbc6502.ld
 m6502_LDFLAGS =
 m6502_OBJCOPY = $(LLVM_MOS)/llvm-objcopy
 m6502_MAME    = zbcm6502

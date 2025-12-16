@@ -1,4 +1,6 @@
 .vscode
 .claude
+*.bin
+*.elf
 build*/
 fuzz/corpus/
