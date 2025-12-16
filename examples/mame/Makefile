@@ -29,6 +29,7 @@ PLATFORMS = i386
 # --- i386 (32-bit x86) ---
 # Uses custom linker script with reset vector at 0xFFFFFFF0
 # Boot stub switches from 16-bit real mode to 32-bit protected mode
+# -march=i386: Avoid Pentium Pro+ instructions (cmov) that cause #UD on i386
 i386_CC       = gcc
 i386_CFLAGS   = -m32 -march=i386 -T zbci386.ld
 i386_LDFLAGS  =
@@ -44,7 +45,6 @@ amd64_OBJCOPY = objcopy
 amd64_MAME    = zbcamd64
 
 # --- m6502 (MOS Technology 6502) ---
-# Load address = 1 << (1 + addr_bits/2) = 1 << 9 = 0x200 for 16-bit
 # Uses llvm-mos compiler with custom linker script
 # Requires imag.S for imaginary register definitions
 PLATFORMS += m6502

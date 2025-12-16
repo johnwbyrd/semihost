@@ -4,7 +4,7 @@
  *   0x0000-0x001F  Imaginary registers (__rc0-__rc31)
  *   0x0020-0x00FF  Zero page (user variables)
  *   0x0100-0x01FF  Stack (6502 hardware stack)
- *   0x0200-0xFCBF  Program area (load address = 2^(1+16/2) = 0x200)
+ *   0x0200-0xFCBF  Program area
  *   0xFCC0-0xFCDF  Reserved for soft stack (grows down)
  *   0xFCE0-0xFCFF  Semihost device (32 bytes)
  *   0xFD00-0xFEFF  VRAM (512 bytes)

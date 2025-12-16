@@ -1,9 +1,10 @@
 /* ZBC i386 linker script
  *
  * Memory layout for ZBC (Zero Board Computer) with 32-bit address space:
- *   0x00001000-0xFFFEFDFF  Program area (code, data, bss, stack)
+ *   0x00001000-0xFFFEFDDF  Program area (code, data, bss, stack)
  *   0xFFFEFDE0-0xFFFEFDFF  Semihost device (32 bytes)
  *   0xFFFEFE00-0xFFFEFFFF  VRAM (512 bytes)
+ *   0xFFFF0000-0xFFFFFFFF  Reserved (top 64KB)
  *   0xFFFFFF00-0xFFFFFFEF  16-bit boot code and GDT
  *   0xFFFFFFF0-0xFFFFFFFF  Reset vector
  *
@@ -27,8 +28,8 @@ MEMORY {
 }
 
 /* Stack at top of RAM, below semihost device */
-/* Semihost is at 0xFFFEFE00, so stack ends at 0xFFFEFDFC */
-__stack_top = 0xFFFEFDFC;
+/* Semihost is at 0xFFFEFDE0, so stack ends at 0xFFFEFDDC (4-byte aligned) */
+__stack_top = 0xFFFEFDDC;
 
 SECTIONS {
     /* Main program code */

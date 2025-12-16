@@ -30,16 +30,28 @@ _start32:
     mov %ax, %gs
     mov %ax, %ss
 
-    /* Set up stack pointer - use top of low memory before semihost device */
-    /* For 32-bit ZBC: semihost at 0xFFFEFE00, so stack just below */
-    mov $0xFFFEFDFC, %esp
+    /* Set up stack pointer from linker script symbol */
+    mov $__stack_top, %esp
 
     /* Jump to C entry point */
     jmp _start
 
 /*
  * 16-bit boot code and data at 0xFFFFFF00-0xFFFFFFFF
+ *
+ * The .boot16 section is placed at 0xFFFFFF00 by the linker script.
+ * In real mode, CS.base = 0xFFFF0000, so addresses within this section
+ * have CS-relative offsets of (linear_addr - 0xFFFF0000).
+ *
+ * Layout:
+ *   0xFFFFFF00 (_gdt):     GDT (24 bytes = 3 descriptors)
+ *   0xFFFFFF18 (_gdt_ptr): GDT pointer (6 bytes)
+ *   0xFFFFFF1E (_setup16): Mode switch code
  */
+.equ CS_BASE,      0xFFFF0000
+.equ BOOT16_START, 0xFFFFFF00
+.equ GDT_PTR_CS,   (BOOT16_START + 24) - CS_BASE  /* 0xFF18 */
+
 .code16
 .section .boot16, "ax", @progbits
 
@@ -71,26 +83,16 @@ _gdt_ptr:
     .long _gdt                   /* GDT linear base address */
 
 /*
- * Mode switch code - in .boot16 section at 0xFFFFFF00
- * This is jumped to from the reset vector.
- *
- * Layout of .boot16 section at 0xFFFFFF00:
- *   0xFFFFFF00: _gdt (24 bytes = 3 descriptors)
- *   0xFFFFFF18: _gdt_ptr (6 bytes)
- *   0xFFFFFF1E: _setup16 (mode switch code)
- *
- * CS.base = 0xFFFF0000, so CS-relative offsets are:
- *   _gdt_ptr = 0xFFFFFF18 - 0xFFFF0000 = 0xFF18
- *   _setup16 = 0xFFFFFF1E - 0xFFFF0000 = 0xFF1E
+ * Mode switch code - jumped to from the reset vector
  */
 _setup16:
     cli                         /* Disable interrupts */
 
-    /* A20 is already enabled by ZBC - no need to toggle port 0x92 */
+    /* A20 is already enabled by ZBC */
 
-    /* Load GDT using CS-relative addressing with hardcoded offset */
+    /* Load GDT using CS-relative addressing (see GDT_PTR_CS above) */
     .byte 0x66                  /* operand size prefix for 32-bit GDT ptr */
-    lgdt %cs:0xFF18             /* _gdt_ptr at CS:0xFF18 */
+    lgdt %cs:GDT_PTR_CS         /* _gdt_ptr at CS:0xFF18 */
 
     /* Enable protected mode (set PE bit in CR0) */
     mov %cr0, %eax
@@ -106,14 +108,9 @@ _setup16:
 
 /*
  * Reset vector at 0xFFFFFFF0 - must fit in 16 bytes
- * Jump backwards to the setup code in .boot16
  */
 .section .reset, "ax", @progbits
 .global _reset
 _reset:
-    /* Near jump to _setup16 in CS segment
-     * _setup16 is at CS:0xFF1E (0xFFFFFF1E)
-     * We're at CS:0xFFF0 (0xFFFFFFF0)
-     */
-    jmp _setup16                /* Near jump within CS segment */
+    jmp _setup16                /* Near jump to mode switch code */
     .fill 13, 1, 0x90           /* NOP padding to fill 16 bytes */
