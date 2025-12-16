@@ -484,10 +484,11 @@ static void parse_subchunks(const uint8_t *start, const uint8_t *end,
 }
 
 /*
- * Parse a RIFF SEMI buffer into a zbc_parsed_t structure.
+ * Parse a RIFF SEMI request buffer into a zbc_parsed_t structure.
+ * Used by the host to parse client requests (CNFG/CALL/PARM/DATA chunks).
  */
-int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
-                   int int_size, int endian)
+int zbc_riff_parse_request(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
+                           int int_size, int endian)
 {
     const zbc_riff_t *riff;
     const uint8_t *riff_end_ptr;

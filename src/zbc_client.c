@@ -461,13 +461,23 @@ int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size)
 /*========================================================================
  * Response parsing
  *
- * Uses the unified zbc_riff_parse() to extract all fields at once.
+ * Client-specific parser that only extracts RETN and ERRO chunks.
+ * This is much smaller than zbc_riff_parse() which also parses
+ * CNFG/CALL/PARM (host-only).
  *========================================================================*/
 
 int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
                        size_t capacity, const zbc_client_state_t *state)
 {
-    zbc_parsed_t parsed;
+    const zbc_riff_t *riff;
+    const uint8_t *riff_end;
+    const uint8_t *pos;
+    uint32_t id, size;
+    const uint8_t *chunk_data;
+    int int_size;
+    int endian;
+    int found_retn = 0;
+    int found_erro = 0;
     int rc;
 
     if (!response || !buf || !state) {
@@ -482,38 +492,90 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
     response->is_error = 0;
     response->proto_error = 0;
 
-    /* Parse the entire RIFF structure */
-    rc = zbc_riff_parse(&parsed, buf, capacity, state->int_size, state->endianness);
+    int_size = state->int_size;
+    endian = state->endianness;
+
+    /* Validate RIFF container */
+    riff = (const zbc_riff_t *)buf;
+    rc = zbc_riff_validate(riff, capacity, ZBC_ID_SEMI);
     if (rc != ZBC_OK) {
-        ZBC_LOG_ERROR("zbc_parse_response: zbc_riff_parse failed (%d)", rc);
-        return ZBC_ERR_PARSE_ERROR;
+        return rc;
     }
 
-    /*
-     * With pre-allocated chunks, both RETN and ERRO are present.
-     * Check for actual error first (non-zero proto_error), then check RETN.
-     */
-    if (parsed.has_erro && parsed.proto_error != 0) {
+    rc = zbc_riff_end(&riff_end, riff);
+    if (rc != ZBC_OK) {
+        return rc;
+    }
+
+    /* Walk top-level chunks looking for RETN and ERRO only */
+    pos = buf + ZBC_RIFF_HDR_SIZE;
+
+    while (pos + ZBC_CHUNK_HDR_SIZE <= riff_end) {
+        id = ZBC_READ_U32_LE(pos);
+        size = ZBC_READ_U32_LE(pos + 4);
+        chunk_data = pos + ZBC_CHUNK_HDR_SIZE;
+
+        /* Bounds check */
+        if (chunk_data + size > riff_end) {
+            return ZBC_ERR_DATA_OVERFLOW;
+        }
+
+        if (id == ZBC_ID_RETN) {
+            found_retn = 1;
+            /* RETN: result[int_size] + errno[4] + optional DATA sub-chunk */
+            if (size >= (size_t)int_size + ZBC_RETN_ERRNO_SIZE) {
+                response->result = zbc_read_native_int(chunk_data, int_size, endian);
+                response->error_code = (int)ZBC_READ_U32_LE(chunk_data + int_size);
+
+                /* Check for DATA sub-chunk within RETN */
+                {
+                    const uint8_t *sub_pos = chunk_data + int_size + ZBC_RETN_ERRNO_SIZE;
+                    const uint8_t *sub_end = chunk_data + size;
+
+                    while (sub_pos + ZBC_CHUNK_HDR_SIZE <= sub_end) {
+                        uint32_t sub_id = ZBC_READ_U32_LE(sub_pos);
+                        uint32_t sub_size = ZBC_READ_U32_LE(sub_pos + 4);
+                        const uint8_t *sub_data = sub_pos + ZBC_CHUNK_HDR_SIZE;
+
+                        if (sub_data + sub_size > sub_end) {
+                            break;
+                        }
+
+                        if (sub_id == ZBC_ID_DATA && sub_size >= ZBC_DATA_HDR_SIZE) {
+                            response->data = sub_data + ZBC_DATA_HDR_SIZE;
+                            response->data_size = sub_size - ZBC_DATA_HDR_SIZE;
+                            break;  /* Only need first DATA chunk */
+                        }
+
+                        sub_pos += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(sub_size);
+                    }
+                }
+            }
+        } else if (id == ZBC_ID_ERRO) {
+            found_erro = 1;
+            /* ERRO: error_code[2] + reserved[2] */
+            if (size >= ZBC_ERRO_PAYLOAD_SIZE) {
+                response->proto_error = ZBC_READ_U16_LE(chunk_data);
+            }
+        }
+        /* Skip CNFG, CALL, and any other chunks - client doesn't need them */
+
+        /* Advance to next chunk (with padding) */
+        pos += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(size);
+    }
+
+    /* Check for actual error first (non-zero proto_error) */
+    if (found_erro && response->proto_error != 0) {
         response->is_error = 1;
-        response->proto_error = parsed.proto_error;
         return ZBC_OK;
     }
 
     /* Check for RETN (normal response) */
-    if (parsed.has_retn) {
-        response->result = parsed.result;
-        response->error_code = parsed.host_errno;
-
-        /* Get DATA if present */
-        if (parsed.data_count > 0) {
-            response->data = parsed.data[0].ptr;
-            response->data_size = parsed.data[0].size;
-        }
+    if (found_retn) {
         return ZBC_OK;
     }
 
     /* No RETN found and no actual error - this shouldn't happen */
-    ZBC_LOG_ERROR_S("zbc_parse_response: no RETN chunk in response");
     return ZBC_ERR_PARSE_ERROR;
 }
 

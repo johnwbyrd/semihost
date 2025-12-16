@@ -912,13 +912,17 @@ typedef struct {
 } zbc_parsed_t;
 
 /**
- * Parse a RIFF SEMI buffer into a zbc_parsed_t structure.
+ * Parse a RIFF SEMI request buffer into a zbc_parsed_t structure.
  *
- * This is the single entry point for parsing. It walks all chunks,
- * extracts relevant fields, and populates the parsed structure.
- * After this call, the caller can simply check fields like:
+ * This is the host-side entry point for parsing client requests.
+ * It walks all chunks (CNFG/CALL/PARM/DATA), extracts relevant fields,
+ * and populates the parsed structure. After this call, the caller can
+ * simply check fields like:
  *
- *     if (parsed.has_retn) { use parsed.result; }
+ *     if (parsed.has_call) { dispatch parsed.opcode; }
+ *
+ * Note: Clients should not call this function. Client response parsing
+ * is done internally by zbc_parse_response() which only extracts RETN/ERRO.
  *
  * @param[out] out  Receives parsed structure
  * @param buf       RIFF buffer to parse
@@ -927,8 +931,8 @@ typedef struct {
  * @param endian    Guest endianness (ZBC_ENDIAN_*)
  * @return ZBC_OK on success, error code on parse failure
  */
-int zbc_riff_parse(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
-                   int int_size, int endian);
+int zbc_riff_parse_request(zbc_parsed_t *out, const uint8_t *buf, size_t buf_size,
+                           int int_size, int endian);
 
 #ifdef __cplusplus
 }
