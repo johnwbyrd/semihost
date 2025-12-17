@@ -20,6 +20,7 @@ Documentation
    building
    testing
    examples
+   linux-extensions-proposal
 
 .. toctree::
    :maxdepth: 2

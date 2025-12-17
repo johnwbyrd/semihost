@@ -258,6 +258,117 @@ Cleanup
    zbc_ansi_cleanup(&backend_state);  /* secure */
    zbc_ansi_insecure_cleanup(&backend_state);  /* insecure */
 
+ELF Loading for Bootstrap
+-------------------------
+
+Emulator authors should consider providing **ELF loading** as a built-in
+feature. This solves a fundamental bootstrapping problem: how does a guest
+program get into memory in the first place?
+
+The Bootstrapping Problem
+^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Traditional approaches require:
+
+- **ROM images**: Guest must be pre-compiled into a fixed ROM format
+- **Bootloaders**: Multi-stage boot process with BIOS/firmware
+- **Disk images**: Full filesystem with boot sectors and partition tables
+
+All of these add complexity before the guest program can even start using
+semihosting services. ELF loading eliminates this friction.
+
+How ELF Loading Helps
+^^^^^^^^^^^^^^^^^^^^^
+
+An ELF loader built into the emulator can:
+
+1. **Parse ELF headers** to determine code/data layout
+2. **Load PT_LOAD segments** directly into guest memory
+3. **Set reset vectors** from ELF entry points or embedded vector tables
+4. **Zero-fill BSS** sections automatically
+5. **Begin execution** at the CPU's reset vector
+
+This means a developer can compile a C program, link it with a simple linker
+script, and run it immediately---no ROM burning, no bootloader, no disk image
+creation.
+
+Reset Vector Patterns
+^^^^^^^^^^^^^^^^^^^^^
+
+Different CPU architectures handle reset vectors differently. The ELF file
+should include the appropriate vector table as a loadable segment:
+
+**6502 Example** (reset vector at 0xFFFC):
+
+The linker script places the reset vector in a ``.vectors`` section:
+
+.. code-block:: text
+
+   /* 6502 interrupt vectors at 0xFFFA-0xFFFF */
+   .vectors : {
+       SHORT(0x0000)   /* 0xFFFA: NMI vector (unused) */
+       SHORT(_start)   /* 0xFFFC: Reset vector -> _start */
+       SHORT(0x0000)   /* 0xFFFE: IRQ/BRK vector (unused) */
+   } > vectors
+
+When the ELF is loaded, this section becomes a PT_LOAD segment placed at
+0xFFFA. The 6502 CPU reads its reset vector from 0xFFFC on power-up and
+jumps directly to ``_start``.
+
+**i386 Example** (reset vector at 0xFFFFFFF0):
+
+The i386 starts in 16-bit real mode at physical address 0xFFFFFFF0. A small
+boot stub switches to 32-bit protected mode:
+
+.. code-block:: text
+
+   /* Reset entry at 0xFFFFFFF0 */
+   .reset 0xFFFFFFF0 : {
+       *(.reset)       /* Jump to 16-bit boot code */
+   } > reset
+
+   /* 16-bit boot code with GDT and mode switch */
+   .boot16 0xFFFFFF00 : {
+       *(.boot16)      /* Loads GDT, enables protected mode */
+   } > boot16
+
+   /* 32-bit code starting at 0x00001000 */
+   .text 0x00001000 : {
+       *(.text.startup)  /* _start32 placed first */
+       *(.text .text.*)
+   } > ram
+
+The reset stub at 0xFFFFFFF0 jumps to 16-bit setup code, which loads a GDT,
+enables protected mode, and far-jumps to ``_start`` in the ``.text`` section.
+
+Implementation Guidance
+^^^^^^^^^^^^^^^^^^^^^^^
+
+When implementing an ELF loader for your emulator:
+
+1. **Reset the CPU first** before loading segments. This ensures the CPU's
+   address spaces are properly initialized.
+
+2. **Load only PT_LOAD segments**. Skip dynamic linking sections (PT_DYNAMIC),
+   thread-local storage (PT_TLS), and other segment types.
+
+3. **Handle both ELF32 and ELF64** formats, with correct endianness detection
+   from the ELF header.
+
+4. **Use direct memory access** when possible for performance. Fall back to
+   byte-by-byte writes for memory-mapped I/O regions.
+
+5. **Zero-fill BSS**. The ``memsz`` field may exceed ``filesz``; the difference
+   is zero-initialized data.
+
+Reference Implementation
+^^^^^^^^^^^^^^^^^^^^^^^^
+
+MAME's ``src/devices/imagedev/elfload.cpp`` provides a complete ELF loader
+that can serve as a reference. The ZBC project's ``test/target/platforms/``
+directory contains working linker scripts for 6502, i386, and other
+architectures.
+
 See Also
 --------
 
