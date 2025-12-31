@@ -87,6 +87,8 @@ typedef struct zbc_backend_s {
     void (*do_exit)(void *ctx, unsigned int reason, unsigned int subcode);
     /** Return last errno value. */
     int (*get_errno)(void *ctx);
+    /** Configure periodic timer. rate_hz=0 disables. Returns 0 on success. */
+    int (*timer_config)(void *ctx, unsigned int rate_hz);
 } zbc_backend_t;
 
 /*========================================================================

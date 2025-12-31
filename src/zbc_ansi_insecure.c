@@ -453,6 +453,13 @@ static int ansi_insecure_get_errno(void *ctx) {
   return state->last_errno;
 }
 
+static int ansi_insecure_timer_config(void *ctx, unsigned int rate_hz) {
+  (void)ctx;
+  (void)rate_hz;
+  /* Insecure backend has no callback mechanism; return success */
+  return 0;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -469,7 +476,7 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_elapsed,     ansi_insecure_tickfreq,
     ansi_insecure_do_system,   ansi_insecure_get_cmdline,
     ansi_insecure_heapinfo,    ansi_insecure_do_exit,
-    ansi_insecure_get_errno};
+    ansi_insecure_get_errno,   ansi_insecure_timer_config};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;

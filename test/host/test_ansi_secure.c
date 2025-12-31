@@ -199,7 +199,7 @@ static int test_secure_read_only_mode(void)
     /* Create a read-only state */
     zbc_ansi_init(&ro_state, g_temp_dir);
     ro_state.flags = ZBC_ANSI_FLAG_READ_ONLY;
-    zbc_ansi_set_callbacks(&ro_state, test_violation_callback, NULL, NULL);
+    zbc_ansi_set_callbacks(&ro_state, test_violation_callback, NULL, NULL, NULL);
 
     g_violation_count = 0;
 
@@ -231,7 +231,7 @@ static int test_secure_path_rules(void)
     result = zbc_ansi_add_path(&rule_state, "/tmp/", 0);  /* read-only */
     TEST_ASSERT(result == 0, "add_path failed");
 
-    zbc_ansi_set_callbacks(&rule_state, test_violation_callback, NULL, NULL);
+    zbc_ansi_set_callbacks(&rule_state, test_violation_callback, NULL, NULL, NULL);
 
     g_violation_count = 0;
 
@@ -258,7 +258,7 @@ void run_ansi_secure_tests(void)
     init_temp_dir();
     zbc_ansi_init(&g_secure_state, g_temp_dir);
     zbc_ansi_set_callbacks(&g_secure_state, test_violation_callback,
-                           test_exit_callback, NULL);
+                           test_exit_callback, NULL, NULL);
 
     RUN_TEST(secure_basic_ops);
     RUN_TEST(secure_path_traversal_blocked);

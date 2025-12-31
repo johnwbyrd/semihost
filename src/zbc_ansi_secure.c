@@ -769,17 +769,28 @@ static int ansi_get_errno(void *ctx) {
   return state->last_errno;
 }
 
+static int ansi_timer_config(void *ctx, unsigned int rate_hz) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  if (!state) {
+    return -1;
+  }
+  if (state->on_timer_config) {
+    state->on_timer_config(state->callback_ctx, rate_hz);
+  }
+  return 0;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
 
 static const zbc_backend_t ansi_secure_backend = {
-    ansi_open,        ansi_close,    ansi_read,        ansi_write,
-    ansi_seek,        ansi_flen,     ansi_remove_file, ansi_rename_file,
-    ansi_tmpnam_func, ansi_writec,   ansi_write0,      ansi_readc,
-    ansi_iserror,     ansi_istty,    ansi_clock_func,  ansi_time_func,
-    ansi_elapsed,     ansi_tickfreq, ansi_do_system,   ansi_get_cmdline,
-    ansi_heapinfo,    ansi_do_exit,  ansi_get_errno};
+    ansi_open,        ansi_close,       ansi_read,        ansi_write,
+    ansi_seek,        ansi_flen,        ansi_remove_file, ansi_rename_file,
+    ansi_tmpnam_func, ansi_writec,      ansi_write0,      ansi_readc,
+    ansi_iserror,     ansi_istty,       ansi_clock_func,  ansi_time_func,
+    ansi_elapsed,     ansi_tickfreq,    ansi_do_system,   ansi_get_cmdline,
+    ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 
@@ -856,12 +867,15 @@ void zbc_ansi_set_callbacks(zbc_ansi_state_t *state,
                                                  const char *detail),
                             void (*on_exit)(void *ctx, unsigned int reason,
                                             unsigned int subcode),
+                            void (*on_timer_config)(void *ctx,
+                                                    unsigned int rate_hz),
                             void *ctx) {
   if (!state) {
     return;
   }
   state->on_violation = on_violation;
   state->on_exit = on_exit;
+  state->on_timer_config = on_timer_config;
   state->callback_ctx = ctx;
 }
 

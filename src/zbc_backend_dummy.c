@@ -169,12 +169,18 @@ static int dummy_get_errno(void *ctx) {
   return 0;
 }
 
+static int dummy_timer_config(void *ctx, unsigned int rate_hz) {
+  (void)ctx;
+  (void)rate_hz;
+  return 0;
+}
+
 static const zbc_backend_t dummy_backend = {
-    dummy_open,     dummy_close,    dummy_read,      dummy_write,
-    dummy_seek,     dummy_flen,     dummy_remove,    dummy_rename,
-    dummy_tmpnam,   dummy_writec,   dummy_write0,    dummy_readc,
-    dummy_iserror,  dummy_istty,    dummy_clock,     dummy_time,
-    dummy_elapsed,  dummy_tickfreq, dummy_do_system, dummy_get_cmdline,
-    dummy_heapinfo, dummy_do_exit,  dummy_get_errno};
+    dummy_open,     dummy_close,    dummy_read,        dummy_write,
+    dummy_seek,     dummy_flen,     dummy_remove,      dummy_rename,
+    dummy_tmpnam,   dummy_writec,   dummy_write0,      dummy_readc,
+    dummy_iserror,  dummy_istty,    dummy_clock,       dummy_time,
+    dummy_elapsed,  dummy_tickfreq, dummy_do_system,   dummy_get_cmdline,
+    dummy_heapinfo, dummy_do_exit,  dummy_get_errno,   dummy_timer_config};
 
 const zbc_backend_t *zbc_backend_dummy(void) { return &dummy_backend; }

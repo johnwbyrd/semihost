@@ -134,6 +134,7 @@ typedef struct zbc_ansi_state_s {
     /*--- Callbacks ---*/
     void (*on_violation)(void *ctx, int type, const char *detail);  /**< Violation callback */
     void (*on_exit)(void *ctx, unsigned int reason, unsigned int subcode);  /**< Exit callback */
+    void (*on_timer_config)(void *ctx, unsigned int rate_hz);  /**< Timer config callback */
     void *callback_ctx;                /**< Context for callbacks */
 
     /*--- Internal: file descriptor table (void* to avoid stdio.h dep) ---*/
@@ -192,16 +193,19 @@ void zbc_ansi_set_policy(zbc_ansi_state_t *state,
 /**
  * Set callbacks for security events.
  *
- * @param state        Initialized state
- * @param on_violation Called when operation is blocked (may be NULL)
- * @param on_exit      Called when exit() is intercepted (may be NULL)
- * @param ctx          Context passed to callbacks
+ * @param state           Initialized state
+ * @param on_violation    Called when operation is blocked (may be NULL)
+ * @param on_exit         Called when exit() is intercepted (may be NULL)
+ * @param on_timer_config Called when timer is configured (may be NULL)
+ * @param ctx             Context passed to callbacks
  */
 void zbc_ansi_set_callbacks(zbc_ansi_state_t *state,
                             void (*on_violation)(void *ctx, int type,
                                                  const char *detail),
                             void (*on_exit)(void *ctx, unsigned int reason,
                                             unsigned int subcode),
+                            void (*on_timer_config)(void *ctx,
+                                                    unsigned int rate_hz),
                             void *ctx);
 
 /**

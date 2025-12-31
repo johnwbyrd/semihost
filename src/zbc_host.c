@@ -569,6 +569,19 @@ int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr) {
     write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
     break;
 
+  case SH_SYS_TIMER_CONFIG:
+    if (be->timer_config && parsed.parm_count >= 1) {
+      result = be->timer_config(ctx, (unsigned int)parsed.parms[0]);
+      if (result < 0 && be->get_errno) {
+        err = be->get_errno(ctx);
+      }
+    } else {
+      result = -1;
+      err = ENOSYS;
+    }
+    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
+    break;
+
   default:
     ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)parsed.opcode);
     write_erro_payload(state, riff_addr, &parsed, ZBC_PROTO_ERR_UNSUPPORTED_OP);
