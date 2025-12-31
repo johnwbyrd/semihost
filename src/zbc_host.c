@@ -278,15 +278,378 @@ static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
 }
 
 /*========================================================================
- * Backend dispatch
+ * Backend dispatch - table-driven
+ *
+ * Each opcode has a typed caller wrapper that:
+ *   - Casts the function pointer to the correct signature
+ *   - Extracts arguments from parsed structure
+ *   - Returns result and optional data
+ *
+ * The dispatcher handles null-check and errno centrally.
  *========================================================================*/
+
+/* Call result - returned by all caller wrappers */
+typedef struct {
+  intmax_t result;
+  const void *data;
+  size_t data_len;
+} call_result_t;
+
+/* Caller function signature */
+typedef call_result_t (*caller_t)(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size);
+
+/*------------------------------------------------------------------------
+ * Typed caller wrappers - one per distinct backend signature
+ *------------------------------------------------------------------------*/
+
+/* Helper to convert void* to function pointer without pedantic warning */
+typedef int (*fn_ctx_t)(void *);
+typedef int (*fn_fd_t)(void *, int);
+typedef intmax_t (*fn_fd_flen_t)(void *, int);
+typedef int (*fn_fd_int_t)(void *, int, int);
+typedef int (*fn_fd_buf_t)(void *, int, void *, size_t);
+typedef int (*fn_fd_cbuf_t)(void *, int, const void *, size_t);
+typedef int (*fn_path_t)(void *, const char *, size_t);
+typedef int (*fn_path_mode_t)(void *, const char *, size_t, int);
+typedef int (*fn_path_path_t)(void *, const char *, size_t, const char *, size_t);
+typedef int (*fn_tmpnam_t)(void *, char *, size_t, int);
+typedef void (*fn_writec_t)(void *, char);
+typedef void (*fn_write0_t)(void *, const char *);
+typedef int (*fn_uint_t)(void *, unsigned int);
+typedef void (*fn_exit_t)(void *, unsigned int, unsigned int);
+typedef int (*fn_elapsed_t)(void *, unsigned int *, unsigned int *);
+typedef int (*fn_cmdline_t)(void *, char *, size_t);
+typedef int (*fn_heapinfo_t)(void *, uintptr_t *, uintptr_t *, uintptr_t *,
+                             uintptr_t *);
+
+/* Union for void* to function pointer conversion (avoids pedantic warning) */
+typedef union {
+  void *ptr;
+  fn_ctx_t ctx;
+  fn_fd_t fd;
+  fn_fd_flen_t fd_flen;
+  fn_fd_int_t fd_int;
+  fn_fd_buf_t fd_buf;
+  fn_fd_cbuf_t fd_cbuf;
+  fn_path_t path;
+  fn_path_mode_t path_mode;
+  fn_path_path_t path_path;
+  fn_tmpnam_t tmpnam;
+  fn_writec_t writec;
+  fn_write0_t write0;
+  fn_uint_t uint;
+  fn_exit_t exit;
+  fn_elapsed_t elapsed;
+  fn_cmdline_t cmdline;
+  fn_heapinfo_t heapinfo;
+} fn_union_t;
+
+/* int fn(void *ctx) */
+static call_result_t call_ctx(void *fn, void *ctx, const zbc_parsed_t *p,
+                              uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)p; (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.ctx(ctx);
+  return r;
+}
+
+/* int fn(void *ctx, int fd) */
+static call_result_t call_fd(void *fn, void *ctx, const zbc_parsed_t *p,
+                             uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.fd(ctx, (int)p->parms[0]);
+  return r;
+}
+
+/* intmax_t fn(void *ctx, int fd) - for flen */
+static call_result_t call_fd_flen(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.fd_flen(ctx, (int)p->parms[0]);
+  return r;
+}
+
+/* int fn(void *ctx, int fd, int pos) */
+static call_result_t call_fd_int(void *fn, void *ctx, const zbc_parsed_t *p,
+                                 uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.fd_int(ctx, (int)p->parms[0], (int)p->parms[1]);
+  return r;
+}
+
+/* int fn(void *ctx, int fd, void *buf, size_t count) - read */
+static call_result_t call_fd_read(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  size_t count = (size_t)p->parms[1];
+  if (count > buf_size)
+    count = buf_size;
+  u.ptr = fn;
+  r.result = u.fd_buf(ctx, (int)p->parms[0], buf, count);
+  if (r.result >= 0) {
+    r.data = buf;
+    r.data_len = count - (size_t)r.result; /* bytes actually read */
+  }
+  return r;
+}
+
+/* int fn(void *ctx, int fd, const void *buf, size_t count) - write */
+static call_result_t call_fd_write(void *fn, void *ctx, const zbc_parsed_t *p,
+                                   uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.fd_cbuf(ctx, (int)p->parms[0], p->data[0].ptr, p->data[0].size);
+  return r;
+}
+
+/* int fn(void *ctx, const char *path, size_t len) */
+static call_result_t call_path(void *fn, void *ctx, const zbc_parsed_t *p,
+                               uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.path(ctx, (const char *)p->data[0].ptr, p->data[0].size);
+  return r;
+}
+
+/* int fn(void *ctx, const char *path, size_t len, int mode) - open */
+static call_result_t call_path_mode(void *fn, void *ctx, const zbc_parsed_t *p,
+                                    uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.path_mode(ctx, (const char *)p->data[0].ptr, p->data[0].size,
+                         (int)p->parms[0]);
+  return r;
+}
+
+/* int fn(void *ctx, const char *old, size_t ol, const char *new, size_t nl) */
+static call_result_t call_path_path(void *fn, void *ctx, const zbc_parsed_t *p,
+                                    uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.path_path(ctx, (const char *)p->data[0].ptr, p->data[0].size,
+                         (const char *)p->data[1].ptr, p->data[1].size);
+  return r;
+}
+
+/* int fn(void *ctx, char *buf, size_t size, int id) - tmpnam */
+static call_result_t call_tmpnam(void *fn, void *ctx, const zbc_parsed_t *p,
+                                 uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  size_t maxlen = (size_t)p->parms[1];
+  if (maxlen > buf_size)
+    maxlen = buf_size;
+  u.ptr = fn;
+  r.result = u.tmpnam(ctx, (char *)buf, maxlen, (int)p->parms[0]);
+  if (r.result == 0) {
+    r.data = buf;
+    r.data_len = zbc_strlen((const char *)buf) + 1;
+  }
+  return r;
+}
+
+/* void fn(void *ctx, char c) - writec */
+static call_result_t call_writec(void *fn, void *ctx, const zbc_parsed_t *p,
+                                 uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  if (p->data_count > 0 && p->data[0].size > 0) {
+    u.writec(ctx, (char)p->data[0].ptr[0]);
+  }
+  return r;
+}
+
+/* void fn(void *ctx, const char *str) - write0 */
+static call_result_t call_write0(void *fn, void *ctx, const zbc_parsed_t *p,
+                                 uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  if (p->data_count > 0) {
+    u.write0(ctx, (const char *)p->data[0].ptr);
+  }
+  return r;
+}
+
+/* int fn(void *ctx, unsigned int val) - timer_config */
+static call_result_t call_uint(void *fn, void *ctx, const zbc_parsed_t *p,
+                               uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.uint(ctx, (unsigned int)p->parms[0]);
+  return r;
+}
+
+/* void fn(void *ctx, unsigned reason, unsigned subcode) - exit */
+static call_result_t call_exit(void *fn, void *ctx, const zbc_parsed_t *p,
+                               uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  unsigned int reason = (unsigned int)p->parms[0];
+  unsigned int subcode = (p->parm_count >= 2) ? (unsigned int)p->parms[1] : 0;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  u.exit(ctx, reason, subcode);
+  return r;
+}
+
+/* int fn(void *ctx, unsigned *lo, unsigned *hi) - elapsed */
+static call_result_t call_elapsed(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  unsigned int lo, hi;
+  (void)p;
+  if (buf_size < 8) {
+    r.result = -1;
+    return r;
+  }
+  u.ptr = fn;
+  r.result = u.elapsed(ctx, &lo, &hi);
+  if (r.result == 0) {
+    ZBC_WRITE_U32_LE(buf, lo);
+    ZBC_WRITE_U32_LE(buf + 4, hi);
+    r.data = buf;
+    r.data_len = 8;
+  }
+  return r;
+}
+
+/* No backend call - pure logic for ISERROR */
+static call_result_t call_iserror(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  (void)fn; (void)ctx; (void)buf; (void)buf_size;
+  r.result = (p->parm_count >= 1 && p->parms[0] < 0) ? 1 : 0;
+  return r;
+}
+
+/* int fn(void *ctx, char *buf, size_t size) - get_cmdline */
+static call_result_t call_cmdline(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  size_t maxlen = (size_t)p->parms[0];
+  if (maxlen > buf_size)
+    maxlen = buf_size;
+  u.ptr = fn;
+  r.result = u.cmdline(ctx, (char *)buf, maxlen);
+  if (r.result == 0) {
+    r.data = buf;
+    r.data_len = zbc_strlen((const char *)buf) + 1;
+  }
+  return r;
+}
+
+/* int fn(void *ctx, uintptr_t*, uintptr_t*, uintptr_t*, uintptr_t*) - heapinfo */
+static call_result_t call_heapinfo(void *fn, void *ctx, const zbc_parsed_t *p,
+                                   uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  uintptr_t heap_base, heap_limit, stack_base, stack_limit;
+  int ps = p->ptr_size;
+  int endian = p->endianness;
+
+  if (buf_size < (size_t)(4 * ps)) {
+    r.result = -1;
+    return r;
+  }
+  u.ptr = fn;
+  r.result = u.heapinfo(ctx, &heap_base, &heap_limit, &stack_base, &stack_limit);
+  if (r.result == 0) {
+    zbc_write_native_uint(buf, heap_base, ps, endian);
+    zbc_write_native_uint(buf + ps, heap_limit, ps, endian);
+    zbc_write_native_uint(buf + 2 * ps, stack_base, ps, endian);
+    zbc_write_native_uint(buf + 3 * ps, stack_limit, ps, endian);
+    r.data = buf;
+    r.data_len = (size_t)(4 * ps);
+  }
+  return r;
+}
+
+/*------------------------------------------------------------------------
+ * Dispatch table
+ *------------------------------------------------------------------------*/
+
+typedef struct {
+  uint8_t opcode;
+  uint8_t fn_offset;   /* offsetof(zbc_backend_t, field) / sizeof(void*) */
+  uint8_t wants_errno; /* 1 = get errno on error */
+  caller_t caller;
+} dispatch_entry_t;
+
+#define OFF(field) (offsetof(zbc_backend_t, field) / sizeof(void *))
+
+static const dispatch_entry_t dispatch_table[] = {
+    /* File operations */
+    {SH_SYS_OPEN, OFF(open), 1, call_path_mode},
+    {SH_SYS_CLOSE, OFF(close), 1, call_fd},
+    {SH_SYS_WRITE, OFF(write), 1, call_fd_write},
+    {SH_SYS_READ, OFF(read), 1, call_fd_read},
+    {SH_SYS_SEEK, OFF(seek), 1, call_fd_int},
+    {SH_SYS_FLEN, OFF(flen), 1, call_fd_flen},
+    {SH_SYS_ISTTY, OFF(istty), 0, call_fd},
+    {SH_SYS_REMOVE, OFF(remove), 1, call_path},
+    {SH_SYS_RENAME, OFF(rename), 1, call_path_path},
+    {SH_SYS_TMPNAM, OFF(tmpnam), 1, call_tmpnam},
+
+    /* Console */
+    {SH_SYS_WRITEC, OFF(writec), 0, call_writec},
+    {SH_SYS_WRITE0, OFF(write0), 0, call_write0},
+    {SH_SYS_READC, OFF(readc), 0, call_ctx},
+
+    /* System - no errno */
+    {SH_SYS_ISERROR, 0, 0, call_iserror},
+    {SH_SYS_CLOCK, OFF(clock), 0, call_ctx},
+    {SH_SYS_TIME, OFF(time), 0, call_ctx},
+    {SH_SYS_TICKFREQ, OFF(tickfreq), 0, call_ctx},
+    {SH_SYS_ERRNO, OFF(get_errno), 0, call_ctx},
+    {SH_SYS_SYSTEM, OFF(do_system), 0, call_path},
+    {SH_SYS_GET_CMDLINE, OFF(get_cmdline), 0, call_cmdline},
+    {SH_SYS_HEAPINFO, OFF(heapinfo), 0, call_heapinfo},
+    {SH_SYS_EXIT, OFF(do_exit), 0, call_exit},
+    {SH_SYS_EXIT_EXTENDED, OFF(do_exit), 0, call_exit},
+    {SH_SYS_ELAPSED, OFF(elapsed), 0, call_elapsed},
+    {SH_SYS_TIMER_CONFIG, OFF(timer_config), 1, call_uint},
+
+    {0, 0, 0, NULL} /* end marker */
+};
+
+/*------------------------------------------------------------------------
+ * Main dispatch function
+ *------------------------------------------------------------------------*/
 
 int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr) {
   zbc_parsed_t parsed;
   const zbc_backend_t *be;
   void *ctx;
-  intptr_t result = 0;
-  int err = 0;
+  const dispatch_entry_t *d;
   int rc;
 
   if (!state || !state->work_buf || !state->backend) {
@@ -302,291 +665,37 @@ int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr) {
   be = state->backend;
   ctx = state->backend_ctx;
 
-  /*
-   * Dispatch to backend.
-   *
-   * Most cases follow a pattern:
-   *   1. Check backend function and parameter count
-   *   2. Call backend
-   *   3. Get errno on error
-   *   4. Write response
-   *
-   * We keep the switch for clarity since each opcode has
-   * slightly different parameter extraction and validation.
-   */
+  /* Find dispatch entry */
+  for (d = dispatch_table; d->caller != NULL; d++) {
+    if (d->opcode == parsed.opcode) {
+      void *fn = ((void **)be)[d->fn_offset];
+      call_result_t r;
+      int err = 0;
 
-  switch (parsed.opcode) {
+      /* Check for missing backend function (fn_offset 0 = no backend needed) */
+      if (!fn && d->fn_offset != 0) {
+        write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
+        return ZBC_OK;
+      }
 
-    /* File operations */
+      /* Call the typed wrapper */
+      r = d->caller(fn, ctx, &parsed, state->work_buf + state->work_buf_size / 2,
+                    state->work_buf_size / 2);
 
-  case SH_SYS_OPEN:
-    if (be->open && parsed.data_count > 0 && parsed.parm_count >= 2) {
-      result = be->open(ctx, (const char *)parsed.data[0].ptr,
-                        parsed.data[0].size, parsed.parms[0]);
-      if (result < 0 && be->get_errno) {
+      /* Get errno if needed */
+      if (d->wants_errno && r.result < 0 && be->get_errno) {
         err = be->get_errno(ctx);
       }
-    } else {
-      result = -1;
-      err = ENOSYS;
+
+      /* Write response */
+      write_retn_payload(state, riff_addr, &parsed, (intptr_t)r.result, err,
+                         r.data, r.data_len);
+      return ZBC_OK;
     }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_CLOSE:
-    if (be->close && parsed.parm_count >= 1) {
-      result = be->close(ctx, parsed.parms[0]);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_WRITE:
-    if (be->write && parsed.parm_count >= 2 && parsed.data_count > 0) {
-      result = be->write(ctx, parsed.parms[0], parsed.data[0].ptr,
-                         parsed.data[0].size);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_READ:
-    if (be->read && parsed.parm_count >= 2) {
-      size_t count = (size_t)parsed.parms[1];
-      uint8_t *read_buf = state->work_buf + state->work_buf_size / 2;
-      size_t max_read = state->work_buf_size / 2;
-
-      if (count > max_read) {
-        count = max_read;
-      }
-
-      result = be->read(ctx, parsed.parms[0], read_buf, count);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-        write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-      } else {
-        /* result = bytes NOT read */
-        size_t bytes_read = count - (size_t)result;
-        write_retn_payload(state, riff_addr, &parsed, result, 0, read_buf,
-                           bytes_read);
-      }
-    } else {
-      write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
-    }
-    break;
-
-  case SH_SYS_SEEK:
-    if (be->seek && parsed.parm_count >= 2) {
-      result = be->seek(ctx, parsed.parms[0], parsed.parms[1]);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_FLEN:
-    if (be->flen && parsed.parm_count >= 1) {
-      result = be->flen(ctx, parsed.parms[0]);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_ISTTY:
-    if (be->istty && parsed.parm_count >= 1) {
-      result = be->istty(ctx, parsed.parms[0]);
-    } else {
-      result = 0;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_REMOVE:
-    if (be->remove && parsed.data_count > 0) {
-      result = be->remove(ctx, (const char *)parsed.data[0].ptr,
-                          parsed.data[0].size);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_RENAME:
-    if (be->rename && parsed.data_count >= 2) {
-      result =
-          be->rename(ctx, (const char *)parsed.data[0].ptr, parsed.data[0].size,
-                     (const char *)parsed.data[1].ptr, parsed.data[1].size);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  case SH_SYS_TMPNAM:
-    if (be->tmpnam && parsed.parm_count >= 2) {
-      size_t maxlen = (size_t)parsed.parms[1];
-      char *tmp_buf = (char *)(state->work_buf + state->work_buf_size / 2);
-      size_t max_tmp = state->work_buf_size / 2;
-
-      if (maxlen > max_tmp) {
-        maxlen = max_tmp;
-      }
-
-      result = be->tmpnam(ctx, tmp_buf, maxlen, parsed.parms[0]);
-      if (result == 0) {
-        size_t len = zbc_strlen(tmp_buf) + 1;
-        write_retn_payload(state, riff_addr, &parsed, 0, 0, tmp_buf, len);
-      } else {
-        if (be->get_errno) {
-          err = be->get_errno(ctx);
-        }
-        write_retn_payload(state, riff_addr, &parsed, -1, err, NULL, 0);
-      }
-    } else {
-      write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
-    }
-    break;
-
-    /* Console operations */
-
-  case SH_SYS_WRITEC:
-    if (be->writec && parsed.data_count > 0 && parsed.data[0].size > 0) {
-      be->writec(ctx, parsed.data[0].ptr[0]);
-    }
-    write_retn_payload(state, riff_addr, &parsed, 0, 0, NULL, 0);
-    break;
-
-  case SH_SYS_WRITE0:
-    if (be->write0 && parsed.data_count > 0) {
-      be->write0(ctx, (const char *)parsed.data[0].ptr);
-    }
-    write_retn_payload(state, riff_addr, &parsed, 0, 0, NULL, 0);
-    break;
-
-  case SH_SYS_READC:
-    result = be->readc ? be->readc(ctx) : -1;
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-    /* System operations */
-
-  case SH_SYS_ISERROR:
-    if (parsed.parm_count >= 1) {
-      result = (parsed.parms[0] < 0) ? 1 : 0;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_CLOCK:
-    result = be->clock ? be->clock(ctx) : -1;
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_TIME:
-    result = be->time ? be->time(ctx) : -1;
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_TICKFREQ:
-    result = be->tickfreq ? be->tickfreq(ctx) : -1;
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_ERRNO:
-    result = be->get_errno ? be->get_errno(ctx) : 0;
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_SYSTEM:
-    if (be->do_system && parsed.data_count > 0) {
-      result = be->do_system(ctx, (const char *)parsed.data[0].ptr,
-                             parsed.data[0].size);
-    } else {
-      result = -1;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, 0, NULL, 0);
-    break;
-
-  case SH_SYS_GET_CMDLINE:
-    /* Not commonly used, return empty */
-    write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
-    break;
-
-  case SH_SYS_HEAPINFO:
-    /* Heap info retrieval not yet fully implemented */
-    write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
-    break;
-
-  case SH_SYS_EXIT:
-  case SH_SYS_EXIT_EXTENDED:
-    if (be->do_exit && parsed.parm_count >= 1) {
-      unsigned int subcode =
-          (parsed.parm_count >= 2) ? (unsigned int)parsed.parms[1] : 0;
-      be->do_exit(ctx, (unsigned int)parsed.parms[0], subcode);
-    }
-    write_retn_payload(state, riff_addr, &parsed, 0, 0, NULL, 0);
-    break;
-
-  case SH_SYS_ELAPSED:
-    if (be->elapsed) {
-      unsigned int lo, hi;
-      result = be->elapsed(ctx, &lo, &hi);
-      if (result == 0) {
-        uint8_t tick_data[8];
-        ZBC_WRITE_U32_LE(tick_data, lo);
-        ZBC_WRITE_U32_LE(tick_data + 4, hi);
-        write_retn_payload(state, riff_addr, &parsed, 0, 0, tick_data, 8);
-        break;
-      }
-    }
-    write_retn_payload(state, riff_addr, &parsed, -1, ENOSYS, NULL, 0);
-    break;
-
-  case SH_SYS_TIMER_CONFIG:
-    if (be->timer_config && parsed.parm_count >= 1) {
-      result = be->timer_config(ctx, (unsigned int)parsed.parms[0]);
-      if (result < 0 && be->get_errno) {
-        err = be->get_errno(ctx);
-      }
-    } else {
-      result = -1;
-      err = ENOSYS;
-    }
-    write_retn_payload(state, riff_addr, &parsed, result, err, NULL, 0);
-    break;
-
-  default:
-    ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)parsed.opcode);
-    write_erro_payload(state, riff_addr, &parsed, ZBC_PROTO_ERR_UNSUPPORTED_OP);
-    break;
   }
 
+  /* Unknown opcode */
+  ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)parsed.opcode);
+  write_erro_payload(state, riff_addr, &parsed, ZBC_PROTO_ERR_UNSUPPORTED_OP);
   return ZBC_OK;
 }
