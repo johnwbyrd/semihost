@@ -13,7 +13,7 @@ those services on the emulated device itself.
 
 Naturally, with great power comes great responsibility.  By design, semihosting
 allows guest programs to read and write arbitrary files on the host system.
-The semihosting device attempts to provide you some isolation features via 
+The semihosting device attempts to provide you some isolation features via
 seccomp filters and directory jails on Linux; however, it's up to you implement
 these features correctly for your use case.
 
@@ -26,8 +26,59 @@ What You Get
 - **Time services**: wall clock time, elapsed ticks, tick frequency
 - **System**: exit, get command line, get heap info
 
-Setup
------
+Quick Start
+-----------
+
+If you want a POSIX-like interface, use the high-level API:
+
+.. code-block:: c
+
+   #include "zbc_api.h"
+
+   static zbc_client_state_t client;
+   static zbc_api_t api;
+   static uint8_t buf[512];
+
+   void init(void) {
+       zbc_client_init(&client, (void *)0xFFFF0000);
+       zbc_api_init(&api, &client, buf, sizeof(buf));
+   }
+
+   void example(void) {
+       /* Write to console */
+       zbc_api_write0(&api, "Hello from semihosting!\n");
+
+       /* File I/O */
+       int fd = zbc_api_open(&api, "/tmp/test.txt", SH_OPEN_W);
+       if (fd >= 0) {
+           zbc_api_write(&api, fd, "Hello\n", 6);
+           zbc_api_close(&api, fd);
+       }
+
+       /* Get time */
+       int seconds = zbc_api_time(&api);
+   }
+
+See :doc:`api/high-level` for the complete high-level API reference.
+
+Choosing an API
+---------------
+
+**Use the High-Level API** (``zbc_api.h``) when:
+
+- You want POSIX-like function calls (``open``, ``read``, ``write``, etc.)
+- You don't need to inspect the raw RIFF protocol
+
+**Use the Low-Level API** (``zbc_call()``) when:
+
+- You're implementing libc integration (``sys_semihost()``)
+- You need direct control over the RIFF buffer
+- You're building your own abstraction layer
+
+The rest of this document covers the low-level API.
+
+Low-Level Setup
+---------------
 
 Include the header and declare your state:
 

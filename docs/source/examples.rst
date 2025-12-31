@@ -38,7 +38,38 @@ This builds test binaries for available platforms and runs them on MAME's
 Minimal Client Example
 ----------------------
 
-A minimal semihosting client prints "Hello, ZBC!" and exits:
+Using the high-level API for a POSIX-like interface:
+
+.. code-block:: c
+
+   #include "zbc_api.h"
+
+   static zbc_client_state_t client;
+   static zbc_api_t api;
+   static uint8_t buf[256];
+
+   void _start(void) {
+       /* Platform-specific device address */
+       volatile uint8_t *dev = (volatile uint8_t *)0xFFFFBFDF;
+
+       zbc_client_init(&client, dev);
+       zbc_api_init(&api, &client, buf, sizeof(buf));
+
+       /* Print via semihosting */
+       zbc_api_write0(&api, "Hello, ZBC!\n");
+
+       /* File I/O */
+       int fd = zbc_api_open(&api, "/tmp/test.txt", SH_OPEN_W);
+       if (fd >= 0) {
+           zbc_api_write(&api, fd, "Test output\n", 12);
+           zbc_api_close(&api, fd);
+       }
+
+       /* Exit */
+       zbc_api_exit(&api, 0);
+   }
+
+Using the low-level API (for libc integration or direct RIFF control):
 
 .. code-block:: c
 

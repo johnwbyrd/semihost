@@ -7,12 +7,17 @@ and types in the ZBC Semihosting library.
 Overview
 --------
 
-The library is organized into four main components:
+The library is organized into five main components:
+
+**High-Level API** (``zbc_api.h``)
+   Type-safe wrapper functions for guest code that wants a POSIX-like
+   interface. Bundles client state and buffer management into a single
+   ``zbc_api_t`` context.
 
 **Client API** (``zbc_client.h``)
-   Functions for guest/embedded code to make semihosting calls.
-   Use this when writing code that runs on an emulated or
-   bare-metal system.
+   Lower-level functions for guest/embedded code. Use this when
+   implementing libc integration (``sys_semihost()``), or when you need
+   direct control over the RIFF protocol.
 
 **Host API** (``zbc_host.h``)
    Functions for processing semihosting requests from guest code.
@@ -67,6 +72,7 @@ Check for errors with ``if (rc < 0)``.
    :maxdepth: 2
    :caption: API Subsections
 
+   high-level
    client
    host
    backend
