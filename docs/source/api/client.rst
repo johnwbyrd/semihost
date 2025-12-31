@@ -20,8 +20,6 @@ Initialization
 
 .. autocfunction:: zbc_client.h::zbc_client_check_signature
 
-.. autocfunction:: zbc_client.h::zbc_client_device_present
-
 .. autocfunction:: zbc_client.h::zbc_client_reset_cnfg
 
 Making Calls
@@ -57,7 +55,7 @@ Use this to implement ``sys_semihost()`` for libc integration:
 Low-Level Functions
 -------------------
 
-.. autocfunction:: zbc_client.h::zbc_client_submit_poll
+.. autocfunction:: zbc_client.h::zbc_client_submit
 
 .. autocfunction:: zbc_client.h::zbc_parse_response
 

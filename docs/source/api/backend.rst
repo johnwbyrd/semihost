@@ -77,8 +77,9 @@ Secure ANSI Backend
    state.flags |= ZBC_ANSI_FLAG_ALLOW_SYSTEM;  /* enable system() */
    state.flags |= ZBC_ANSI_FLAG_READ_ONLY;     /* block all writes */
 
-   /* Set callbacks for violations and exit */
-   zbc_ansi_set_callbacks(&state, violation_handler, exit_handler, ctx);
+   /* Set callbacks for violations, exit, and timer config */
+   zbc_ansi_set_callbacks(&state, violation_handler, exit_handler,
+                          timer_handler, ctx);
 
 **Cleanup:**
 
