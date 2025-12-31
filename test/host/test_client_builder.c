@@ -61,18 +61,6 @@ static void test_client_check_signature(void) {
     TEST_ASSERT_EQ(result, ZBC_OK);
 }
 
-static void test_client_device_present(void) {
-    zbc_client_state_t state;
-    mock_device_t dev;
-    int result;
-
-    mock_device_init(&dev);
-    setup_client_state(&state, &dev);
-
-    result = zbc_client_device_present(&state);
-    TEST_ASSERT_EQ(result, ZBC_OK);
-}
-
 /*------------------------------------------------------------------------
  * zbc_semihost() Tests
  *------------------------------------------------------------------------*/
@@ -205,7 +193,6 @@ void run_client_builder_tests(void) {
 
     RUN_TEST(client_init);
     RUN_TEST(client_check_signature);
-    RUN_TEST(client_device_present);
 
     END_SUITE();
 

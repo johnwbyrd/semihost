@@ -49,9 +49,6 @@ void mock_device_init(mock_device_t *dev);
 /* Set "SEMIHOST" signature in register space */
 void mock_device_set_signature(mock_device_t *dev);
 
-/* Set DEVICE_PRESENT bit in STATUS register */
-void mock_device_set_present(mock_device_t *dev);
-
 /*------------------------------------------------------------------------
  * Register access (for client library)
  *

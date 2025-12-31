@@ -43,19 +43,18 @@ int zbc_client_check_signature(const zbc_client_state_t *state) {
   return ZBC_ERR_DEVICE_ERROR;
 }
 
-int zbc_client_device_present(const zbc_client_state_t *state) {
-  uint8_t status;
-
-  if (!state || !state->dev_base) {
-    return ZBC_ERR_NULL_ARG;
-  }
-
-  status = state->dev_base[ZBC_REG_STATUS];
-  if (status & ZBC_STATUS_DEVICE_PRESENT) {
-    return ZBC_OK;
-  }
-  return ZBC_ERR_DEVICE_ERROR;
-}
+/*
+ * Note: zbc_client_device_present() was removed. The old STATUS register
+ * bit semantics (DEVICE_PRESENT, RESPONSE_READY) no longer exist.
+ *
+ * Device presence detection: Use zbc_client_check_signature() instead,
+ * which reads the 8-byte "SEMIHOST" signature from offset 0x00.
+ *
+ * The STATUS register (0x19) now only indicates pending interrupts:
+ *   0 = No interrupt pending
+ *   1 = Timer tick occurred (from SYS_TIMER_CONFIG)
+ *   2+ = Reserved for future interrupt sources
+ */
 
 void zbc_client_reset_cnfg(zbc_client_state_t *state) {
   if (state) {
@@ -383,11 +382,10 @@ static int build_request(uint8_t *buf, size_t capacity, size_t *out_size,
  * Device communication
  *========================================================================*/
 
-int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size) {
+int zbc_client_submit(zbc_client_state_t *state, void *buf, size_t size) {
   volatile uint8_t *dev;
   uintptr_t addr;
   int i;
-  uint8_t status;
 
   (void)size;
 
@@ -420,7 +418,7 @@ int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size) {
   __asm__ volatile("" ::: "memory");
 #endif
 
-  /* Trigger request */
+  /* Trigger request - host processes synchronously */
   dev[ZBC_REG_DOORBELL] = 0x01;
 
   /* Testing callback */
@@ -432,13 +430,14 @@ int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size) {
   __asm__ volatile("" ::: "memory");
 #endif
 
-  /* Poll for response */
-  do {
-    status = dev[ZBC_REG_STATUS];
-  } while (!(status & ZBC_STATUS_RESPONSE_READY));
+  /*
+   * Semihosting is synchronous - when DOORBELL write completes,
+   * the response is already in the RIFF buffer. No polling needed.
+   */
 
   return ZBC_OK;
 }
+
 
 /*========================================================================
  * Response parsing
@@ -588,8 +587,8 @@ int zbc_call(zbc_response_t *response, zbc_client_state_t *state, void *buf,
     return rc;
   }
 
-  /* Submit and wait */
-  rc = zbc_client_submit_poll(state, buf, riff_size);
+  /* Submit request (synchronous - response is ready when call returns) */
+  rc = zbc_client_submit(state, buf, riff_size);
   if (rc != ZBC_OK) {
     return rc;
   }

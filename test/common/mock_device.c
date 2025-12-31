@@ -53,9 +53,8 @@ void mock_device_init(mock_device_t *dev) {
   /* Clear everything */
   memset(dev, 0, sizeof(*dev));
 
-  /* Set up signature and status */
+  /* Set up signature */
   mock_device_set_signature(dev);
-  mock_device_set_present(dev);
 
   /* Initialize host state with mock memory ops and dummy backend */
   mem_ops.read_u8 = mock_dev_read_u8;
@@ -80,13 +79,6 @@ void mock_device_set_signature(mock_device_t *dev) {
   dev->regs[ZBC_REG_SIGNATURE + 5] = ZBC_SIGNATURE_BYTE5; /* 'O' */
   dev->regs[ZBC_REG_SIGNATURE + 6] = ZBC_SIGNATURE_BYTE6; /* 'S' */
   dev->regs[ZBC_REG_SIGNATURE + 7] = ZBC_SIGNATURE_BYTE7; /* 'T' */
-}
-
-void mock_device_set_present(mock_device_t *dev) {
-  if (!dev)
-    return;
-
-  dev->regs[ZBC_REG_STATUS] = ZBC_STATUS_DEVICE_PRESENT;
 }
 
 /*------------------------------------------------------------------------
@@ -127,7 +119,5 @@ void mock_device_doorbell(mock_device_t *dev) {
     dev->process_count++;
   }
 
-  /* Set RESPONSE_READY in STATUS */
-  dev->regs[ZBC_REG_STATUS] |= ZBC_STATUS_RESPONSE_READY;
 }
 

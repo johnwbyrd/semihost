@@ -64,10 +64,11 @@ static void test_device_detection(void)
     TARGET_ASSERT_EQ(result, ZBC_OK);
     TARGET_END_TEST();
 
-    TARGET_BEGIN_TEST("device_present");
-    result = zbc_client_device_present(&g_target_client);
-    TARGET_ASSERT_EQ(result, ZBC_OK);
-    TARGET_END_TEST();
+    /*
+     * Note: zbc_client_device_present() was removed.
+     * The STATUS register no longer has a DEVICE_PRESENT bit.
+     * Device detection is now done solely via signature check.
+     */
 }
 
 /*------------------------------------------------------------------------

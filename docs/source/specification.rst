@@ -61,7 +61,7 @@ Key Features
 - **Standard**: Compatible with ARM semihosting syscall numbers
 - **Simple**: Only 32 bytes of device registers
 - **Efficient**: Guest manages all buffers in its own RAM
-- **Flexible**: Synchronous (polling) or asynchronous (interrupt) operation
+- **Flexible**: Synchronous operation with optional timer interrupts
 - **Robust**: Self-describing protocol with explicit endianness negotiation
 
 Hardware Architecture
@@ -98,26 +98,11 @@ Device Register Map
      - Write any value to trigger request
    * - 0x19
      - 1
-     - IRQ_STATUS
-     - R
-     - Interrupt status flags
-   * - 0x1A
-     - 1
-     - IRQ_ENABLE
-     - RW
-     - Interrupt enable mask
-   * - 0x1B
-     - 1
-     - IRQ_ACK
-     - W
-     - Write 1s to clear interrupt bits
-   * - 0x1C
-     - 1
      - STATUS
-     - R
-     - Device status flags
-   * - 0x1D-0x1F
-     - 3
+     - RW
+     - Interrupt pending (write 0 to clear)
+   * - 0x1A-0x1F
+     - 6
      - RESERVED
      - \-
      - Reserved for future use
@@ -181,64 +166,38 @@ DOORBELL (0x18, 1 byte, Write-Only)
 
 **Read behavior:** Reading returns undefined value (typically 0x00).
 
-IRQ_STATUS (0x19, 1 byte, Read-Only)
-""""""""""""""""""""""""""""""""""""
+STATUS (0x19, 1 byte, Read/Write)
+"""""""""""""""""""""""""""""""""
 
-**Purpose:** Indicates which interrupt conditions are currently active.
+**Purpose:** Indicates pending interrupt source. Write 0 to acknowledge.
 
-**Bit definitions:**
+**Values:**
 
-- Bit 0: RESPONSE_READY - Semihosting request completed
-- Bit 1: ERROR - Error occurred during processing
-- Bits 2-7: Reserved (read as 0)
+- ``0``: No interrupt pending
+- ``1``: Timer tick occurred
+- ``2+``: Reserved for future interrupt sources
 
-**Operation:** Host sets bits when events occur. Guest reads to determine
-interrupt cause. Bits are cleared by writing to IRQ_ACK.
+**Operation:**
 
-IRQ_ENABLE (0x1A, 1 byte, Read/Write)
-"""""""""""""""""""""""""""""""""""""
+- Device sets STATUS to non-zero when an interrupt fires (latched)
+- Device asserts CPU's interrupt line (ASSERT_LINE)
+- Guest reads STATUS to determine interrupt source
+- Guest writes 0 to acknowledge: clears STATUS and deasserts interrupt line
+- Timer continues running; next tick will set STATUS and assert IRQ again
 
-**Purpose:** Controls which interrupt conditions can assert the CPU's
-interrupt line.
+**Important:** Writing 0 to STATUS only acknowledges the current interrupt.
+It does NOT stop the timer. To stop the timer entirely, call
+``SYS_TIMER_CONFIG(0)`` via the RIFF protocol.
 
-**Bit definitions:**
+**Guest ISR flow:**
 
-- Bit 0: RESPONSE_READY_EN - Enable interrupt on completion
-- Bit 1: ERROR_EN - Enable interrupt on error
-- Bits 2-7: Reserved (write 0, read as 0)
+1. Read STATUS to determine interrupt source
+2. Handle the interrupt based on value
+3. Write 0 to STATUS to acknowledge and deassert IRQ
+4. Return from ISR
 
-**Default:** 0x00 (all interrupts disabled, polling mode)
-
-**Operation:** When an interrupt condition occurs AND its corresponding
-enable bit is set, the device asserts the CPU's interrupt request line.
-
-IRQ_ACK (0x1B, 1 byte, Write-Only)
-""""""""""""""""""""""""""""""""""
-
-**Purpose:** Acknowledge and clear interrupt status bits.
-
-**Operation:** Write 1s to clear corresponding bits in IRQ_STATUS.
-Writing 0s has no effect.
-
-**Example:** Writing 0x01 clears RESPONSE_READY status bit and deasserts
-interrupt if no other enabled conditions are active.
-
-**Read behavior:** Reading returns undefined value.
-
-STATUS (0x1C, 1 byte, Read-Only)
-""""""""""""""""""""""""""""""""
-
-**Purpose:** General device status flags.
-
-**Bit definitions:**
-
-- Bit 0: RESPONSE_READY - Same as IRQ_STATUS bit 0 (convenience)
-- Bit 7: DEVICE_PRESENT - Always 1 (device exists and is functional)
-- Bits 1-6: Reserved (read as 0)
-
-**Operation:** Guest can poll STATUS register to wait for completion
-without enabling interrupts. Bit 0 provides same information as
-IRQ_STATUS for convenience.
+**Device detection:** Use the SIGNATURE register at offset 0x00 to detect
+device presence. Read the 8-byte "SEMIHOST" signature.
 
 Memory Organization
 ^^^^^^^^^^^^^^^^^^^
@@ -301,33 +260,32 @@ Unaligned accesses may or may not be supported based on bus protocol.
 Interrupt Output
 """"""""""""""""
 
-**Signal:** IRQ_OUT (active high or low, implementation choice)
+**Signal:** IRQ_OUT (directly connected to CPU's interrupt input)
 
-**Behavior:** IRQ_OUT is asserted when the bitwise AND of IRQ_STATUS and
-IRQ_ENABLE is non-zero. When any enabled interrupt condition is active,
-IRQ_OUT is asserted. Connect to CPU's IRQ or NMI input as appropriate
-for the system.
+**Behavior:** IRQ_OUT is asserted when STATUS is non-zero. The device
+asserts the interrupt line when a timer tick occurs. The guest
+acknowledges the interrupt by writing 0 to the STATUS register, which
+deasserts IRQ_OUT.
 
-**Typical connection:**
-
-- Simple systems: Connect to CPU IRQ input
-- Priority systems: Connect through interrupt controller
-- Polling-only systems: Leave unconnected
+**Connection:** Connect to CPU's IRQ input. The timer interrupt is
+configured via the ``SYS_TIMER_CONFIG`` syscall through the RIFF protocol.
 
 Timing Characteristics
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Synchronous Operation (Polling Mode)
-""""""""""""""""""""""""""""""""""""
+Synchronous Semihosting Operation
+"""""""""""""""""""""""""""""""""
 
-The device operates **synchronously** with deterministic timing:
+Semihosting requests are processed **synchronously**:
 
-1. Guest writes to DOORBELL (1 bus cycle)
-2. Device detects write (combinational or 1 clock)
-3. Device processes request (variable time, typically µs to ms)
-4. Device writes RETN chunk to guest RAM (multiple bus cycles)
-5. Device sets STATUS bit 0 (1 clock)
-6. Guest reads STATUS to detect completion (1 bus cycle per poll)
+1. Guest writes RIFF buffer address to RIFF_PTR
+2. Guest writes to DOORBELL (1 bus cycle)
+3. Device processes request immediately
+4. Device writes RETN chunk to guest RAM
+5. DOORBELL write returns - response is ready
+
+**Key insight:** When the DOORBELL write completes, the response is
+already in the RIFF buffer. No polling is needed.
 
 **Processing time:** Depends on syscall type:
 
@@ -335,25 +293,21 @@ The device operates **synchronously** with deterministic timing:
 - ``SYS_WRITE``: Milliseconds (write large buffer to disk)
 - ``SYS_OPEN``: Milliseconds (filesystem access)
 
-**Guest blocking:** Guest typically polls STATUS in a tight loop,
-consuming CPU cycles during I/O.
+Timer Interrupts
+""""""""""""""""
 
-Asynchronous Operation (Interrupt Mode)
-"""""""""""""""""""""""""""""""""""""""
+The device supports a configurable periodic timer via ``SYS_TIMER_CONFIG``:
 
-For interrupt-driven operation:
+1. Guest calls ``SYS_TIMER_CONFIG(rate_hz)`` to start timer
+2. Timer fires at the specified rate
+3. Device sets STATUS = 1 and asserts IRQ_OUT
+4. Guest ISR reads STATUS, handles tick, writes 0 to acknowledge
+5. Device deasserts IRQ_OUT
+6. Timer continues firing until ``SYS_TIMER_CONFIG(0)`` is called
 
-1. Guest writes IRQ_ENABLE = 0x01 (enable RESPONSE_READY interrupt)
-2. Guest writes to DOORBELL
-3. Guest continues other work (or enters low-power mode)
-4. Device processes request in background
-5. Device sets IRQ_STATUS bit 0 and asserts IRQ_OUT
-6. CPU takes interrupt, guest handler runs
-7. Handler reads result from RIFF buffer
-8. Handler writes IRQ_ACK = 0x01 to clear interrupt
-
-**Latency:** Interrupt assertion to handler execution depends on CPU
-architecture and system state (interrupt masks, current instruction, etc.).
+**Note:** Timer interrupts are independent of semihosting requests.
+Semihosting remains synchronous - the timer provides a separate
+mechanism for periodic interrupts useful for OS development.
 
 Cache Coherency Requirements
 """"""""""""""""""""""""""""
@@ -554,7 +508,7 @@ number), three reserved bytes (must be 0x00), and then a variable number of
 sub-chunks (PARM and DATA chunks for parameters).
 
 **Opcode:** ARM semihosting syscall number (0x01-0x31, see reference table)
-
+File by file, I'd like you to r
 **Sub-chunks:** The CALL chunk contains nested PARM and DATA chunks
 representing the syscall parameters. Parameters appear in the order
 expected by the syscall.
@@ -716,16 +670,16 @@ sufficient space for error responses:
 **Device behavior:** Device writes error data **within** the pre-allocated
 ERRO chunk bounds when it cannot parse or execute the request. The device
 never modifies the RIFF structure -- only the contents of ERRO. If ERRO
-itself is missing or too small, the device cannot report the error and
-sets only the IRQ_STATUS error bit.
+itself is missing or too small, the device cannot report the error.
 
-Operation Modes
----------------
+Operation Mode
+--------------
 
-Synchronous Mode (Polling)
-^^^^^^^^^^^^^^^^^^^^^^^^^^
+Synchronous Semihosting
+^^^^^^^^^^^^^^^^^^^^^^^
 
-**Default mode.** Guest blocks waiting for response by polling STATUS register.
+Semihosting operates **synchronously**. When the DOORBELL write completes,
+the response is already in the RIFF buffer.
 
 **Operation:**
 
@@ -733,7 +687,7 @@ Synchronous Mode (Polling)
    pre-allocated RETN chunk, and pre-allocated ERRO chunk
 2. Guest writes RIFF buffer address to RIFF_PTR register
 3. Guest writes to DOORBELL register to trigger processing
-4. Guest polls STATUS register until RESPONSE_READY bit is set
+4. Response is ready immediately - no polling needed
 5. Guest reads response from RETN chunk (or ERRO chunk if error occurred)
 
 **Note:** See `Cache Coherency Requirements`_ in Hardware Architecture section
@@ -742,48 +696,13 @@ for critical cache management details.
 **Characteristics:**
 
 - Simple to implement
-- No interrupt handler needed
-- Guest wastes CPU cycles during I/O
-- Suitable for simple single-tasking programs
-
-**Typical use:** Educational platforms, simple test programs, early firmware
-bring-up.
+- No polling or interrupt handler needed for semihosting
+- Suitable for all use cases from simple tests to OS development
 
 **Concurrent request handling:**
 
-Guest MUST NOT write DOORBELL while STATUS.RESPONSE_READY is set. Device
-behavior is undefined if concurrent requests are issued. Device may ignore
-the second DOORBELL or abort the first request.
-
-Asynchronous Mode (Interrupt-Driven)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-**Optional mode.** Guest can perform other work while waiting for completion
-interrupt.
-
-**Operation:**
-
-1. Guest enables RESPONSE_READY interrupt via IRQ_ENABLE register
-2. Guest builds RIFF buffer with CALL, pre-allocated RETN, and pre-allocated
-   ERRO chunks, then writes address to RIFF_PTR
-3. Guest writes to DOORBELL and continues other work
-4. Device processes request and sets IRQ_STATUS.RESPONSE_READY
-5. Device asserts interrupt line
-6. Guest interrupt handler reads response from RETN chunk (or ERRO chunk)
-   and acknowledges interrupt via IRQ_ACK
-
-**Note:** See `Cache Coherency Requirements`_ in Hardware Architecture section
-for critical cache management details.
-
-**Characteristics:**
-
-- More complex (requires interrupt handler)
-- Guest can multitask during I/O
-- Enables true asynchronous operation
-- Suitable for operating systems and complex applications
-
-**Typical use:** OS development, preemptive multitasking, power-sensitive
-applications.
+Guest MUST NOT write DOORBELL while a previous request is being processed.
+Device behavior is undefined if concurrent requests are issued.
 
 Guest Memory Access by Device
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -958,9 +877,51 @@ newlib).
      - SYS_TICKFREQ
      - ()
      - ticks per second
+   * - 0x32
+     - SYS_TIMER_CONFIG
+     - (rate_hz)
+     - 0 or error code
 
 **Note:** SYS_ELAPSED and SYS_HEAPINFO have special return value encoding.
 See `Special Return Value Encoding`_ for details.
+
+SYS_TIMER_CONFIG (0x32)
+^^^^^^^^^^^^^^^^^^^^^^^
+
+Configure a periodic timer interrupt.
+
+**CALL chunk:**
+
+- PARM chunk: rate_hz (uint32) - Timer frequency in Hz
+
+**RETN chunk:**
+
+- result: 0 on success, negative on error
+- errno: 0 or error code
+
+**Behavior:**
+
+- When rate > 0: Start periodic timer at specified frequency. On each tick,
+  device sets STATUS = 1 and asserts CPU IRQ line.
+- When rate = 0: Stop timer, no more interrupts.
+- Calling again with a different rate changes the frequency.
+
+**Return values:**
+
+- 0: Timer configured successfully
+- -1 with errno = ENOTSUP: CPU does not support interrupts
+- -1 with errno = EINVAL: Rate not achievable (too fast or too slow)
+
+**Common rates:**
+
+- 50 Hz: Retro/8-bit systems, PAL frame sync
+- 60 Hz: NTSC frame sync
+- 100 Hz: Embedded systems, older Linux (HZ=100)
+- 1000 Hz: Modern Linux, RTOS (HZ=1000)
+
+**Note:** Software implementations can be permissive and accept any reasonable
+rate. Physical implementations (FPGA/ASIC) may return errors for frequencies
+they cannot generate from their clock source.
 
 Argument Encoding in RIFF Chunks
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -1264,53 +1225,34 @@ Register Map Summary
      - Write to trigger request
    * - 0x19
      - 1
-     - IRQ_STATUS
-     - R
-     - Interrupt status bits
-   * - 0x1A
-     - 1
-     - IRQ_ENABLE
-     - RW
-     - Interrupt enable mask
-   * - 0x1B
-     - 1
-     - IRQ_ACK
-     - W
-     - Clear interrupt bits
-   * - 0x1C
-     - 1
      - STATUS
-     - R
-     - Device status
-   * - 0x1D
-     - 3
+     - RW
+     - Interrupt pending (write 0 to clear)
+   * - 0x1A
+     - 6
      - RESERVED
      - \-
      - Future use
 
-Status Bit Definitions
+STATUS Register Values
 ^^^^^^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 25 10 55
+   :widths: 10 25 65
 
-   * - Bit
+   * - Value
      - Name
-     - R/W
      - Description
    * - 0
-     - RESPONSE_READY
-     - R
-     - Request completed
+     - ZBC_STATUS_NONE
+     - No interrupt pending
    * - 1
-     - ERROR
-     - R
-     - Error occurred
-   * - 7
-     - DEVICE_PRESENT
-     - R
-     - Always 1 (device exists)
+     - ZBC_STATUS_TIMER
+     - Timer tick occurred
+   * - 2+
+     - (reserved)
+     - Reserved for future interrupt sources
 
 RIFF Chunk Types
 ^^^^^^^^^^^^^^^^

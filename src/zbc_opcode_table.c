@@ -423,6 +423,23 @@ static const zbc_opcode_entry_t zbc_opcode_table[] = {
      0,
      0},
 
+    /*
+     * SH_SYS_TIMER_CONFIG (0x32)
+     * Configure periodic timer interrupt.
+     * args[0]: rate_hz (uint32) - timer frequency in Hz, 0 = disable
+     * Request: PARM[0] = rate_hz
+     * Response: int (0 = success, negative = error)
+     */
+    {SH_SYS_TIMER_CONFIG,
+     1,
+     {{ZBC_CHUNK_PARM_UINT, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
     /* End marker */
     {0, 0, {{ZBC_CHUNK_NONE, 0, 0}}, ZBC_RESP_INT, 0, 0}};
 

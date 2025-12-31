@@ -96,16 +96,6 @@ void zbc_client_init(zbc_client_state_t *state, volatile void *dev_base);
 int zbc_client_check_signature(const zbc_client_state_t *state);
 
 /**
- * Check device present bit in status register.
- *
- * @param state Initialized client state
- * @return ZBC_OK if device present bit is set,
- *         ZBC_ERR_NULL_ARG if state or dev_base is NULL,
- *         ZBC_ERR_DEVICE_ERROR if device not present
- */
-int zbc_client_device_present(const zbc_client_state_t *state);
-
-/**
  * Reset the CNFG sent flag, forcing resend on next call.
  *
  * Normally the CNFG chunk is sent only once. Use this if you need
@@ -120,9 +110,8 @@ void zbc_client_reset_cnfg(zbc_client_state_t *state);
  *
  * This is the main entry point for making semihosting calls. The function:
  * 1. Builds a RIFF request from the opcode table
- * 2. Submits the request to the device
- * 3. Waits for the response (polling)
- * 4. Parses the response into the response structure
+ * 2. Submits the request to the device (synchronous)
+ * 3. Parses the response into the response structure
  *
  * On success, check response->result for the syscall return value
  * and response->error_code for the host errno.
@@ -157,18 +146,19 @@ uintptr_t zbc_semihost(zbc_client_state_t *state, uint8_t *riff_buf,
                        size_t riff_buf_size, uintptr_t op, uintptr_t param);
 
 /**
- * Submit a RIFF request and poll for response.
+ * Submit a RIFF request to the semihosting device.
  *
- * This writes the buffer address to RIFF_PTR, triggers DOORBELL, and
- * polls STATUS until RESPONSE_READY is set. Most users should use
- * zbc_call() instead.
+ * This writes the buffer address to RIFF_PTR and triggers DOORBELL.
+ * The host processes the request synchronously - when this function
+ * returns, the response is already in the RIFF buffer. Most users
+ * should use zbc_call() instead.
  *
  * @param state Initialized client state
  * @param buf   RIFF buffer containing the request
  * @param size  Size of request data
  * @return ZBC_OK on success, error code on failure
  */
-int zbc_client_submit_poll(zbc_client_state_t *state, void *buf, size_t size);
+int zbc_client_submit(zbc_client_state_t *state, void *buf, size_t size);
 
 /**
  * Parse response from RIFF buffer.
