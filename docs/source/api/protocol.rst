@@ -38,6 +38,7 @@ ARM Semihosting Opcodes
    #define SH_SYS_EXIT_EXTENDED  0x20
    #define SH_SYS_ELAPSED        0x30
    #define SH_SYS_TICKFREQ       0x31
+   #define SH_SYS_TIMER_CONFIG   0x32
 
 Open Mode Flags
 ^^^^^^^^^^^^^^^
@@ -76,14 +77,11 @@ Device Register Offsets
 
 .. code-block:: c
 
-   #define ZBC_REG_SIGNATURE   0x00  /* 8 bytes, R */
-   #define ZBC_REG_RIFF_PTR    0x08  /* 16 bytes, RW */
-   #define ZBC_REG_DOORBELL    0x18  /* 1 byte, W */
-   #define ZBC_REG_IRQ_STATUS  0x19  /* 1 byte, R */
-   #define ZBC_REG_IRQ_ENABLE  0x1A  /* 1 byte, RW */
-   #define ZBC_REG_IRQ_ACK     0x1B  /* 1 byte, W */
-   #define ZBC_REG_STATUS      0x1C  /* 1 byte, R */
-   #define ZBC_REG_SIZE        0x20  /* Total: 32 bytes */
+   #define ZBC_REG_SIGNATURE   0x00  /* 8 bytes, R - ASCII "SEMIHOST" */
+   #define ZBC_REG_RIFF_PTR    0x08  /* 16 bytes, RW - pointer to RIFF buffer */
+   #define ZBC_REG_DOORBELL    0x18  /* 1 byte, W - write to trigger request */
+   #define ZBC_REG_STATUS      0x19  /* 1 byte, RW - interrupt pending (write 0 to clear) */
+   #define ZBC_REG_SIZE        0x20  /* Total register space: 32 bytes */
 
 Structures
 ----------

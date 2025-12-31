@@ -33,7 +33,7 @@ convenient address in your emulator's memory space:
      - 8
      - SIGNATURE
      - R
-     - ASCII "SEMIHOST"
+     - ASCII "SEMIHOST" (device identification)
    * - 0x08
      - 16
      - RIFF_PTR
@@ -43,27 +43,17 @@ convenient address in your emulator's memory space:
      - 1
      - DOORBELL
      - W
-     - Write triggers request processing
+     - Write any value to trigger request processing
    * - 0x19
      - 1
-     - IRQ_STATUS
-     - R
-     - Bit 0: response ready
-   * - 0x1A
-     - 1
-     - IRQ_ENABLE
-     - RW
-     - Bit 0: enable IRQ on response
-   * - 0x1B
-     - 1
-     - IRQ_ACK
-     - W
-     - Write 1 to clear IRQ
-   * - 0x1C
-     - 1
      - STATUS
-     - R
-     - Bit 0: response ready, Bit 7: device present
+     - RW
+     - Interrupt pending (write 0 to clear)
+   * - 0x1A-0x1F
+     - 6
+     - RESERVED
+     - \-
+     - Reserved for future use
 
 Request Flow
 ------------
@@ -71,7 +61,7 @@ Request Flow
 1. Guest writes RIFF buffer address to RIFF_PTR
 2. Guest writes any value to DOORBELL
 3. Your emulator calls ``zbc_host_process()`` to handle the request
-4. Set STATUS bit 0 (and optionally assert IRQ)
+4. Response is ready in the RIFF buffer (synchronous operation)
 5. Guest reads response from RIFF buffer
 
 Memory Operations
@@ -196,8 +186,9 @@ Additional configuration for the secure backend:
    backend_state.flags |= ZBC_ANSI_FLAG_ALLOW_SYSTEM;  /* enable system() */
    backend_state.flags |= ZBC_ANSI_FLAG_READ_ONLY;     /* block all writes */
 
-   /* Set violation callback */
-   zbc_ansi_set_callbacks(&backend_state, my_violation_handler, my_exit_handler, ctx);
+   /* Set callbacks */
+   zbc_ansi_set_callbacks(&backend_state, my_violation_handler,
+                          my_exit_handler, my_timer_handler, ctx);
 
 Dummy Backend
 ^^^^^^^^^^^^^

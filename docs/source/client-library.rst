@@ -314,32 +314,6 @@ data (like SYS_READ), ``response->data`` points into this buffer and
 ``response->data_size`` gives its length. Copy the data before making
 another call.
 
-picolibc Integration
---------------------
-
-To integrate with picolibc's semihosting layer, implement ``sys_semihost()``:
-
-.. code-block:: c
-
-   #include "zbc_client.h"
-
-   static zbc_client_state_t client;
-   static uint8_t riff_buf[1024];
-   static int initialized = 0;
-
-   uintptr_t sys_semihost(uintptr_t op, uintptr_t param)
-   {
-       if (!initialized) {
-           zbc_client_init(&client, (void *)SEMIHOST_DEVICE_ADDR);
-           initialized = 1;
-       }
-       return zbc_semihost(&client, riff_buf, sizeof(riff_buf), op, param);
-   }
-
-The ``zbc_semihost()`` function is a thin wrapper around ``zbc_call()``
-that accepts the ARM-style parameter block format (op, pointer-to-args)
-used by picolibc and newlib.
-
 See Also
 --------
 

@@ -206,7 +206,7 @@ Memory Organization
 
 **Device Registers** (32 bytes at device base address):
 
-- RIFF_PTR, DOORBELL, IRQ_STATUS, etc.
+- SIGNATURE, RIFF_PTR, DOORBELL, STATUS
 - Fixed location in memory map
 - Directly accessed by CPU
 
