@@ -67,6 +67,29 @@ void mock_device_init(mock_device_t *dev) {
                 dev->work_buf, sizeof(dev->work_buf));
 }
 
+void mock_device_init_ansi(mock_device_t *dev, void *backend_state) {
+  zbc_host_mem_ops_t mem_ops;
+
+  if (!dev)
+    return;
+
+  /* Clear everything */
+  memset(dev, 0, sizeof(*dev));
+
+  /* Set up signature */
+  mock_device_set_signature(dev);
+
+  /* Initialize host state with mock memory ops and ANSI insecure backend */
+  mem_ops.read_u8 = mock_dev_read_u8;
+  mem_ops.write_u8 = mock_dev_write_u8;
+  mem_ops.read_block = mock_dev_read_block;
+  mem_ops.write_block = mock_dev_write_block;
+
+  zbc_host_init(&dev->host_state, &mem_ops, dev,
+                zbc_backend_ansi_insecure(), backend_state,
+                dev->work_buf, sizeof(dev->work_buf));
+}
+
 void mock_device_set_signature(mock_device_t *dev) {
   if (!dev)
     return;

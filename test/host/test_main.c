@@ -11,6 +11,7 @@
 /* Test suite runners */
 extern void run_client_builder_tests(void);
 extern void run_roundtrip_tests(void);
+extern void run_api_tests(void);
 extern void run_ansi_insecure_tests(void);
 extern void run_ansi_secure_tests(void);
 
@@ -24,6 +25,7 @@ int main(int argc, char **argv) {
       printf("\nFilters:\n");
       printf("  builder    - Run client builder tests only\n");
       printf("  roundtrip  - Run roundtrip integration tests only\n");
+      printf("  api        - Run high-level API tests only\n");
       printf("  ansi       - Run ANSI backend tests only\n");
       printf("  (none)     - Run all tests\n");
       return 0;
@@ -41,6 +43,10 @@ int main(int argc, char **argv) {
 
   if (!filter || strcmp(filter, "roundtrip") == 0) {
     run_roundtrip_tests();
+  }
+
+  if (!filter || strcmp(filter, "api") == 0) {
+    run_api_tests();
   }
 
   if (!filter || strcmp(filter, "ansi") == 0) {

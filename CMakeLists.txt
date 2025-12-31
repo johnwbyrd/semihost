@@ -55,6 +55,7 @@ set(ZBC_SHARED_SOURCES
 add_library(zbc_semi_client STATIC
     ${ZBC_SHARED_SOURCES}
     src/zbc_client.c
+    src/zbc_api.c
 )
 target_compile_definitions(zbc_semi_client PRIVATE ZBC_CLIENT)
 

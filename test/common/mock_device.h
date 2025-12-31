@@ -46,6 +46,9 @@ typedef struct mock_device {
 /* Initialize mock device with dummy backend */
 void mock_device_init(mock_device_t *dev);
 
+/* Initialize mock device with ANSI insecure backend for real I/O testing */
+void mock_device_init_ansi(mock_device_t *dev, void *backend_state);
+
 /* Set "SEMIHOST" signature in register space */
 void mock_device_set_signature(mock_device_t *dev);
 

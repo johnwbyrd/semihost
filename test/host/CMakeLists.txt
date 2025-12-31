@@ -9,6 +9,7 @@ add_executable(zbc_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_memory.c
     test_client_builder.c
     test_roundtrip.c
+    test_api.c
     test_ansi_insecure.c
     test_ansi_secure.c
     test_main.c
