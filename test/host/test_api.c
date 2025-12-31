@@ -177,7 +177,8 @@ static void test_api_write_read_file(void)
 
     /* Close and cleanup */
     zbc_api_close(&api, fd);
-    zbc_api_remove(&api, filepath);
+    result = zbc_api_remove(&api, filepath);
+    TEST_ASSERT_EQ(result, 0);
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
@@ -191,6 +192,7 @@ static void test_api_flen(void)
     char filepath[512];
     const char *test_data = "1234567890";  /* 10 bytes */
     int fd;
+    int result;
     intmax_t len;
 
     GUARDED_INIT(buf);
@@ -209,7 +211,8 @@ static void test_api_flen(void)
     TEST_ASSERT_EQ((int)len, 10);
 
     zbc_api_close(&api, fd);
-    zbc_api_remove(&api, filepath);
+    result = zbc_api_remove(&api, filepath);
+    TEST_ASSERT_EQ(result, 0);
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
@@ -251,7 +254,8 @@ static void test_api_seek(void)
     TEST_ASSERT_MEM_EQ(read_buf, "FGH", 3);
 
     zbc_api_close(&api, fd);
-    zbc_api_remove(&api, filepath);
+    result = zbc_api_remove(&api, filepath);
+    TEST_ASSERT_EQ(result, 0);
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
@@ -286,7 +290,8 @@ static void test_api_istty(void)
         result = zbc_api_istty(&api, fd);
         TEST_ASSERT_EQ(result, 0);
         zbc_api_close(&api, fd);
-        zbc_api_remove(&api, filepath);
+        result = zbc_api_remove(&api, filepath);
+        TEST_ASSERT_EQ(result, 0);
     }
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
@@ -334,7 +339,8 @@ static void test_api_rename(void)
     TEST_ASSERT_MEM_EQ(read_buf, test_data, strlen(test_data));
 
     zbc_api_close(&api, fd);
-    zbc_api_remove(&api, new_path);
+    result = zbc_api_remove(&api, new_path);
+    TEST_ASSERT_EQ(result, 0);
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
@@ -394,7 +400,8 @@ static void test_api_partial_read(void)
     TEST_ASSERT_MEM_EQ(read_buf, test_data, 5);
 
     zbc_api_close(&api, fd);
-    zbc_api_remove(&api, filepath);
+    result = zbc_api_remove(&api, filepath);
+    TEST_ASSERT_EQ(result, 0);
 
     TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
 }
