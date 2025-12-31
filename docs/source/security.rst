@@ -9,8 +9,8 @@ backends and configurations for your threat model.
 Backends
 --------
 
-**Insecure ANSI Backend** (`zbc_backend_ansi_insecure`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Insecure ANSI Backend** (``zbc_backend_ansi_insecure``)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **Unrestricted host access**: Guest can read/write/delete any file the host process can access.
 - **No sandboxing**: Full ``fopen``/``fread``/``fwrite`` using host stdio.
@@ -18,8 +18,8 @@ Backends
 - **Risk**: Malicious guest can delete host files, read sensitive data.
 - **Init**: ``zbc_ansi_insecure_init(&state);``
 
-**Secure ANSI Backend** (`zbc_backend_ansi`)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+**Secure ANSI Backend** (``zbc_backend_ansi``)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **Directory jail**: All paths prefixed with ``sandbox_dir`` (e.g., ``/tmp/zbc-sandbox/``).
 - **Path traversal blocked**: ``..`` and absolute paths outside sandbox denied.
