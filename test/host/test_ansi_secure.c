@@ -15,6 +15,8 @@ static zbc_ansi_state_t g_secure_state;
 static int g_violation_count;
 static int g_last_violation_type;
 static int g_exit_count;
+static int g_timer_config_count;
+static unsigned int g_last_timer_rate;
 
 static void test_violation_callback(void *ctx, int type, const char *detail)
 {
@@ -31,6 +33,13 @@ static void test_exit_callback(void *ctx, unsigned int reason,
     (void)reason;
     (void)subcode;
     g_exit_count++;
+}
+
+static void test_timer_config_callback(void *ctx, unsigned int rate_hz)
+{
+    (void)ctx;
+    g_timer_config_count++;
+    g_last_timer_rate = rate_hz;
 }
 
 /*------------------------------------------------------------------------
@@ -216,6 +225,38 @@ static int test_secure_read_only_mode(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: timer_config callback invoked correctly
+ *------------------------------------------------------------------------*/
+
+static int test_secure_timer_config_callback(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = &g_secure_state;
+    int result;
+
+    g_timer_config_count = 0;
+    g_last_timer_rate = 0;
+
+    /* Set up state with timer callback */
+    zbc_ansi_set_callbacks(&g_secure_state, test_violation_callback,
+                           test_exit_callback, test_timer_config_callback, NULL);
+
+    result = be->timer_config(ctx, 1000);
+
+    TEST_ASSERT(result == 0, "timer_config should succeed");
+    TEST_ASSERT(g_timer_config_count == 1, "callback should be called once");
+    TEST_ASSERT(g_last_timer_rate == 1000, "rate should be 1000");
+
+    /* Test disable (rate=0) */
+    result = be->timer_config(ctx, 0);
+    TEST_ASSERT(result == 0, "timer_config disable should succeed");
+    TEST_ASSERT(g_timer_config_count == 2, "callback should be called again");
+    TEST_ASSERT(g_last_timer_rate == 0, "rate should be 0");
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
  * Test: Additional path rule allows read-only access
  *------------------------------------------------------------------------*/
 
@@ -267,6 +308,7 @@ void run_ansi_secure_tests(void)
     RUN_TEST(secure_exit_intercepted);
     RUN_TEST(secure_tmpnam);
     RUN_TEST(secure_read_only_mode);
+    RUN_TEST(secure_timer_config_callback);
     RUN_TEST(secure_path_rules);
 
     zbc_ansi_cleanup(&g_secure_state);

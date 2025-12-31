@@ -268,6 +268,29 @@ static void test_roundtrip_istty(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: SYS_TIMER_CONFIG - configure periodic timer
+ *------------------------------------------------------------------------*/
+
+static void test_roundtrip_timer_config(void)
+{
+    GUARDED_BUF(buf, 256);
+    zbc_client_state_t client;
+    mock_device_t dev;
+    uintptr_t args[1];
+    uintptr_t result;
+
+    GUARDED_INIT(buf);
+    setup_roundtrip(&client, &dev);
+
+    args[0] = 1000; /* 1000 Hz */
+    result = zbc_semihost(&client, buf, buf_size, SH_SYS_TIMER_CONFIG, (uintptr_t)args);
+
+    /* Dummy backend returns 0 for timer_config */
+    TEST_ASSERT_EQ((int)result, 0);
+    TEST_ASSERT_EQ(GUARDED_CHECK(buf), 0);
+}
+
+/*------------------------------------------------------------------------
  * Run all roundtrip tests
  *------------------------------------------------------------------------*/
 
@@ -285,6 +308,7 @@ void run_roundtrip_tests(void)
     RUN_TEST(roundtrip_flen);
     RUN_TEST(roundtrip_seek);
     RUN_TEST(roundtrip_istty);
+    RUN_TEST(roundtrip_timer_config);
 
     END_SUITE();
 }
