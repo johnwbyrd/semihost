@@ -235,8 +235,49 @@ The device appears as a memory-mapped peripheral:
 **Address Decoding:**
 
 - Device responds to 32-byte aligned address range
-- Typically placed in high memory (e.g., 0xFFFF0000 on 32-bit systems)
 - Can be anywhere in address space based on system design
+
+**Recommended Address Placement:**
+
+For systems where the semihosting device is the only peripheral in high memory,
+the following formula provides a consistent address across different CPU widths:
+
+.. code-block:: none
+
+   semihost_base = 2^n - 2^(n/2) - 32
+
+Where ``n`` is the CPU's address bus width in bits. This places the device
+at a "proportional" distance from the top of the address space:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 20 20 25 35
+
+   * - Address Width
+     - Address Space
+     - Semihost Base
+     - Formula
+   * - 16-bit
+     - 64 KB
+     - 0xFCE0
+     - 65536 - 256 - 32
+   * - 24-bit
+     - 16 MB
+     - 0xFFEDE0
+     - 16777216 - 4096 - 32
+   * - 32-bit
+     - 4 GB
+     - 0xFFFEFDE0
+     - 4294967296 - 65536 - 32
+   * - 64-bit
+     - 16 EB
+     - 0xFFFFFFFEFFFFFDE0
+     - 2^64 - 2^32 - 32
+
+This formula leaves a proportionally-sized region above the device for other
+peripherals (video RAM, interrupt controllers, etc.) while keeping the
+device easily locatable. Guest software can compute the address at runtime
+using only the CPU's address width.
 
 **Bus Signals (typical):**
 
