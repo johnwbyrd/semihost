@@ -1,0 +1,8 @@
+<div style="border: 2px solid #ff0000; background-color: #ffe0e0; padding: 10px; margin: 10px 0;">
+'''⚠ WARNING:''' {{{1}}}
+</div><noinclude>
+== Usage ==
+<pre>{{Warning|This operation may cause data loss.}}</pre>
+
+[[Category:Templates]]
+</noinclude>

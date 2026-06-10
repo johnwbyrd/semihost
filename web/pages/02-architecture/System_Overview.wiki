@@ -1,0 +1,305 @@
+= System Overview =
+
+The Zero Board Computer (ZBC) system architecture defines a minimal yet complete computing environment suitable for any CPU architecture from 8-bit to 128-bit and beyond. This page describes the high-level system organization and how components interact.
+
+== Hardware Components ==
+
+A compliant ZBC system consists of four essential hardware components connected via a standard memory bus.
+
+=== CPU ===
+
+The '''CPU''' can be any processor architecture that supports:
+* Memory read and write operations (load/store instructions)
+* Sequential instruction execution
+* Basic addressing modes
+
+No special CPU features are required. The ZBC specification accommodates:
+* '''8-bit to 128-bit''' (and beyond) address spaces
+* '''Any endianness''' (little-endian, big-endian, or PDP-endian)
+* '''Any word size''' (8-bit, 16-bit, 32-bit, 64-bit, or larger)
+* '''Harvard or von Neumann''' architectures
+* '''With or without MMU''' (memory management unit)
+
+Examples of compatible CPUs:
+* 8-bit: 6502, Z80, 8080, 6809
+* 16-bit: 8086, 68000, Z8000
+* 32-bit: 68020, ARM7, i386, MIPS, PowerPC
+* 64-bit: x86-64, AArch64, RISC-V
+
+=== RAM ===
+
+'''System RAM''' provides writable storage for programs and data. The amount of RAM is sized based on the CPU's address space:
+
+* '''16-bit CPUs''' (~64KB address space): Approximately 63KB of usable RAM
+* '''32-bit CPUs''' (~4GB address space): Approximately 4GB of usable RAM
+* '''64-bit CPUs''' (16EB address space): Effectively unlimited RAM
+
+The ZBC specification defines a dynamic memory layout algorithm that automatically calculates RAM sizing and peripheral placement based on address width. See [[Memory Layout and Addressing]] for details.
+
+RAM is mapped starting from a low address (typically 0x0200) and extends to just below the semihosting buffer region in high memory.
+
+=== MC6847 Video Display Generator ===
+
+The '''MC6847 VDG''' provides text output capabilities:
+
+* '''Display size''': 32 columns × 16 rows (512 characters total)
+* '''Character set''': Standard ASCII alphanumerics (0x20-0x7F)
+* '''Video RAM''': 512 bytes, memory-mapped at high address
+* '''Refresh rate''': Approximately 62Hz (PAL timing)
+* '''Color''': Monochrome text (green on black in typical implementations)
+
+The MC6847 is a real integrated circuit originally manufactured by Motorola in the 1980s. It was used in popular home computers including the TRS-80 Color Computer and Dragon 32/64. Its simplicity and well-documented behavior make it ideal for the ZBC specification.
+
+'''VSync signal''': The MC6847 generates a vertical sync (field sync) signal at the start of each video frame. This signal can optionally be routed to CPU interrupt lines for timing purposes. See [[Interrupt System (JP1 Jumper)]] for configuration details.
+
+=== Semihosting Peripheral ===
+
+The '''semihosting device''' is a memory-mapped peripheral that provides host I/O services:
+
+* '''Register space''': 32 bytes of memory-mapped registers
+* '''Protocol''': RIFF-based communication format
+* '''Capabilities''': File I/O, console I/O, timing, system services
+* '''Compatibility''': ARM semihosting syscall numbers
+* '''Operation modes''': Synchronous (polling) or asynchronous (interrupt-driven)
+
+The semihosting peripheral allows programs to immediately access host services without implementing device drivers or operating system infrastructure. This enables '''printf() to work immediately''' on any ZBC system.
+
+See [[Semihosting Overview]] for complete details on the semihosting interface.
+
+== Memory Organization ==
+
+ZBC systems use a '''dynamic memory layout''' calculated at boot time based on the CPU's address space width.
+
+=== Memory Regions ===
+
+Every ZBC system organizes memory into these regions:
+
+==== Low Memory ====
+* '''Location''': 0x0000 to load_address - 1
+* '''Purpose''': CPU-specific data (interrupt vectors, reset vectors, stack space, boot code)
+* '''Size''': Varies by CPU architecture
+* '''Typical size''': 512 bytes (load address usually 0x0200)
+
+==== Available RAM ====
+* '''Location''': load_address to semihost_address - 1
+* '''Purpose''': Program code and data
+* '''Size''': Dynamically calculated, scales with address space
+* '''Access''': Read and write
+
+==== Semihosting Buffer ====
+* '''Location''': semihost_address to semihost_address + 1023
+* '''Purpose''': Communication buffer for host I/O operations
+* '''Size''': 1024 bytes (fixed)
+* '''Access''': Read and write (accessed by both CPU and host)
+
+==== Video RAM ====
+* '''Location''': vram_address to vram_address + 511
+* '''Purpose''': Character display memory
+* '''Size''': 512 bytes (fixed, 32×16 characters)
+* '''Access''': Write to display characters, read to check contents
+
+==== Reserved Region ====
+* '''Location''': reserved_start to address_space_end
+* '''Purpose''': Reserved for future expansion or implementation-specific use
+* '''Size''': Dynamically calculated, scales with address space
+* '''Access''': Implementation-defined
+
+=== Layout Calculation ===
+
+The memory layout is calculated using these formulas:
+
+<pre>
+reserved_start = 2^address_bits - 2^(address_bits/2)
+vram_address   = reserved_start - 512
+semihost_addr  = reserved_start - 1536
+available_ram  = semihost_addr - load_address
+</pre>
+
+This algorithm ensures that peripheral locations scale proportionally with address space while maintaining consistent behavior across all CPU architectures.
+
+=== 16-bit Example (Z80, 6502) ===
+
+<pre>
+Address Range      Size          Purpose
+0x0000-0x01FF     512 bytes     Low memory
+0x0200-0xFBFF     63,488 bytes  Available RAM
+0xFC00-0xFDFF     1,024 bytes   Semihosting buffer
+0xFE00-0xFEFF     512 bytes     Video RAM
+0xFF00-0xFFFF     256 bytes     Reserved
+</pre>
+
+=== 32-bit Example (68000, ARM, i386) ===
+
+<pre>
+Address Range           Size        Purpose
+0x00000000-0x000001FF  512 bytes    Low memory
+0x00000200-0xFFFFF9FF  ~4 GB        Available RAM
+0xFFFFFA00-0xFFFFFDFF  1,024 bytes  Semihosting buffer
+0xFFFFFE00-0xFFFFFFFF  512 bytes    Video RAM
+0xFFFF0000-0xFFFFFFFF  64 KB        Reserved
+</pre>
+
+See [[Memory Layout and Addressing]] for complete details and additional examples.
+
+== Bus Architecture ==
+
+ZBC uses standard '''memory-mapped I/O''' architecture where all devices appear as memory addresses.
+
+=== Address Bus ===
+* Width matches CPU address space (16-bit, 32-bit, 64-bit, etc.)
+* All devices decode their assigned address ranges
+* Standard memory access protocol (no special I/O instructions required)
+
+=== Data Bus ===
+* Width typically 8-bit, 16-bit, or 32-bit depending on CPU
+* Video RAM and semihosting registers support byte-wide access
+* Multi-byte accesses supported where CPU and devices allow
+
+=== Bus Timing ===
+* Synchronous operation (devices respond within clock cycles)
+* Standard read/write protocols
+* No wait states required for specified devices
+
+=== Device Access ===
+* '''RAM''': Standard read/write, full-speed access
+* '''Video RAM''': Write to display characters, read for verification
+* '''Semihosting registers''': Read/write to 32-byte register space
+* '''Semihosting buffer''': Guest writes requests, device writes responses
+
+== Interrupt System ==
+
+ZBC systems support optional interrupt generation for timing and I/O completion.
+
+=== VSync Interrupt (JP1 Jumper) ===
+
+The MC6847 video controller generates a vertical sync signal at the start of each frame (~62Hz). A configuration jumper (JP1) controls how this signal routes to the CPU:
+
+* '''Position 1-2: Disabled''' - No interrupts generated (default, simplest mode)
+* '''Position 2-3: IRQ''' - Maskable interrupt request, CPU can disable
+* '''Position 3-4: NMI''' - Non-maskable interrupt, always fires
+
+{{Warning|Programs using IRQ or NMI modes must provide proper interrupt handlers. Without handlers, the system will crash as the stack fills with return addresses.}}
+
+See [[Interrupt System (JP1 Jumper)]] for programming details.
+
+=== Semihosting Interrupt ===
+
+The semihosting device can optionally generate interrupts when I/O operations complete:
+
+* '''IRQ_STATUS register''' (0x19): Indicates interrupt conditions
+* '''IRQ_ENABLE register''' (0x1A): Controls which conditions trigger interrupts
+* '''IRQ_ACK register''' (0x1B): Acknowledge and clear interrupts
+
+Interrupt-driven semihosting allows programs to perform other work while waiting for I/O, enabling true asynchronous operation.
+
+== Boot Sequence ==
+
+When a ZBC system starts, the following sequence occurs:
+
+=== 1. Hardware Initialization ===
+* CPU reset signal deasserted
+* Memory cleared or in undefined state
+* Peripherals initialize to default state
+* JP1 jumper position read
+
+=== 2. CPU-Specific Initialization ===
+Some CPUs require specific setup code:
+* '''6502''': Reset vector set at 0xFFFC-0xFFFD pointing to load address
+* '''Z80''': Boot code at 0x0000 jumps to load address, NMI handler at 0x0066
+* '''68000''': Vector table at 0x0000 with initial stack pointer and program counter
+* '''Others''': May boot directly or require program-provided initialization
+
+See [[CPU Support and Initialization]] for architecture-specific details.
+
+=== 3. Boot Screen Display ===
+* MC6847 video RAM set to read-only mode
+* Boot screen text written showing system information
+* Display shows: CPU name, load address, RAM size, peripheral addresses
+
+=== 4. Program Loading (if present) ===
+If a program binary is provided via quickload:
+* Binary read from host filesystem
+* Written to guest RAM starting at load address
+* Video RAM switched to read-write mode
+* Boot screen remains visible until program writes to video RAM
+
+=== 5. Execution Begins ===
+* CPU starts executing from load address (or continues idle loop)
+* Program has full access to RAM, display, and semihosting
+* System runs until halted or exit syscall
+
+== Design Variations ==
+
+The ZBC specification defines the '''core components''' required for compliance. Implementations may extend the system while maintaining compatibility.
+
+=== Minimum Compliance ===
+
+A compliant ZBC system must provide:
+* CPU with memory access capabilities
+* RAM with dynamic layout per specification
+* MC6847-compatible text display (32×16 characters)
+* Semihosting peripheral with RIFF protocol support
+
+=== Permitted Extensions ===
+
+Implementations may add:
+* Additional peripherals (timers, serial ports, etc.)
+* Extended video capabilities (graphics modes, color)
+* Additional RAM or ROM regions
+* Custom interrupt sources
+* Performance enhancements (caching, DMA)
+
+{{Note|Extensions should not interfere with core functionality. Programs targeting the core specification must work on all compliant implementations.}}
+
+=== Implementation Examples ===
+
+* '''MAME ZBC''': Software implementation supporting hundreds of CPUs
+* '''FPGA ZBC''': Hardware implementation on reconfigurable logic
+* '''Custom ASIC ZBC''': Integrated circuit implementation
+* '''Hybrid systems''': Real CPU with emulated peripherals
+
+== Timing and Performance ==
+
+=== Clock Speeds ===
+
+CPU clock speeds are implementation-defined. Typical values:
+* '''Historical accuracy''': Match original CPU specifications (e.g., 1MHz for 6502)
+* '''Modern performance''': Higher speeds for faster testing (e.g., 10MHz+)
+* '''Variable speed''': Some implementations support runtime speed adjustment
+
+=== Display Refresh ===
+
+The MC6847 operates at PAL timing:
+* '''Frame rate''': 62.5 Hz (312 scanlines per frame)
+* '''Crystal frequency''': 4.433619 MHz
+* '''Field sync''': Generated at frame start for interrupt timing
+
+=== Semihosting Latency ===
+
+Semihosting operation timing varies:
+* '''Fast operations''': Character output (microseconds)
+* '''Slow operations''': File I/O (milliseconds)
+* '''Mode dependent''': Polling blocks CPU, interrupts allow multitasking
+
+== Next Steps ==
+
+Explore specific aspects of the ZBC architecture:
+
+* [[Memory Layout and Addressing]] - Detailed memory organization and formulas
+* [[Video Display (MC6847)]] - Complete display programming guide
+* [[Interrupt System (JP1 Jumper)]] - Interrupt configuration and programming
+* [[CPU Support and Initialization]] - Architecture-specific boot requirements
+* [[Quickload System]] - Program loading mechanism
+* [[Semihosting Overview]] - Host I/O services
+
+== See Also ==
+
+* [[What is Zero Board Computer]] - Introduction and overview
+* [[Design Goals and Use Cases]] - Why ZBC exists
+* [[Key Concepts]] - Essential terminology
+* [[ZBC Specification]] - Complete technical specification
+
+{{ZBC Navigation}}
+
+[[Category:Architecture]]
+[[Category:Overview]]

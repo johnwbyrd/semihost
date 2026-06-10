@@ -1,0 +1,60 @@
+{| class="wikitable" style="width: 100%; background-color: #f0f0f0;"
+|-
+! colspan="6" style="background-color: #003366; color: white;" | Zero Board Computer Documentation
+|-
+! Foundation
+! Architecture
+! Semihosting
+! Implementation
+! User Docs
+! Reference
+|-
+| style="vertical-align: top;" |
+* [[What is Zero Board Computer?]]
+* [[Design Goals and Use Cases]]
+* [[Getting Started]]
+* [[Key Concepts]]
+| style="vertical-align: top;" |
+* [[System Overview]]
+* [[Memory Layout and Addressing]]
+* [[Video Display (MC6847)]]
+* [[Interrupt System (JP1 Jumper)]]
+* [[CPU Support and Initialization]]
+* [[Quickload System]]
+| style="vertical-align: top;" |
+* [[Semihosting Overview]]
+* [[Device Registers]]
+* [[RIFF Protocol Fundamentals]]
+* [[CNFG Chunk]]
+* [[CALL and PARM Chunks]]
+* [[DATA Chunk]]
+* [[RETN and ERRO Chunks]]
+* [[Operation Modes]]
+* [[Syscall Reference]]
+| style="vertical-align: top;" |
+* [[MAME Implementation Overview]]
+* [[zbcgen Tool]]
+* [[Hardware Implementation Guide]]
+* [[Emulator Implementation Guide]]
+* [[Implementation Checklist]]
+| style="vertical-align: top;" |
+* [[Running ZBC Systems]]
+* [[Writing Programs for ZBC]]
+* [[Using Semihosting Services]]
+* [[Troubleshooting]]
+| style="vertical-align: top;" |
+* [[Complete Register Reference]]
+* [[Memory Map Examples]]
+* [[Syscall Quick Reference]]
+* [[RIFF Chunk Reference]]
+* [[Supported CPU List]]
+* [[Error Codes and Errno Values]]
+* [[Glossary]]
+|}
+<noinclude>
+== Usage ==
+Add to the bottom of every content page:
+<pre>{{ZBC Navigation}}</pre>
+
+[[Category:Templates]]
+</noinclude>

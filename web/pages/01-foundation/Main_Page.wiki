@@ -1,0 +1,87 @@
+= Welcome to Zero Board Computer =
+
+The '''Zero Board Computer''' (ZBC) is a platform-agnostic hardware and system specification designed for bringing up compilers, debuggers, and libraries in a highly controlled, deterministic environment.
+
+== What is ZBC? ==
+
+ZBC provides a minimal, standardized computing platform consisting of:
+* A CPU (any architecture from 8-bit to 128-bit and beyond)
+* RAM (dynamically sized based on address space)
+* MC6847 Text Display (32×16 character console)
+* RIFF-Based Semihosting Peripheral (memory-mapped host I/O)
+
+With these four simple components and just two device drivers (display + semihosting), developers get immediate access to full libc support including file I/O, console output, and timing services—without the complexity of a full operating system.
+
+== Key Features ==
+
+* '''Platform-Agnostic''': Works on any CPU architecture
+* '''Minimal Complexity''': Only two well-defined devices to support
+* '''Full libc Support''': File I/O, console, timing via semihosting
+* '''Deterministic''': Predictable, repeatable execution environment
+* '''Universal''': Can be built in hardware (FPGA/ASIC), emulators, or simulators
+* '''Open Specification''': Not tied to any specific implementation
+
+== Getting Started ==
+
+* [[What is Zero Board Computer?]] - Comprehensive introduction
+* [[Getting Started]] - First steps with ZBC
+* [[Design Goals and Use Cases]] - Why ZBC exists
+
+== Documentation ==
+
+{| class="wikitable" style="width: 100%;"
+|-
+! Foundation
+! Technical Documentation
+! Implementation
+! Reference
+|-
+| style="vertical-align: top; width: 25%;" |
+* [[What is Zero Board Computer?]]
+* [[Design Goals and Use Cases]]
+* [[Getting Started]]
+* [[Key Concepts]]
+| style="vertical-align: top; width: 25%;" |
+'''Architecture'''
+* [[System Overview]]
+* [[Memory Layout and Addressing]]
+* [[Video Display (MC6847)]]
+* [[Interrupt System (JP1 Jumper)]]
+
+'''Semihosting'''
+* [[Semihosting Overview]]
+* [[Device Registers]]
+* [[RIFF Protocol Fundamentals]]
+* [[Operation Modes]]
+| style="vertical-align: top; width: 25%;" |
+* [[MAME Implementation Overview]]
+* [[Hardware Implementation Guide]]
+* [[Emulator Implementation Guide]]
+* [[Running ZBC Systems]]
+* [[Writing Programs for ZBC]]
+* [[Troubleshooting]]
+| style="vertical-align: top; width: 25%;" |
+* [[Complete Register Reference]]
+* [[Memory Map Examples]]
+* [[Syscall Quick Reference]]
+* [[RIFF Chunk Reference]]
+* [[Supported CPU List]]
+* [[Glossary]]
+|}
+
+== Use Cases ==
+
+* '''Compiler Bring-Up''': Test code generation for new CPU architectures
+* '''Debugger Development''': Controlled environment for debugging tools
+* '''Library Porting''': Validate libc and runtime libraries
+* '''CPU Emulator Testing''': Standardized test harness (MAME uses ZBC to test 300+ CPUs)
+* '''Education''': Learn assembly and systems programming with immediate I/O feedback
+
+== Project Information ==
+
+* '''License''': Creative Commons Attribution 4.0 (CC BY 4.0)
+* '''Specification''': Platform-agnostic, implementation-independent
+* '''Reference Implementation''': MAME (Multiple Arcade Machine Emulator)
+* '''Primary Use''': Development, testing, and education
+
+{{ZBC Navigation}}

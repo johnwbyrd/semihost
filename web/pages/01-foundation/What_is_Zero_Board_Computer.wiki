@@ -1,0 +1,188 @@
+= What is Zero Board Computer? =
+
+The '''Zero Board Computer''' ('''ZBC''') is a hardware and system specification designed to provide a minimal, standardized testing environment for CPU architectures. ZBC is not tied to any specific implementation—it can be realized in physical hardware (FPGA, ASIC) or virtual environments (emulators like MAME).
+
+== Overview ==
+
+ZBC defines a complete yet minimal computer system consisting of:
+* A CPU of any architecture (8-bit through 128-bit and beyond)
+* RAM sized appropriately for the CPU's address space
+* An MC6847 video display controller providing 32×16 character text output
+* A memory-mapped semihosting peripheral for host I/O services
+
+The specification is '''platform-agnostic''' and '''implementation-independent'''. Whether built in hardware or software, any ZBC-compliant system presents the same interface to programs and behaves consistently across all CPU architectures.
+
+== The Problem ==
+
+Bringing up compilers, debuggers, and runtime libraries on new CPU architectures traditionally requires:
+* Complex operating system infrastructure
+* Multiple device drivers for I/O, storage, and timing
+* Architecture-specific test harnesses
+* Physical hardware or complex emulation setups
+* Inconsistent testing environments across different platforms
+
+This complexity creates significant barriers to:
+* Testing code generation across multiple CPU architectures
+* Validating compiler optimizations and runtime behavior
+* Developing architecture-agnostic debugging tools
+* Educational use of diverse CPU architectures
+* Automated testing of CPU emulators
+
+== The Solution ==
+
+ZBC solves these problems by providing a '''minimal, standardized specification''' that:
+
+=== Requires Only Two Device Drivers ===
+Programs running on ZBC need drivers for just two devices:
+* '''MC6847 text display''' - Simple memory-mapped character output
+* '''Semihosting peripheral''' - Memory-mapped I/O for host services
+
+=== Provides Immediate Host Access ===
+Through the semihosting interface, programs immediately gain:
+* File I/O (open, read, write, close, seek)
+* Console I/O (character and string output)
+* Timing services (clock, elapsed time)
+* System services (execute host commands, get command line)
+
+This means '''printf() works immediately''' without implementing UART drivers, filesystem code, or an operating system.
+
+=== Works on Any CPU Architecture ===
+The ZBC specification uses dynamic memory layout calculations that automatically adapt to any address space width. The same specification works equally well on:
+* 8-bit CPUs with tiny address spaces
+* 16-bit CPUs (6502, Z80, 8086)
+* 32-bit CPUs (68000, ARM, i386)
+* 64-bit CPUs (x86-64, AArch64, RISC-V)
+* Future 128-bit and beyond architectures
+
+=== Guarantees Consistent Behavior ===
+Every ZBC implementation, regardless of CPU or platform:
+* Presents the same memory layout (scaled to address width)
+* Provides the same peripheral interfaces
+* Supports the same semihosting syscalls
+* Produces deterministic, repeatable results
+
+== System Components ==
+
+=== CPU ===
+Any CPU architecture can be used. The CPU connects to the system bus and accesses memory and peripherals using standard load/store operations. No special CPU features are required beyond basic memory access.
+
+=== RAM ===
+System RAM is sized automatically based on the CPU's address space width. The dynamic layout algorithm ensures maximum usable RAM while reserving space at high memory for peripherals. For example:
+* 16-bit CPUs: ~63KB available RAM
+* 32-bit CPUs: ~4GB available RAM
+* 64-bit CPUs: Effectively unlimited RAM
+
+=== MC6847 Video Display Generator ===
+The MC6847 VDG provides a simple text display:
+* 32 columns × 16 rows of characters
+* 512 bytes of memory-mapped video RAM
+* Standard ASCII character set
+* Automatic refresh at ~62Hz (PAL timing)
+* Optional VSync interrupt for timing
+
+The MC6847 is a real historical chip used in 1980s home computers like the TRS-80 Color Computer and Dragon 32/64. Its simplicity makes it ideal for bringing up new systems.
+
+=== Semihosting Peripheral ===
+A memory-mapped device providing host I/O services:
+* 32 bytes of device registers
+* RIFF-based protocol for architecture-agnostic communication
+* ARM semihosting-compatible syscall interface
+* Compatible with standard toolchains (gcc, clang, newlib, picolibc)
+* Synchronous (polling) or asynchronous (interrupt-driven) operation
+
+See [[Semihosting Overview]] for complete details.
+
+== Use Cases ==
+
+=== Compiler Bring-Up and Testing ===
+* Test code generation for new target architectures
+* Validate optimizer behavior across instruction sets
+* Debug runtime library implementations
+* Verify ABI compliance
+* Compare code quality across compilers
+* '''No OS required''' - programs run directly on hardware
+
+=== Debugger Development ===
+* Test debugger features on multiple architectures
+* Controlled, predictable environment for debugging debuggers
+* Consistent behavior simplifies test automation
+* Standard I/O through semihosting eliminates platform differences
+
+=== Library Porting ===
+* Port libc implementations to new architectures
+* Test runtime libraries (memory allocation, I/O, timing)
+* Validate POSIX compliance
+* File I/O and console I/O available immediately through semihosting
+
+=== CPU Emulator Validation ===
+* Test CPU emulation accuracy (MAME's primary use case)
+* Standardized test harness for hundreds of CPU types
+* Automated testing and validation
+* Quick verification that emulation is working
+
+=== Educational Platforms ===
+* Learn assembly language and systems programming
+* Experiment with diverse CPU architectures
+* Simple enough for students and beginners
+* Immediate visual feedback via text display
+* Host I/O services without OS complexity
+
+== Design Philosophy ==
+
+The ZBC specification embodies four core principles:
+
+=== Simplicity ===
+Minimal hardware components reduce complexity and implementation effort. Only essential peripherals are included. No unnecessary features or options that complicate the specification.
+
+=== Universality ===
+A single specification works across all CPU architectures, from 8-bit to 128-bit and beyond. The dynamic memory layout algorithm automatically adapts to any address space width. Architecture-specific details are isolated and well-defined.
+
+=== Determinism ===
+ZBC systems provide predictable, repeatable behavior. Memory layout is calculated algorithmically. Peripheral addresses are fixed relative to address space. Program execution is deterministic for given inputs.
+
+=== Standardization ===
+All ZBC implementations present the same interface. Programs written for ZBC work on any compliant implementation. Toolchains need only target the ZBC specification, not individual implementations.
+
+== Comparison with Alternatives ==
+
+=== vs. Full Operating Systems ===
+* '''Linux/Unix''': Requires complex kernel, device drivers, filesystem, userspace
+* '''Bare Metal Boards''': Inconsistent hardware, limited availability, expensive
+* '''ZBC''': Minimal, universal, free, deterministic
+
+=== vs. QEMU System Mode ===
+* '''QEMU''': Architecture-specific machine models, heavy resource usage
+* '''ZBC''': Single specification for all CPUs, minimal overhead
+
+=== vs. Traditional Semihosting ===
+* '''ARM Semihosting''': Requires debugger, uses trap instructions, architecture-specific
+* '''ZBC Semihosting''': No debugger needed, memory-mapped I/O, works on any CPU
+
+== Implementation Status ==
+
+=== MAME Implementation ===
+MAME (Multiple Arcade Machine Emulator) provides a reference implementation of the ZBC specification supporting hundreds of CPU architectures. The MAME implementation uses C++ templates to generate ZBC systems automatically for all supported CPUs.
+
+See [[MAME ZBC Implementation]] for implementation-specific details.
+
+=== Hardware Implementation ===
+The ZBC specification can be implemented in physical hardware using FPGAs or custom ASICs. The specification is designed to be realizable with discrete components or integrated designs.
+
+== Next Steps ==
+
+* [[Getting Started]] - Run your first ZBC system
+* [[System Overview]] - Understand the system architecture
+* [[Semihosting Overview]] - Learn about host I/O services
+* [[Memory Layout and Addressing]] - Understand memory organization
+* [[Writing Programs for ZBC]] - Develop software for ZBC
+
+== See Also ==
+
+* [[Design Goals and Use Cases]] - Detailed exploration of ZBC's purpose
+* [[Key Concepts]] - Essential terminology and concepts
+* [[ZBC Specification]] - Complete technical specification
+
+{{ZBC Navigation}}
+
+[[Category:Overview]]
+[[Category:Foundation]]
