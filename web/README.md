@@ -1,5 +1,16 @@
 # Zero Board Computer Wiki Documentation
 
+> **Governance** — the current model is described in
+> [`docs/source/documentation-sources.rst`](../docs/source/documentation-sources.rst).
+> The wiki at www.zeroboardcomputer.com is now an independent,
+> community-edited resource that holds **descriptive** content — tutorials,
+> how-tos, troubleshooting, CPU compatibility, ecosystem links. Normative
+> content (spec, API reference) lives in the Sphinx site. The wiki is not
+> regenerated from the spec; the two doc surfaces hold *different* material.
+>
+> The rest of this file documents an older "wiki is derived from spec"
+> model and is retained for historical context only.
+
 This directory contains the MediaWiki documentation for the Zero Board Computer
 (ZBC), ready to be deployed to www.zeroboardcomputer.com. It lives inside the
 ZBC monorepo alongside the protocol specification and the reference

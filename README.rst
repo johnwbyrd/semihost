@@ -125,7 +125,10 @@ top of that base.
   on-emulator runs (i386 under QEMU, 6502 under MAME), ``common/`` for
   the shared test harness.
 - `docs/ <docs>`_ -- Sphinx site;
-  ``docs/source/specification.rst`` is the canonical protocol spec.
+  ``docs/source/specification.rst`` is the canonical protocol spec, and
+  `docs/source/documentation-sources.rst
+  <docs/source/documentation-sources.rst>`_ records the governance
+  boundary between this repo and the wiki at www.zeroboardcomputer.com.
 - `fuzz/ <fuzz>`_ -- libFuzzer target and corpora for the RIFF parser.
 - `web/ <web>`_ -- MediaWiki content for www.zeroboardcomputer.com.
 

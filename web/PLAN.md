@@ -1,5 +1,15 @@
 # Zero Board Computer MediaWiki Documentation Plan
 
+> **Governance** — the current model is described in
+> [`docs/source/documentation-sources.rst`](../docs/source/documentation-sources.rst).
+> The wiki at www.zeroboardcomputer.com is now an independent,
+> community-edited resource holding **descriptive** content (tutorials,
+> how-tos, troubleshooting, CPU compatibility, ecosystem). Normative
+> content (spec, API reference) lives in the Sphinx site. The wiki is
+> not regenerated from the spec; the two doc surfaces hold *different*
+> material. This file describes a superseded "generate-from-spec"
+> model and is retained for historical context only.
+
 ## Project Overview
 
 **Goal**: Create comprehensive MediaWiki documentation for the Zero Board Computer (ZBC) specification at www.zeroboardcomputer.com

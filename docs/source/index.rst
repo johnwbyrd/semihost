@@ -21,6 +21,7 @@ Documentation
    testing
    examples
    linux-extensions-proposal
+   documentation-sources
 
 .. toctree::
    :maxdepth: 2
