@@ -140,22 +140,29 @@ typedef uint32_t uintptr_t;
 #define ZBC_REG_SIGNATURE   0x00  /* 8 bytes, R - ASCII "SEMIHOST" */
 #define ZBC_REG_RIFF_PTR    0x08  /* 16 bytes, RW - pointer to RIFF buffer */
 #define ZBC_REG_DOORBELL    0x18  /* 1 byte, W - write to trigger request */
-#define ZBC_REG_STATUS      0x19  /* 1 byte, RW - interrupt pending (write 0 to clear) */
+#define ZBC_REG_STATUS      0x19  /* 1 byte, RW - status/interrupt bitmask (write 0 to ack) */
+#define ZBC_REG_ERROR_CODE  0x1A  /* 2 bytes, R - last protocol error code (LE, 0=none) */
 #define ZBC_REG_SIZE        0x20  /* Total register space: 32 bytes */
 
 /*========================================================================
- * STATUS register values (at offset 0x19)
+ * STATUS register bits (at offset 0x19)
  *
- * The STATUS register indicates pending interrupt sources:
- *   0 = No interrupt pending
- *   1 = Timer tick occurred (from SYS_TIMER_CONFIG)
- *   2+ = Reserved for future interrupt sources
+ * The STATUS register is a bitmask of latched conditions:
+ *   bit 0 (0x01) TIMER          - timer tick occurred (from SYS_TIMER_CONFIG);
+ *                                  asserts IRQ. STATUS==1 keeps its legacy
+ *                                  "timer tick" meaning for existing guests.
+ *   bit 1 (0x02) RESPONSE_READY - request processed, response in RETN/ERRO.
+ *   bit 2 (0x04) PROTO_ERROR    - request failed and no ERRO chunk could be
+ *                                  written; code is in ERROR_CODE (0x1A).
+ *   bits 3-7                    - reserved.
  *
- * Write 0 to STATUS to acknowledge the interrupt and deassert IRQ.
+ * Write 0 to STATUS to acknowledge (clear all bits) and deassert IRQ.
  *========================================================================*/
 
-#define ZBC_STATUS_NONE   0  /* No interrupt pending */
-#define ZBC_STATUS_TIMER  1  /* Timer tick occurred */
+#define ZBC_STATUS_NONE            0     /* No condition pending */
+#define ZBC_STATUS_TIMER           0x01  /* Timer tick occurred (asserts IRQ) */
+#define ZBC_STATUS_RESPONSE_READY  0x02  /* Response available in RETN/ERRO */
+#define ZBC_STATUS_PROTO_ERROR     0x04  /* Failure; see ERROR_CODE register */
 
 /*========================================================================
  * Signature bytes
@@ -197,14 +204,18 @@ typedef uint32_t uintptr_t;
 #define ZBC_ERR_PARSE_ERROR       (-14)  /* Malformed RIFF data */
 
 /*========================================================================
- * Protocol error codes (in ERRO chunk)
+ * Protocol error codes (in ERRO chunk, or in the ERROR_CODE register
+ * when no ERRO chunk could be written)
  *========================================================================*/
 
-#define ZBC_PROTO_ERR_INVALID_CHUNK   0x01
-#define ZBC_PROTO_ERR_MALFORMED_RIFF  0x02
-#define ZBC_PROTO_ERR_MISSING_CNFG    0x03
-#define ZBC_PROTO_ERR_UNSUPPORTED_OP  0x04
-#define ZBC_PROTO_ERR_INVALID_PARAMS  0x05
+#define ZBC_PROTO_ERR_INVALID_CHUNK   0x01  /* Bad chunk structure/nesting */
+#define ZBC_PROTO_ERR_MALFORMED_RIFF  0x02  /* Bad RIFF signature/form/size */
+#define ZBC_PROTO_ERR_MISSING_CNFG    0x03  /* CNFG required but not sent */
+#define ZBC_PROTO_ERR_UNSUPPORTED_OP  0x04  /* Opcode not implemented */
+#define ZBC_PROTO_ERR_INVALID_PARAMS  0x05  /* Wrong number of PARM/DATA */
+#define ZBC_PROTO_ERR_MISSING_RETN    0x06  /* Guest did not pre-allocate RETN */
+#define ZBC_PROTO_ERR_MISSING_ERRO    0x07  /* Guest did not pre-allocate ERRO */
+#define ZBC_PROTO_ERR_RETN_TOO_SMALL  0x08  /* RETN cannot hold the response */
 
 /*========================================================================
  * RIFF chunk structures

@@ -1,11 +1,27 @@
 RIFF-Based Semihosting Device Specification
 ============================================
 
-Version 0.1.0
+Version 0.2.0
 
 .. contents:: Table of Contents
    :local:
    :depth: 2
+
+.. note::
+
+   **Changes in 0.2.0** (backward compatible with existing guests):
+
+   - STATUS (0x19) is now a bitmask: bit 0 = TIMER (unchanged meaning of
+     ``STATUS == 1``), bit 1 = RESPONSE_READY, bit 2 = PROTO_ERROR.
+   - New read-only ERROR_CODE register at 0x1A-0x1B reports protocol errors
+     without writing to guest memory (reserved region shrinks to 0x1C-0x1F).
+   - Request completion is defined for both virtual devices (response ready
+     when the DOORBELL write retires) and physical devices (poll
+     RESPONSE_READY). Portable guests should poll RESPONSE_READY.
+   - CNFG may be omitted when the host has platform-provided configuration
+     defaults; the "Missing CNFG" error applies only to hosts without them.
+   - Corrected the recommended address-placement formula to include the
+     video-RAM term so it matches the reference values and implementations.
 
 Overview
 --------
@@ -100,9 +116,14 @@ Device Register Map
      - 1
      - STATUS
      - RW
-     - Interrupt pending (write 0 to clear)
-   * - 0x1A-0x1F
-     - 6
+     - Status/interrupt bitmask (write 0 to acknowledge)
+   * - 0x1A-0x1B
+     - 2
+     - ERROR_CODE
+     - R
+     - Last protocol error code (little-endian, 0 = none)
+   * - 0x1C-0x1F
+     - 4
      - RESERVED
      - \-
      - Reserved for future use
@@ -169,35 +190,69 @@ DOORBELL (0x18, 1 byte, Write-Only)
 STATUS (0x19, 1 byte, Read/Write)
 """""""""""""""""""""""""""""""""
 
-**Purpose:** Indicates pending interrupt source. Write 0 to acknowledge.
+**Purpose:** Status and interrupt bitmask. Each set bit indicates a condition
+that is latched until acknowledged. Write 0 to acknowledge (clear) all bits.
 
-**Values:**
+**Bit definitions:**
 
-- ``0``: No interrupt pending
-- ``1``: Timer tick occurred
-- ``2+``: Reserved for future interrupt sources
+- **Bit 0 (TIMER, value 0x01):** A periodic timer tick occurred (configured
+  via ``SYS_TIMER_CONFIG``). This bit is connected to the CPU interrupt line.
+- **Bit 1 (RESPONSE_READY, value 0x02):** The device has finished processing
+  the most recent DOORBELL request and the response is available in the RETN
+  (or ERRO) chunk. See `Operation Mode`_ for when a guest must consult this.
+- **Bit 2 (PROTO_ERROR, value 0x04):** The most recent request could not be
+  processed and the device could not write an ERRO chunk into guest memory
+  (for example, the RIFF container was unparseable, or no ERRO chunk was
+  pre-allocated). The protocol error code is readable from the ERROR_CODE
+  register. This bit lets the device report a diagnostic without writing to
+  guest memory it cannot safely locate.
+- **Bits 3-7:** Reserved (read as 0).
+
+**Backward compatibility:** Bit 0 retains the previous meaning of
+``STATUS == 1`` (timer tick), so existing guests that test for a value of 1
+continue to work unchanged.
 
 **Operation:**
 
-- Device sets STATUS to non-zero when an interrupt fires (latched)
-- Device asserts CPU's interrupt line (ASSERT_LINE)
-- Guest reads STATUS to determine interrupt source
-- Guest writes 0 to acknowledge: clears STATUS and deasserts interrupt line
-- Timer continues running; next tick will set STATUS and assert IRQ again
+- The device sets the relevant bit(s) when a condition occurs (latched).
+- TIMER (bit 0) asserts the CPU interrupt line; the guest acknowledges by
+  writing 0 to STATUS, which clears all bits and deasserts the line.
+- RESPONSE_READY (bit 1) and PROTO_ERROR (bit 2) do not, by themselves,
+  assert the interrupt line; they are status flags a guest may poll.
 
-**Important:** Writing 0 to STATUS only acknowledges the current interrupt.
-It does NOT stop the timer. To stop the timer entirely, call
+**Important:** Writing 0 to STATUS only acknowledges current conditions. It
+does NOT stop the timer. To stop the timer entirely, call
 ``SYS_TIMER_CONFIG(0)`` via the RIFF protocol.
 
-**Guest ISR flow:**
+**Guest timer ISR flow:**
 
-1. Read STATUS to determine interrupt source
-2. Handle the interrupt based on value
-3. Write 0 to STATUS to acknowledge and deassert IRQ
-4. Return from ISR
+1. Read STATUS; if bit 0 (TIMER) is set, handle the tick
+2. Write 0 to STATUS to acknowledge and deassert IRQ
+3. Return from ISR
 
 **Device detection:** Use the SIGNATURE register at offset 0x00 to detect
 device presence. Read the 8-byte "SEMIHOST" signature.
+
+ERROR_CODE (0x1A-0x1B, 2 bytes, Read-Only)
+""""""""""""""""""""""""""""""""""""""""""
+
+**Purpose:** Reports the protocol error code from the most recent request
+when the device set STATUS bit 2 (PROTO_ERROR). This provides a diagnostic
+channel that never requires the device to write to guest memory, which is
+important when the failure is precisely that the RIFF buffer address or
+contents could not be trusted.
+
+**Format:** 16-bit little-endian. Holds one of the ERRO chunk error codes
+(see `ERRO Chunk -- Error Response`_). A value of 0 means no protocol error.
+
+**Lifetime:** Set together with STATUS bit 2 when a request fails before an
+ERRO chunk can be written. Reading is non-destructive; the value is cleared
+when the guest acknowledges STATUS (writes 0).
+
+**Relationship to the ERRO chunk:** When the device *can* locate and write a
+pre-allocated ERRO chunk, it does so (richest diagnostic) and does not set
+PROTO_ERROR. ERROR_CODE is the fallback used only when writing ERRO is
+impossible or unsafe.
 
 Memory Organization
 ^^^^^^^^^^^^^^^^^^^
@@ -239,15 +294,25 @@ The device appears as a memory-mapped peripheral:
 
 **Recommended Address Placement:**
 
-For systems where the semihosting device is the only peripheral in high memory,
-the following formula provides a consistent address across different CPU widths:
+The recommended placement reserves a proportionally-sized region at the top of
+the address space and locates peripherals just below it. The top of that
+reserved region is::
 
-.. code-block:: none
+   reserved_start = 2^n - 2^(n/2)
 
-   semihost_base = 2^n - 2^(n/2) - 32
+Where ``n`` is the CPU's address bus width in bits. Peripherals are then placed
+immediately below ``reserved_start``. If the semihosting device is the only
+high-memory peripheral, its base is::
 
-Where ``n`` is the CPU's address bus width in bits. This places the device
-at a "proportional" distance from the top of the address space:
+   semihost_base = reserved_start - 32          (device registers only)
+
+In the ZBC reference system a 512-byte video RAM region occupies the space
+directly above the device, so the device base is::
+
+   semihost_base = reserved_start - 512 - 32    (ZBC reference system)
+
+The ZBC reference-system formula yields the values below, which is what the
+MAME and llvm-mos implementations use:
 
 .. list-table::
    :header-rows: 1
@@ -260,24 +325,23 @@ at a "proportional" distance from the top of the address space:
    * - 16-bit
      - 64 KB
      - 0xFCE0
-     - 65536 - 256 - 32
+     - 2^16 - 2^8 - 512 - 32
    * - 24-bit
      - 16 MB
      - 0xFFEDE0
-     - 16777216 - 4096 - 32
+     - 2^24 - 2^12 - 512 - 32
    * - 32-bit
      - 4 GB
      - 0xFFFEFDE0
-     - 4294967296 - 65536 - 32
+     - 2^32 - 2^16 - 512 - 32
    * - 64-bit
      - 16 EB
      - 0xFFFFFFFEFFFFFDE0
-     - 2^64 - 2^32 - 32
+     - 2^64 - 2^32 - 512 - 32
 
-This formula leaves a proportionally-sized region above the device for other
-peripherals (video RAM, interrupt controllers, etc.) while keeping the
-device easily locatable. Guest software can compute the address at runtime
-using only the CPU's address width.
+Guest software can compute the address at runtime using only the CPU's address
+width (and, for the reference-system layout, the 512-byte video RAM size).
+Systems without video RAM omit the ``512`` term and use ``reserved_start - 32``.
 
 **Bus Signals (typical):**
 
@@ -303,10 +367,11 @@ Interrupt Output
 
 **Signal:** IRQ_OUT (directly connected to CPU's interrupt input)
 
-**Behavior:** IRQ_OUT is asserted when STATUS is non-zero. The device
-asserts the interrupt line when a timer tick occurs. The guest
+**Behavior:** IRQ_OUT is asserted when STATUS bit 0 (TIMER) is set. The
+device asserts the interrupt line when a timer tick occurs. The guest
 acknowledges the interrupt by writing 0 to the STATUS register, which
-deasserts IRQ_OUT.
+clears the status bits and deasserts IRQ_OUT. The RESPONSE_READY and
+PROTO_ERROR status bits do not assert IRQ_OUT; they are polled flags.
 
 **Connection:** Connect to CPU's IRQ input. The timer interrupt is
 configured via the ``SYS_TIMER_CONFIG`` syscall through the RIFF protocol.
@@ -314,19 +379,32 @@ configured via the ``SYS_TIMER_CONFIG`` syscall through the RIFF protocol.
 Timing Characteristics
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Synchronous Semihosting Operation
-"""""""""""""""""""""""""""""""""
+Request Completion
+""""""""""""""""""
 
-Semihosting requests are processed **synchronously**:
+Semihosting requests are processed as follows:
 
 1. Guest writes RIFF buffer address to RIFF_PTR
 2. Guest writes to DOORBELL (1 bus cycle)
-3. Device processes request immediately
-4. Device writes RETN chunk to guest RAM
-5. DOORBELL write returns - response is ready
+3. Device processes the request
+4. Device writes the RETN (or ERRO) chunk to guest RAM
+5. Device sets STATUS bit 1 (RESPONSE_READY)
 
-**Key insight:** When the DOORBELL write completes, the response is
-already in the RIFF buffer. No polling is needed.
+**Virtual devices (emulators):** Processing completes within the DOORBELL
+write itself -- when the DOORBELL store instruction retires, the device has
+already written the response and set RESPONSE_READY. A guest on an emulator
+may therefore read the response immediately, without polling. This is the
+common case and keeps simple guests trivial.
+
+**Physical devices (FPGA/ASIC):** Processing may take many cycles after the
+DOORBELL write returns on the bus (file I/O, DMA into guest RAM, etc.). On
+such a device the guest **must not** read the response until it observes
+RESPONSE_READY, either by polling STATUS bit 1 or by other means the device
+documents. Writing 0 to STATUS acknowledges and clears the bit.
+
+**Portable guests** should poll STATUS bit 1 before reading the response.
+The poll loop costs nothing on an emulator (the bit is already set) and is
+required for correctness on physical hardware.
 
 **Processing time:** Depends on syscall type:
 
@@ -536,6 +614,25 @@ address bus width.
 - Host uses these cached values to correctly interpret all multi-byte values
   in PARM chunks
 
+**Platform-provided defaults:**
+
+A host MAY know the guest's int_size, ptr_size, and endianness independently
+of the protocol -- for example, an emulator knows the address width and byte
+order of the CPU it is emulating, and a toolchain emulator knows them from the
+target triple. Such a host SHOULD treat those platform values as the default
+configuration and MAY process requests that omit the CNFG chunk.
+
+When a host has platform-provided defaults, the CNFG chunk is an **override**
+rather than a requirement: if present, its values replace the defaults for the
+session; if absent, the defaults apply. A host with platform-provided defaults
+MUST NOT raise the "Missing CNFG" error.
+
+The "Missing CNFG chunk" error (code 0x03) applies only to hosts that have
+**no** platform-provided defaults (for example, a physical device that cannot
+auto-detect guest byte order). Such a host requires the first request to carry
+a CNFG chunk and reports error 0x03 if it does not. Physical devices that lack
+configuration registers fall in this category; see `Address Interpretation`_.
+
 CALL Chunk -- Syscall Request Container
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -549,7 +646,7 @@ number), three reserved bytes (must be 0x00), and then a variable number of
 sub-chunks (PARM and DATA chunks for parameters).
 
 **Opcode:** ARM semihosting syscall number (0x01-0x31, see reference table)
-File by file, I'd like you to r
+
 **Sub-chunks:** The CALL chunk contains nested PARM and DATA chunks
 representing the syscall parameters. Parameters appear in the order
 expected by the syscall.
@@ -698,8 +795,9 @@ sufficient space for error responses:
   or unrecognized chunk types)
 - ``0x02`` - Malformed RIFF format (missing 'RIFF' signature, missing 'SEMI'
   form type, or size field errors)
-- ``0x03`` - Missing CNFG chunk (first request after device initialization
-  must include CNFG)
+- ``0x03`` - Missing CNFG chunk (raised only by hosts without
+  platform-provided defaults; the first request after device initialization
+  must include CNFG. See `CNFG Chunk -- Configuration`_.)
 - ``0x04`` - Unsupported opcode (syscall number not implemented by this device)
 - ``0x05`` - Invalid parameter count (wrong number of PARM or DATA chunks
   for the specified syscall)
@@ -716,11 +814,13 @@ itself is missing or too small, the device cannot report the error.
 Operation Mode
 --------------
 
-Synchronous Semihosting
-^^^^^^^^^^^^^^^^^^^^^^^
+Request/Response
+^^^^^^^^^^^^^^^^
 
-Semihosting operates **synchronously**. When the DOORBELL write completes,
-the response is already in the RIFF buffer.
+Semihosting uses a single request/response exchange per call. Completion is
+signalled by STATUS bit 1 (RESPONSE_READY); see `Request Completion`_ for the
+distinction between virtual devices (response ready when the DOORBELL write
+retires) and physical devices (response ready some cycles later).
 
 **Operation:**
 
@@ -728,7 +828,8 @@ the response is already in the RIFF buffer.
    pre-allocated RETN chunk, and pre-allocated ERRO chunk
 2. Guest writes RIFF buffer address to RIFF_PTR register
 3. Guest writes to DOORBELL register to trigger processing
-4. Response is ready immediately - no polling needed
+4. Guest waits for STATUS bit 1 (RESPONSE_READY); on an emulator this is
+   already set when the DOORBELL write returns, so the wait is a no-op
 5. Guest reads response from RETN chunk (or ERRO chunk if error occurred)
 
 **Note:** See `Cache Coherency Requirements`_ in Hardware Architecture section
@@ -737,7 +838,7 @@ for critical cache management details.
 **Characteristics:**
 
 - Simple to implement
-- No polling or interrupt handler needed for semihosting
+- No interrupt handler needed for semihosting (polling RESPONSE_READY suffices)
 - Suitable for all use cases from simple tests to OS development
 
 **Concurrent request handling:**
@@ -767,9 +868,9 @@ to guest memory.
 address, then writes DOORBELL. The device bus master logic reads the RIFF
 header from guest RAM, reads the CNFG chunk (first time only), reads the
 CALL chunk header and recursively reads PARM and DATA sub-chunks, executes
-the syscall, writes the RETN chunk to guest RAM (replacing CALL), and for
-SYS_READ appends a DATA sub-chunk with read data. Finally, the device sets
-STATUS bit 0 (RESPONSE_READY).
+the syscall, writes the RETN chunk payload into the pre-allocated RETN chunk,
+and for SYS_READ appends a DATA sub-chunk with read data. Finally, the device
+sets STATUS bit 1 (RESPONSE_READY).
 
 Address Interpretation
 ^^^^^^^^^^^^^^^^^^^^^^
@@ -1268,32 +1369,47 @@ Register Map Summary
      - 1
      - STATUS
      - RW
-     - Interrupt pending (write 0 to clear)
+     - Status/interrupt bitmask (write 0 to acknowledge)
    * - 0x1A
-     - 6
+     - 2
+     - ERROR_CODE
+     - R
+     - Last protocol error code (LE, 0 = none)
+   * - 0x1C
+     - 4
      - RESERVED
      - \-
      - Future use
 
-STATUS Register Values
-^^^^^^^^^^^^^^^^^^^^^^
+STATUS Register Bits
+^^^^^^^^^^^^^^^^^^^^
 
 .. list-table::
    :header-rows: 1
-   :widths: 10 25 65
+   :widths: 10 15 25 50
 
-   * - Value
+   * - Bit
+     - Mask
      - Name
      - Description
    * - 0
-     - ZBC_STATUS_NONE
-     - No interrupt pending
-   * - 1
+     - 0x01
      - ZBC_STATUS_TIMER
-     - Timer tick occurred
-   * - 2+
+     - Timer tick occurred (asserts IRQ; ``STATUS == 1`` legacy meaning)
+   * - 1
+     - 0x02
+     - ZBC_STATUS_RESPONSE_READY
+     - Request processed, response available in RETN/ERRO
+   * - 2
+     - 0x04
+     - ZBC_STATUS_PROTO_ERROR
+     - Request failed; code in ERROR_CODE (no ERRO chunk written)
+   * - 3-7
+     - \-
      - (reserved)
-     - Reserved for future interrupt sources
+     - Reserved for future status bits
+
+A STATUS value of 0 (``ZBC_STATUS_NONE``) means no condition is pending.
 
 RIFF Chunk Types
 ^^^^^^^^^^^^^^^^
