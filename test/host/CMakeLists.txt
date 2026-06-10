@@ -47,3 +47,11 @@ if(ZBC_USE_SECCOMP)
 endif()
 
 add_test(NAME zbc_sandbox_tests COMMAND zbc_sandbox_tests)
+
+# C++ host library tests (conformance: C client <-> C++ host)
+if(ZBC_BUILD_CPP)
+    add_executable(zbc_cpp_tests test_cpp.cpp)
+    target_include_directories(zbc_cpp_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
+    target_link_libraries(zbc_cpp_tests zbc_semi_hostpp zbc_semi_client)
+    add_test(NAME zbc_cpp_tests COMMAND zbc_cpp_tests)
+endif()

@@ -57,7 +57,9 @@ Features
 
 - Works on any CPU from 8-bit to 64-bit (architecture-agnostic RIFF protocol)
 - ARM semihosting compatible syscall numbers
-- C90 compliant to be friendly with ancient compilers
+- C90 client/host libraries to be friendly with ancient compilers
+- Optional C++17 host library (``zbc::Device``/``Backend``/``Policy``) for
+  emulators, sharing the same wire protocol as the C host
 - Extremely portable
 - Does zero heap allocation -- you allocate all your own buffers
 - Secure (sandboxed) and insecure backends

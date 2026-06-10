@@ -11,7 +11,7 @@
 #   cmake -B build -G "Xcode"
 
 cmake_minimum_required(VERSION 3.10)
-project(zbc_semihost C)
+project(zbc_semihost C CXX)
 
 # Set the default build type to Release.
 # Users can override this with -DCMAKE_BUILD_TYPE=Debug or similar.
@@ -29,6 +29,10 @@ endif()
 # C standard
 set(CMAKE_C_STANDARD 90)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+
+# C++ standard (for the optional C++ host library)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Sanitizers (ASan + UBSan)
 include(${CMAKE_SOURCE_DIR}/cmake/Sanitizers.cmake)
@@ -70,6 +74,26 @@ add_library(zbc_semi_host STATIC
 )
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
+
+# C++ host library (optional consumers: MAME, LLVM-MOS emulator, etc.)
+# Same RIFF protocol as the C host, but a modern C++17 API: Backend/Policy
+# objects, OpResult/Result value types, and a memory-mapped Device. Reuses
+# the shared C sources for endianness handling so the two implementations
+# cannot drift.
+option(ZBC_BUILD_CPP "Build the C++17 host library (zbc_semi_hostpp)" ON)
+if(ZBC_BUILD_CPP)
+    add_library(zbc_semi_hostpp STATIC
+        ${ZBC_SHARED_SOURCES}
+        src/cpp/RiffCodec.cpp
+        src/cpp/Backend.cpp
+        src/cpp/FileDescTable.cpp
+        src/cpp/PathValidator.cpp
+        src/cpp/Policy.cpp
+        src/cpp/Device.cpp
+    )
+    target_include_directories(zbc_semi_hostpp PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    message(STATUS "C++ host library (zbc_semi_hostpp): enabled")
+endif()
 
 # Sandbox option (optional, Linux only)
 option(ZBC_USE_SECCOMP "Enable seccomp sandboxing (Linux only, requires libseccomp)" OFF)

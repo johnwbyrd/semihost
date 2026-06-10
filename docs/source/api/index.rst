@@ -31,6 +31,14 @@ The library is organized into five main components:
    Low-level RIFF chunk parsing, constants, and helper functions.
    Most users won't need these directly.
 
+**C++ Host Library** (``zbc/Semihost.h``)
+   A modern C++17 alternative to the C host API for emulators and other
+   host-side embedders. Provides ``zbc::Device``, an object-oriented
+   ``Backend`` hierarchy, an LSM-style ``Policy`` security layer, and
+   value-typed results. Speaks the identical RIFF wire protocol as the C
+   host (and shares its endianness code), so the two interoperate. See
+   :doc:`cpp`.
+
 Design Principles
 -----------------
 
@@ -77,3 +85,4 @@ Check for errors with ``if (rc < 0)``.
    host
    backend
    protocol
+   cpp
