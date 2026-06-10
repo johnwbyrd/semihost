@@ -5,12 +5,12 @@ Zero Board Computer
 or yet to be designed.**
 
 The Zero Board Computer (ZBC) is a small, deliberately boring
-specification for a memory-mapped I/O device.  Develop your embedded
-device, your libc, your operating system, or your test harness against
-it, and the same code runs on a Xeon, on a 6502, on a doorbell controller
-with a few kilobytes of RAM, on over 200 historical systems through
-MAME, and on hardware that doesn't exist yet -- without writing a single
-device driver.
+specification for an architecture-agnostic memory-mapped I/O device.
+Develop your embedded application, your libc, your operating system,
+or your test harness against it, and the same code runs on a Xeon,
+on a 6502, on a doorbell controller with a few kilobytes of RAM, on
+over 200 historical systems through MAME, and on hardware that
+doesn't exist yet -- without writing a single device driver.
 
 The word for this is *semihosting*: the guest program (the one running
 on the target CPU) borrows file I/O, console output, and other syscalls
