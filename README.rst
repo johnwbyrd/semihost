@@ -25,7 +25,7 @@ for you to get standard C library features like file I/O, console
 output, and time services up and running quickly, without having to 
 muck around writing device drivers.
 
-**Full documentation:** https://johnwbyrd.github.io/semihost/
+**Full documentation:** https://johnwbyrd.github.io/zbc/
 
 Repository Layout
 -----------------
