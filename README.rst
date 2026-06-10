@@ -1,82 +1,90 @@
 Zero Board Computer Semihosting
 ===============================
 
-The Zero Board Computer is the hardware equivalent of **Hello World.**
-It's the minimum viable computer -- just enough to prove your CPU and
-toolchain work.
+Bringing a new CPU to life is a chicken-and-egg problem: you have silicon
+(or an emulator) that can compute, but no way to get bytes in or out.
+No filesystem. No ``printf``.  No way to run the GCC test suite.  The
+classical answer is *semihosting* -- let the host machine (the emulator,
+the debugger probe) service the guest's syscalls, so a bare-metal
+``fopen`` actually opens a real file on the developer's laptop.
 
-The `Zero Board Computer <https://www.zeroboardcomputer.com>` is an
-idealized computer architecture, designed for bringing up new toolchains,
-new CPUs, and new compilers, quickly and easily.  Its design is simple
-and clean; it's easy to emulate, debug, and understand.
-
-Functionally, the ZBC just your favorite CPU, a whole bunch of RAM, 
-a super simple (optional) video display, and a semihosting device.
-
-This ZBC semihosting device provides an ARM-like standardized interface,
-so that guest programs can request host services such as file I/O and
-timekeeping.  This repository is a reference implementation of that
-semihosting device, which you can use to add semihosting support to
-your favorite emulator or toolchain.
-
-Whether you're building a bare-metal toolchain for a new CPU, writing an
-emulator, or compiling an operating system, ZBC semihosting makes it easy
-for you to get standard C library features like file I/O, console
-output, and time services up and running quickly, without having to 
-muck around writing device drivers.
+ARM standardized semihosting in the early '90s and it works beautifully
+-- if you're on ARM, with a debug probe, using ARM's specific trap
+instructions.  Everywhere else, you reinvent it.  ZBC semihosting is the
+same idea rebuilt around memory-mapped I/O: a 32-byte register window,
+a RIFF buffer in RAM, and a doorbell write.  No trap instructions, no
+debugger required, works the same on any CPU.
 
 **Full documentation:** https://johnwbyrd.github.io/zbc/
 
-Repository Layout
------------------
-
-This is the ZBC monorepo -- all things Zero Board Computer live here.
-Sources are organized by language so new implementations (Rust, etc.) can
-slot in as siblings without disturbing existing ones:
-
-- ``include/shared/`` ``src/shared/`` -- language-agnostic protocol primitives
-  (RIFF codec, opcode table, ``zbc_protocol.h``); consumed by every
-  implementation so the wire format can't drift
-- ``include/c/`` ``src/c/`` -- C90 reference client and host libraries,
-  plus the ANSI/stdio backend and platform sandbox code
-- ``include/cpp/zbc/`` ``src/cpp/`` -- C++17 host library (``zbc::Device`` /
-  ``zbc::Backend`` / ``zbc::Policy``) intended for emulators
-- ``test/`` -- ``c/`` and ``cpp/`` host tests, ``conformance/`` for
-  C-vs-C++ wire-protocol equivalence, ``target/`` for cross-compiled
-  on-emulator runs, ``common/`` for the shared test harness
-- ``docs/`` -- Sphinx documentation site; the **canonical protocol
-  specification** is `docs/source/specification.rst
-  <docs/source/specification.rst>`_ -- single source of truth for the wire
-  format and the contract any new implementation must conform to
-- ``fuzz/`` -- libFuzzer corpora and target for the RIFF parser
-- ``web/`` -- MediaWiki content for www.zeroboardcomputer.com (derived from
-  the canonical spec; see ``web/README.md``)
-
-Who Is This For?
+What's Different
 ----------------
 
-- **Bare-metal developers** -- filesystem, console, and time services
-  on a new (or old) architecture, without writing device drivers
-- **Toolchain and SDK developers** -- run compiler test suites on
-  emulated hardware
-- **Emulator authors** -- add semihosting so guest programs can access
-  host files
-- **libc porters** -- implement ``fopen``/``fread``/``fwrite`` without
-  real device drivers
+- **Memory-mapped, not trap-instruction.**  A 32-byte mmio device anyone
+  can implement.  Works in a stock emulator with no debug infrastructure;
+  works on real silicon with no JTAG probe; an FPGA can implement the
+  device directly in hardware.
+- **Architecture-agnostic by construction.**  The wire protocol is RIFF
+  chunks with guest-declared endianness, so an 8-bit 6502 speaks the same
+  language as 64-bit x86.  The repo has live on-target tests for both
+  today.
+- **ARM-compatible syscall numbers.**  Drop-in with picolibc, newlib, and
+  toolchains that already speak ARM semihosting.  You inherit decades of
+  libc work instead of inventing a new ABI.
 
-Features
---------
+Who Reaches For This
+--------------------
 
-- Works on any CPU from 8-bit to 64-bit (architecture-agnostic RIFF protocol)
-- ARM semihosting compatible syscall numbers
-- C90 client/host libraries to be friendly with ancient compilers
-- Optional C++17 host library (``zbc::Device``/``Backend``/``Policy``) for
-  emulators, sharing the same wire protocol as the C host
-- Extremely portable
-- Does zero heap allocation -- you allocate all your own buffers
-- Secure (sandboxed) and insecure backends
-- GitHub test suite for Ubuntu, macOS, and Windows
-- Automatic fuzzing of RIFF parser
+- **Bringing up a new CPU or toolchain.**  Drop the C client library into
+  your libc port; run the GCC test suite against your simulator on day
+  one.  Hours, not weeks.
+- **Compiler regression suites across many architectures.**  One
+  semihosting implementation for all of them -- the MAME-style "300 CPUs,
+  one test harness" model.
+- **Adding semihosting to an emulator.**  Expose a 32-byte mmio window;
+  link the C++ host library.  An afternoon, not a quarter.
+- **FPGA first-boot demos.**  Show ``printf`` working the day after first
+  boot, without writing a UART driver.
+
+The Protocol Is the Contract
+----------------------------
+
+The single source of truth for the wire format is
+`docs/source/specification.rst <docs/source/specification.rst>`_.  The C
+and C++ host libraries in this repo are *implementations* of that
+contract, and the conformance suite
+(`test/conformance/test_conformance.cpp
+<test/conformance/test_conformance.cpp>`_) enforces byte-for-byte
+equivalence between them on every CI run.  Future Rust bindings or FPGA
+implementations conform to the same wire format.  Semihosting stops
+being a per-platform reinvention.
+
+What's In This Repo
+-------------------
+
+Sources are organized by language so new implementations can slot in as
+siblings without disturbing existing ones.  The protocol primitives every
+implementation needs (RIFF codec, opcode table, header) live in
+``shared/``; each language tier owns its own client, host, and tests on
+top of that base.
+
+- `include/shared/ <include/shared>`_ + `src/shared/ <src/shared>`_ --
+  protocol primitives (``zbc_protocol.h``, RIFF codec, opcode table);
+  compiled into every host and client so the wire format can't drift.
+- `include/c/ <include/c>`_ + `src/c/ <src/c>`_ -- C90 reference client
+  and host libraries plus the ANSI/stdio backend and platform sandbox
+  code.
+- `include/cpp/zbc/ <include/cpp/zbc>`_ + `src/cpp/ <src/cpp>`_ -- C++17
+  host library (``zbc::Device`` / ``zbc::Backend`` / ``zbc::Policy``)
+  intended for embedding in emulators.
+- `test/ <test>`_ -- ``c/`` and ``cpp/`` host tests, ``conformance/`` for
+  C-vs-C++ wire-protocol equivalence, ``target/`` for cross-compiled
+  on-emulator runs (i386 under QEMU, 6502 under MAME), ``common/`` for
+  the shared test harness.
+- `docs/ <docs>`_ -- Sphinx site;
+  ``docs/source/specification.rst`` is the canonical protocol spec.
+- `fuzz/ <fuzz>`_ -- libFuzzer target and corpora for the RIFF parser.
+- `web/ <web>`_ -- MediaWiki content for www.zeroboardcomputer.com.
 
 Quick Start
 -----------
@@ -94,6 +102,15 @@ Quick Start
 
     # With fuzzing (requires Clang)
     cmake -B build-fuzz -DENABLE_FUZZING=ON
+
+Status
+------
+
+- CI matrix: Ubuntu, macOS, and Windows; gcc, clang, and MSVC.
+- ASan + UBSan and seccomp-sandbox jobs gate every push.
+- Continuous RIFF parser fuzzing via libFuzzer + ClusterFuzzLite.
+- Zero heap allocation in the libraries, statically verified in
+  `test/CMakeLists.txt <test/CMakeLists.txt>`_.
 
 License
 -------
