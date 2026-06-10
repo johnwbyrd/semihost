@@ -6,6 +6,7 @@
  */
 
 #include "test_ansi_common.h"
+#include <errno.h>
 
 /*------------------------------------------------------------------------
  * Global state for secure backend tests
@@ -35,11 +36,20 @@ static void test_exit_callback(void *ctx, unsigned int reason,
     g_exit_count++;
 }
 
-static void test_timer_config_callback(void *ctx, unsigned int rate_hz)
+static int test_timer_config_callback(void *ctx, unsigned int rate_hz)
 {
     (void)ctx;
     g_timer_config_count++;
     g_last_timer_rate = rate_hz;
+    return 0;
+}
+
+/* Callback that rejects every rate, to test EINVAL propagation */
+static int test_timer_config_reject(void *ctx, unsigned int rate_hz)
+{
+    (void)ctx;
+    (void)rate_hz;
+    return -1;
 }
 
 /*------------------------------------------------------------------------
@@ -257,6 +267,34 @@ static int test_secure_timer_config_callback(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: timer_config rejection propagates as -1 with errno EINVAL
+ *------------------------------------------------------------------------*/
+
+static int test_secure_timer_config_rejected(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = &g_secure_state;
+    int result;
+
+    /* Device rejects the rate (e.g. not achievable from its clock) */
+    zbc_ansi_set_callbacks(&g_secure_state, test_violation_callback,
+                           test_exit_callback, test_timer_config_reject, NULL);
+
+    result = be->timer_config(ctx, 123456789);
+
+    TEST_ASSERT(result == -1, "rejected timer_config should return -1");
+    TEST_ASSERT(be->get_errno(ctx) == EINVAL,
+                "rejected timer_config should set errno EINVAL");
+
+    /* Restore the accepting callback for any later tests */
+    zbc_ansi_set_callbacks(&g_secure_state, test_violation_callback,
+                           test_exit_callback, test_timer_config_callback,
+                           NULL);
+
+    return 1;
+}
+
+/*------------------------------------------------------------------------
  * Test: Additional path rule allows read-only access
  *------------------------------------------------------------------------*/
 
@@ -309,6 +347,7 @@ void run_ansi_secure_tests(void)
     RUN_TEST(secure_tmpnam);
     RUN_TEST(secure_read_only_mode);
     RUN_TEST(secure_timer_config_callback);
+    RUN_TEST(secure_timer_config_rejected);
     RUN_TEST(secure_path_rules);
 
     zbc_ansi_cleanup(&g_secure_state);

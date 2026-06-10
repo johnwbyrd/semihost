@@ -31,6 +31,29 @@ void zbc_host_init(zbc_host_state_t *state, const zbc_host_mem_ops_t *mem_ops,
   state->guest_ptr_size = 0;
   state->guest_endianness = ZBC_ENDIAN_LITTLE;
   state->cnfg_received = 0;
+  state->on_proto_error = (void (*)(void *, int))0;
+  state->proto_error_ctx = (void *)0;
+}
+
+void zbc_host_set_platform_config(zbc_host_state_t *state, int int_size,
+                                  int ptr_size, int endianness) {
+  if (!state) {
+    return;
+  }
+  state->guest_int_size = (uint8_t)int_size;
+  state->guest_ptr_size = (uint8_t)ptr_size;
+  state->guest_endianness = (uint8_t)endianness;
+  state->cnfg_received = 1;
+}
+
+void zbc_host_set_proto_error_cb(zbc_host_state_t *state,
+                                 void (*cb)(void *ctx, int error_code),
+                                 void *ctx) {
+  if (!state) {
+    return;
+  }
+  state->on_proto_error = cb;
+  state->proto_error_ctx = ctx;
 }
 
 /*========================================================================
@@ -86,16 +109,37 @@ void zbc_host_write_guest_int(const zbc_host_state_t *state, uint8_t *data,
  *========================================================================*/
 
 /*
- * Write ERRO payload to pre-allocated ERRO chunk.
- * Only writes the payload (error_code + reserved), not the chunk header.
+ * Signal a protocol error through the device register channel.
+ *
+ * Used whenever the host cannot (or must not) write an ERRO chunk into
+ * guest memory. The embedding device latches the code into its ERROR_CODE
+ * register and sets STATUS bit 2 (ZBC_STATUS_PROTO_ERROR). The host
+ * library itself never writes to guest memory on these paths.
  */
-static void write_erro_payload(zbc_host_state_t *state, uintptr_t riff_addr,
+static void signal_proto_error(zbc_host_state_t *state, int error_code) {
+  if (state->on_proto_error) {
+    state->on_proto_error(state->proto_error_ctx, error_code);
+  } else {
+    ZBC_LOG_WARN("proto error 0x%02x (no device callback registered)",
+                 (unsigned)error_code);
+  }
+}
+
+/*
+ * Report a protocol error: prefer the pre-allocated ERRO chunk (richest
+ * diagnostic, visible to the guest in its own buffer); fall back to the
+ * register channel when ERRO is missing or too small.
+ *
+ * Pass parsed == NULL when the request never parsed (no chunk locations
+ * are trustworthy); the register channel is then the only option.
+ */
+static void report_proto_error(zbc_host_state_t *state, uintptr_t riff_addr,
                                const zbc_parsed_t *parsed, int error_code) {
   uint8_t buf[ZBC_ERRO_PAYLOAD_SIZE];
 
-  if (!parsed->has_erro ||
+  if (!parsed || !parsed->has_erro ||
       parsed->erro_payload_capacity < ZBC_ERRO_PAYLOAD_SIZE) {
-    ZBC_LOG_ERROR_S("write_erro_payload: no pre-allocated ERRO chunk");
+    signal_proto_error(state, error_code);
     return;
   }
 
@@ -111,22 +155,45 @@ static void write_erro_payload(zbc_host_state_t *state, uintptr_t riff_addr,
 /*
  * Write RETN payload to pre-allocated RETN chunk.
  * Only writes the payload contents, not the chunk header.
+ *
+ * The full response size is validated against the pre-allocated capacity
+ * BEFORE any guest memory is touched. The fixed header parts are staged
+ * in a small stack buffer; bulk data is written directly from its source,
+ * so response size is bounded only by the guest's RETN allocation.
  */
 static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
                                const zbc_parsed_t *parsed, intptr_t result,
                                int err, const void *data, size_t data_size) {
-  uint8_t buf[256];
+  /* Staging for result + errno + DATA chunk header + DATA payload header */
+  uint8_t buf[8 + ZBC_RETN_ERRNO_SIZE + ZBC_CHUNK_HDR_SIZE + ZBC_DATA_HDR_SIZE];
+  uint8_t pad_byte = 0;
   size_t pos;
+  size_t needed;
   int int_size;
-  size_t i;
-  const uint8_t *src;
+  uintptr_t dest;
 
   if (!parsed->has_retn) {
     ZBC_LOG_ERROR_S("write_retn_payload: no pre-allocated RETN chunk");
+    report_proto_error(state, riff_addr, parsed, ZBC_PROTO_ERR_MISSING_RETN);
     return;
   }
 
   int_size = state->guest_int_size;
+
+  /* Compute total response size up front */
+  needed = (size_t)int_size + ZBC_RETN_ERRNO_SIZE;
+  if (data && data_size > 0) {
+    needed += ZBC_CHUNK_HDR_SIZE + ZBC_PAD_SIZE(ZBC_DATA_HDR_SIZE + data_size);
+  }
+
+  if (needed > parsed->retn_payload_capacity) {
+    ZBC_LOG_ERROR("write_retn_payload: response %u exceeds capacity %u",
+                  (unsigned)needed, (unsigned)parsed->retn_payload_capacity);
+    report_proto_error(state, riff_addr, parsed, ZBC_PROTO_ERR_RETN_TOO_SMALL);
+    return;
+  }
+
+  dest = riff_addr + parsed->retn_payload_offset;
   pos = 0;
 
   /* RETN payload: result[int_size] + errno[ZBC_RETN_ERRNO_SIZE] */
@@ -135,10 +202,8 @@ static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
   ZBC_WRITE_U32_LE(buf + pos, (uint32_t)err);
   pos += ZBC_RETN_ERRNO_SIZE;
 
-  /* Add DATA sub-chunk if present */
   if (data && data_size > 0) {
     size_t data_payload_size = ZBC_DATA_HDR_SIZE + data_size;
-    size_t padded_size = ZBC_PAD_SIZE(data_payload_size);
 
     /* DATA chunk header */
     ZBC_WRITE_U32_LE(buf + pos, ZBC_ID_DATA);
@@ -146,55 +211,24 @@ static void write_retn_payload(zbc_host_state_t *state, uintptr_t riff_addr,
     ZBC_WRITE_U32_LE(buf + pos, (uint32_t)data_payload_size);
     pos += 4;
 
-    /* DATA payload: type + reserved + data */
+    /* DATA payload header: type + reserved */
     buf[pos] = ZBC_DATA_TYPE_BINARY;
     buf[pos + 1] = 0;
     buf[pos + 2] = 0;
     buf[pos + 3] = 0;
     pos += ZBC_DATA_HDR_SIZE;
 
-    src = (const uint8_t *)data;
-    for (i = 0; i < data_size; i++) {
-      buf[pos + i] = src[i];
-    }
-    pos += data_size;
+    /* Fixed parts, then bulk data straight from the source */
+    write_guest(state, dest, buf, pos);
+    write_guest(state, dest + pos, data, data_size);
 
     /* Pad to even boundary if needed */
-    if (padded_size > data_payload_size) {
-      buf[pos] = 0;
-      pos++;
+    if (data_payload_size & 1) {
+      write_guest(state, dest + pos + data_size, &pad_byte, 1);
     }
+  } else {
+    write_guest(state, dest, buf, pos);
   }
-
-  /* Check capacity before writing */
-  if (pos > parsed->retn_payload_capacity) {
-    ZBC_LOG_ERROR("write_retn_payload: response %u exceeds capacity %u",
-                  (unsigned)pos, (unsigned)parsed->retn_payload_capacity);
-    return;
-  }
-
-  write_guest(state, riff_addr + parsed->retn_payload_offset, buf, pos);
-}
-
-/*
- * Write ERRO chunk for early errors (before parsing completes).
- * This is the fallback when we can't use the pre-allocated chunk.
- * It overwrites at the first chunk position - not ideal but necessary
- * for protocol errors that prevent parsing the RIFF structure.
- */
-static void write_erro_early(zbc_host_state_t *state, uintptr_t addr,
-                             int error_code) {
-  uint8_t buf[ZBC_CHUNK_HDR_SIZE + ZBC_ERRO_PAYLOAD_SIZE];
-
-  /* Build ERRO chunk: id + size + payload */
-  ZBC_WRITE_U32_LE(buf, ZBC_ID_ERRO);
-  ZBC_WRITE_U32_LE(buf + 4, ZBC_ERRO_PAYLOAD_SIZE);
-  ZBC_WRITE_U16_LE(buf + 8, (uint16_t)error_code);
-  buf[10] = 0;
-  buf[11] = 0;
-
-  /* Write at fixed offset - this is a fallback for parse failures */
-  write_guest(state, addr + ZBC_RIFF_HDR_SIZE, buf, sizeof(buf));
 }
 
 /*========================================================================
@@ -217,7 +251,8 @@ static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
   /* Check magic and get size */
   if (ZBC_READ_U32_LE(buf) != ZBC_ID_RIFF) {
     ZBC_LOG_ERROR_S("parse_request: bad RIFF magic");
-    write_erro_early(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
+    /* Container is unparseable: never write guest memory, use registers */
+    signal_proto_error(state, ZBC_PROTO_ERR_MALFORMED_RIFF);
     return ZBC_ERR_PARSE_ERROR;
   }
 
@@ -227,6 +262,7 @@ static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
   if (riff_total_size > capacity) {
     ZBC_LOG_ERROR("parse_request: RIFF size=%u exceeds work_buf=%u",
                   (unsigned)riff_total_size, (unsigned)capacity);
+    signal_proto_error(state, ZBC_PROTO_ERR_MALFORMED_RIFF);
     return ZBC_ERR_BUFFER_FULL;
   }
 
@@ -238,7 +274,8 @@ static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
                               state->guest_int_size, state->guest_endianness);
   if (rc != ZBC_OK) {
     ZBC_LOG_ERROR("parse_request: zbc_riff_parse failed (%d)", rc);
-    write_erro_early(state, riff_addr, ZBC_PROTO_ERR_MALFORMED_RIFF);
+    /* Chunk locations are not trustworthy: registers only */
+    signal_proto_error(state, ZBC_PROTO_ERR_MALFORMED_RIFF);
     return ZBC_ERR_PARSE_ERROR;
   }
 
@@ -253,24 +290,21 @@ static int parse_request(zbc_host_state_t *state, uintptr_t riff_addr,
                  (unsigned)parsed->endianness);
   }
 
+  /*
+   * Configuration must be known before dispatch. It can come from either
+   * a CNFG chunk or platform-provided defaults installed with
+   * zbc_host_set_platform_config(). Only hosts with neither raise the
+   * MISSING_CNFG error (see spec: "Platform-provided defaults").
+   */
   if (!state->cnfg_received) {
-    ZBC_LOG_ERROR_S("parse_request: missing CNFG chunk");
-    /* At this point parsing succeeded, so we can try the pre-allocated ERRO */
-    if (parsed->has_erro) {
-      write_erro_payload(state, riff_addr, parsed, ZBC_PROTO_ERR_MISSING_CNFG);
-    } else {
-      write_erro_early(state, riff_addr, ZBC_PROTO_ERR_MISSING_CNFG);
-    }
+    ZBC_LOG_ERROR_S("parse_request: missing CNFG chunk (no platform defaults)");
+    report_proto_error(state, riff_addr, parsed, ZBC_PROTO_ERR_MISSING_CNFG);
     return ZBC_ERR_PARSE_ERROR;
   }
 
   if (!parsed->has_call) {
     ZBC_LOG_ERROR_S("parse_request: missing CALL chunk");
-    if (parsed->has_erro) {
-      write_erro_payload(state, riff_addr, parsed, ZBC_PROTO_ERR_INVALID_CHUNK);
-    } else {
-      write_erro_early(state, riff_addr, ZBC_PROTO_ERR_INVALID_CHUNK);
-    }
+    report_proto_error(state, riff_addr, parsed, ZBC_PROTO_ERR_INVALID_CHUNK);
     return ZBC_ERR_PARSE_ERROR;
   }
 
@@ -696,6 +730,6 @@ int zbc_host_process(zbc_host_state_t *state, uintptr_t riff_addr) {
 
   /* Unknown opcode */
   ZBC_LOG_WARN("unknown opcode 0x%02x", (unsigned)parsed.opcode);
-  write_erro_payload(state, riff_addr, &parsed, ZBC_PROTO_ERR_UNSUPPORTED_OP);
+  report_proto_error(state, riff_addr, &parsed, ZBC_PROTO_ERR_UNSUPPORTED_OP);
   return ZBC_OK;
 }

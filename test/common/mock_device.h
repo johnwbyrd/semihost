@@ -34,6 +34,10 @@ typedef struct mock_device {
   int doorbell_count;
   int process_count;
 
+  /* Protocol errors reported through the register channel */
+  int proto_error_count;   /* Times the host signalled a register error */
+  int last_proto_error;    /* Most recent ZBC_PROTO_ERR_* code */
+
   /* Custom response handler (optional) */
   void (*custom_handler)(struct mock_device *dev);
 

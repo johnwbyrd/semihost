@@ -775,7 +775,12 @@ static int ansi_timer_config(void *ctx, unsigned int rate_hz) {
     return -1;
   }
   if (state->on_timer_config) {
-    state->on_timer_config(state->callback_ctx, rate_hz);
+    /* Non-zero from the device means the rate is not achievable;
+     * report -1/EINVAL to the guest per spec SYS_TIMER_CONFIG. */
+    if (state->on_timer_config(state->callback_ctx, rate_hz) != 0) {
+      state->last_errno = EINVAL;
+      return -1;
+    }
   }
   return 0;
 }
@@ -867,8 +872,8 @@ void zbc_ansi_set_callbacks(zbc_ansi_state_t *state,
                                                  const char *detail),
                             void (*on_exit)(void *ctx, unsigned int reason,
                                             unsigned int subcode),
-                            void (*on_timer_config)(void *ctx,
-                                                    unsigned int rate_hz),
+                            int (*on_timer_config)(void *ctx,
+                                                   unsigned int rate_hz),
                             void *ctx) {
   if (!state) {
     return;

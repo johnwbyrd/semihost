@@ -54,7 +54,20 @@ typedef struct {
     uint8_t guest_int_size;             /**< Guest integer size (from CNFG) */
     uint8_t guest_ptr_size;             /**< Guest pointer size (from CNFG) */
     uint8_t guest_endianness;           /**< Guest endianness (from CNFG) */
-    uint8_t cnfg_received;              /**< 1 if CNFG has been received */
+    uint8_t cnfg_received;              /**< 1 if config known (CNFG or platform) */
+
+    /*--- Device notification (optional) ---*/
+    /**
+     * Called when a request fails and the host cannot (or must not) write
+     * an ERRO chunk into guest memory -- e.g. the RIFF container was
+     * unparseable, or the guest did not pre-allocate an ERRO chunk.
+     *
+     * The embedding device should latch the code into its ERROR_CODE
+     * register (0x1A-0x1B) and set STATUS bit 2 (ZBC_STATUS_PROTO_ERROR).
+     * The host library never writes to guest memory on these paths.
+     */
+    void (*on_proto_error)(void *ctx, int error_code);
+    void *proto_error_ctx;              /**< Context for on_proto_error */
 } zbc_host_state_t;
 
 /*========================================================================
@@ -76,6 +89,41 @@ void zbc_host_init(zbc_host_state_t *state,
                    const zbc_host_mem_ops_t *mem_ops, void *mem_ctx,
                    const struct zbc_backend_s *backend, void *backend_ctx,
                    uint8_t *work_buf, size_t work_buf_size);
+
+/**
+ * Provide platform-supplied guest configuration defaults.
+ *
+ * An emulator typically knows the guest CPU's integer size, pointer size,
+ * and endianness without being told (address space width, target triple).
+ * Calling this makes the CNFG chunk optional: requests that omit CNFG use
+ * these values, and a CNFG chunk, if present, overrides them for the
+ * session. Hosts that never call this require CNFG on the first request
+ * and report ZBC_PROTO_ERR_MISSING_CNFG otherwise.
+ *
+ * Call after zbc_host_init() and before the first zbc_host_process().
+ *
+ * @param state       Initialized host state
+ * @param int_size    Guest integer size in bytes (1, 2, 4, or 8)
+ * @param ptr_size    Guest pointer size in bytes (1, 2, 4, or 8)
+ * @param endianness  ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG
+ */
+void zbc_host_set_platform_config(zbc_host_state_t *state, int int_size,
+                                  int ptr_size, int endianness);
+
+/**
+ * Register the device notification callback for protocol errors.
+ *
+ * See the on_proto_error field documentation in zbc_host_state_t.
+ * Optional: without a callback, register-channel diagnostics are dropped
+ * (failures are still logged via ZBC_LOG).
+ *
+ * @param state  Initialized host state
+ * @param cb     Callback invoked with a ZBC_PROTO_ERR_* code (may be NULL)
+ * @param ctx    Context passed to the callback
+ */
+void zbc_host_set_proto_error_cb(zbc_host_state_t *state,
+                                 void (*cb)(void *ctx, int error_code),
+                                 void *ctx);
 
 /**
  * Process a semihosting request.

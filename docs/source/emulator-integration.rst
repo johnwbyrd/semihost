@@ -129,6 +129,17 @@ Set up the host state with your memory operations and a backend:
        zbc_host_init(&host, &mem_ops, NULL,
                      zbc_backend_ansi_insecure(), &backend_state,
                      work_buffer, sizeof(work_buffer));
+
+       /* Optional but recommended for emulators: you already know the
+        * guest CPU's configuration, so the CNFG chunk becomes optional. */
+       zbc_host_set_platform_config(&host, guest_int_size, guest_ptr_size,
+                                    guest_is_big_endian ? ZBC_ENDIAN_BIG
+                                                        : ZBC_ENDIAN_LITTLE);
+
+       /* Optional: receive protocol errors that cannot be delivered via
+        * the ERRO chunk (e.g. unparseable RIFF). Latch the code into your
+        * ERROR_CODE register (0x1A) and set STATUS bit 2. */
+       zbc_host_set_proto_error_cb(&host, my_proto_error_handler, &my_device);
    }
 
 Processing Requests

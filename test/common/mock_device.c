@@ -41,6 +41,25 @@ static void mock_dev_write_block(uintptr_t addr, const void *src, size_t size,
 }
 
 /*------------------------------------------------------------------------
+ * Internal: device register behavior (per spec v0.2.0)
+ *------------------------------------------------------------------------*/
+
+/*
+ * Proto-error callback: latch the code into the ERROR_CODE register and
+ * set STATUS bit 2 (PROTO_ERROR), exactly as a real device would.
+ */
+static void mock_dev_proto_error(void *ctx, int error_code) {
+  mock_device_t *dev = (mock_device_t *)ctx;
+  if (!dev)
+    return;
+  dev->proto_error_count++;
+  dev->last_proto_error = error_code;
+  dev->regs[ZBC_REG_STATUS] |= ZBC_STATUS_PROTO_ERROR;
+  dev->regs[ZBC_REG_ERROR_CODE] = (uint8_t)(error_code & 0xFF);
+  dev->regs[ZBC_REG_ERROR_CODE + 1] = (uint8_t)((error_code >> 8) & 0xFF);
+}
+
+/*------------------------------------------------------------------------
  * Initialization
  *------------------------------------------------------------------------*/
 
@@ -65,6 +84,7 @@ void mock_device_init(mock_device_t *dev) {
   zbc_host_init(&dev->host_state, &mem_ops, dev,
                 zbc_backend_dummy(), NULL,
                 dev->work_buf, sizeof(dev->work_buf));
+  zbc_host_set_proto_error_cb(&dev->host_state, mock_dev_proto_error, dev);
 }
 
 void mock_device_init_ansi(mock_device_t *dev, void *backend_state) {
@@ -88,6 +108,7 @@ void mock_device_init_ansi(mock_device_t *dev, void *backend_state) {
   zbc_host_init(&dev->host_state, &mem_ops, dev,
                 zbc_backend_ansi_insecure(), backend_state,
                 dev->work_buf, sizeof(dev->work_buf));
+  zbc_host_set_proto_error_cb(&dev->host_state, mock_dev_proto_error, dev);
 }
 
 void mock_device_set_signature(mock_device_t *dev) {
@@ -140,6 +161,10 @@ void mock_device_doorbell(mock_device_t *dev) {
       zbc_host_process(&dev->host_state, 0);
     }
     dev->process_count++;
+
+    /* Emulator behavior: response (or register error) is ready before the
+     * doorbell write retires. Set STATUS bit 1 per spec v0.2.0. */
+    dev->regs[ZBC_REG_STATUS] |= ZBC_STATUS_RESPONSE_READY;
   }
 
 }

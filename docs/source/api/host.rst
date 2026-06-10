@@ -40,6 +40,31 @@ Functions
                  zbc_backend_ansi_insecure(), &backend_state,
                  work_buf, sizeof(work_buf));
 
+.. autocfunction:: zbc_host.h::zbc_host_set_platform_config
+
+**Example:**
+
+.. code-block:: c
+
+   /* Emulator knows the guest CPU: CNFG becomes optional */
+   zbc_host_set_platform_config(&host, /*int_size=*/2, /*ptr_size=*/2,
+                                ZBC_ENDIAN_LITTLE);
+
+.. autocfunction:: zbc_host.h::zbc_host_set_proto_error_cb
+
+**Example:**
+
+.. code-block:: c
+
+   /* Latch register-channel diagnostics into the device registers */
+   static void on_proto_error(void *ctx, int code) {
+       my_device_t *dev = ctx;
+       dev->error_code = (uint16_t)code;       /* ERROR_CODE @ 0x1A */
+       dev->status |= ZBC_STATUS_PROTO_ERROR;  /* STATUS bit 2 */
+   }
+
+   zbc_host_set_proto_error_cb(&host, on_proto_error, &my_device);
+
 .. autocfunction:: zbc_host.h::zbc_host_process
 
 **Example:**
@@ -47,10 +72,9 @@ Functions
 .. code-block:: c
 
    void on_doorbell_write(uintptr_t riff_ptr) {
-       int rc = zbc_host_process(&host, riff_ptr);
-       if (rc == ZBC_OK) {
-           set_status_response_ready();
-       }
+       zbc_host_process(&host, riff_ptr);
+       /* Response (or register error) is complete: set RESPONSE_READY */
+       my_device.status |= ZBC_STATUS_RESPONSE_READY;
    }
 
 Helper Functions
