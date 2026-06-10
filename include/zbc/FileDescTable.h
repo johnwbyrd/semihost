@@ -42,7 +42,7 @@ public:
   void closeAll();
 
 private:
-  std::array<std::FILE *, MaxFiles> Files_;
+  std::array<std::FILE *, MaxFiles> Files;
 };
 
 } // namespace zbc

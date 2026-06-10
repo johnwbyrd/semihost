@@ -60,18 +60,18 @@ public:
   void write(uint64_t Offset, uint8_t Value);
 
   /// Set the IRQ line callback (for the periodic timer).
-  void setIrqCallback(IrqCallback CB) { OnIrq_ = std::move(CB); }
+  void setIrqCallback(IrqCallback CB) { OnIrq = std::move(CB); }
 
   /// Called by the embedder when the periodic timer fires: latches the
   /// TIMER status bit and asserts the IRQ line.
   void timerTick();
 
-  uint8_t statusRegister() const { return StatusReg_; }
-  bool responseReady() const { return (StatusReg_ & status::ResponseReady) != 0; }
+  uint8_t statusRegister() const { return StatusReg; }
+  bool responseReady() const { return (StatusReg & status::ResponseReady) != 0; }
 
   /// Direct access for embedders that wire their own backend factories.
-  Backend &backend() { return *Backend_; }
-  Policy &policy() { return *Policy_; }
+  Backend &backend() { return *IO; }
+  Policy &policy() { return *Auth; }
 
 private:
   void processRequest();
@@ -84,21 +84,21 @@ private:
 
   uint64_t decodeRiffPtr() const;
 
-  GuestMemory &Mem_;
-  PlatformConfig Config_;
-  std::unique_ptr<Backend> Backend_;
-  std::unique_ptr<Policy> Policy_;
-  IrqCallback OnIrq_;
+  GuestMemory &Mem;
+  PlatformConfig Config;
+  std::unique_ptr<Backend> IO;
+  std::unique_ptr<Policy> Auth;
+  IrqCallback OnIrq;
 
-  std::vector<uint8_t> WorkBuffer_;
-  uint64_t RiffAddr_ = 0; ///< guest address of the request currently in WorkBuffer_
+  std::vector<uint8_t> WorkBuffer;
+  uint64_t RiffAddr = 0; ///< guest address of the request currently in WorkBuffer
 
   // Registers.
-  uint8_t RiffPtr_[16] = {0};
-  uint8_t StatusReg_ = status::None;
-  uint16_t ErrorCodeReg_ = 0;
+  uint8_t RiffPtr[16] = {0};
+  uint8_t StatusReg = status::None;
+  uint16_t ErrorCodeReg = 0;
 
-  static constexpr char Signature_[] = "SEMIHOST";
+  static constexpr char Signature[] = "SEMIHOST";
 };
 
 } // namespace zbc

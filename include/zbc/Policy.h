@@ -114,7 +114,7 @@ public:
   void addAllowedPath(std::string_view Prefix, bool AllowWrite) override;
 
 private:
-  std::unique_ptr<PathValidator> Validator_;
+  std::unique_ptr<PathValidator> Validator;
 };
 
 } // namespace zbc

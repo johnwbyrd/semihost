@@ -10,14 +10,14 @@
 
 namespace zbc {
 
-constexpr char Device::Signature_[];
+constexpr char Device::Signature[];
 constexpr std::size_t Device::DefaultWorkBufferSize;
 
 Device::Device(GuestMemory &Mem, PlatformConfig Config,
                std::unique_ptr<Backend> Backend, std::unique_ptr<Policy> Pol,
                std::size_t WorkBufSize)
-    : Mem_(Mem), Config_(Config), Backend_(std::move(Backend)),
-      Policy_(std::move(Pol)), WorkBuffer_(WorkBufSize) {}
+    : Mem(Mem), Config(Config), IO(std::move(Backend)),
+      Auth(std::move(Pol)), WorkBuffer(WorkBufSize) {}
 
 //===----------------------------------------------------------------------===//
 // Register window
@@ -25,25 +25,25 @@ Device::Device(GuestMemory &Mem, PlatformConfig Config,
 
 uint64_t Device::decodeRiffPtr() const {
   // RIFF_PTR is 16 raw bytes; interpret PtrSize of them in guest byte order.
-  return (uint64_t)zbc_read_native_uint(RiffPtr_, (int)Config_.PtrSize,
-                                        Config_.endianCode());
+  return (uint64_t)zbc_read_native_uint(RiffPtr, (int)Config.PtrSize,
+                                        Config.endianCode());
 }
 
 uint8_t Device::read(uint64_t Offset) {
   if (Offset >= reg::Size)
     return 0xFF;
   if (Offset < ZBC_SIGNATURE_SIZE)
-    return (uint8_t)Signature_[Offset];
+    return (uint8_t)Signature[Offset];
   if (Offset >= reg::RiffPtr && Offset < reg::RiffPtr + reg::RiffPtrWidth)
-    return RiffPtr_[Offset - reg::RiffPtr];
+    return RiffPtr[Offset - reg::RiffPtr];
   if (Offset == reg::Doorbell)
     return 0;
   if (Offset == reg::Status)
-    return StatusReg_;
+    return StatusReg;
   if (Offset == reg::ErrorCode)
-    return (uint8_t)(ErrorCodeReg_ & 0xFF);
+    return (uint8_t)(ErrorCodeReg & 0xFF);
   if (Offset == reg::ErrorCode + 1)
-    return (uint8_t)((ErrorCodeReg_ >> 8) & 0xFF);
+    return (uint8_t)((ErrorCodeReg >> 8) & 0xFF);
   return 0x00;
 }
 
@@ -51,7 +51,7 @@ void Device::write(uint64_t Offset, uint8_t Value) {
   if (Offset >= reg::Size)
     return;
   if (Offset >= reg::RiffPtr && Offset < reg::RiffPtr + reg::RiffPtrWidth) {
-    RiffPtr_[Offset - reg::RiffPtr] = Value;
+    RiffPtr[Offset - reg::RiffPtr] = Value;
     return;
   }
   if (Offset == reg::Doorbell) {
@@ -61,10 +61,10 @@ void Device::write(uint64_t Offset, uint8_t Value) {
   if (Offset == reg::Status) {
     if (Value == 0) {
       // Acknowledge: clear all latched bits, deassert IRQ.
-      StatusReg_ = status::None;
-      ErrorCodeReg_ = 0;
-      if (OnIrq_)
-        OnIrq_(false);
+      StatusReg = status::None;
+      ErrorCodeReg = 0;
+      if (OnIrq)
+        OnIrq(false);
     }
     return;
   }
@@ -72,9 +72,9 @@ void Device::write(uint64_t Offset, uint8_t Value) {
 }
 
 void Device::timerTick() {
-  StatusReg_ |= status::Timer;
-  if (OnIrq_)
-    OnIrq_(true);
+  StatusReg |= status::Timer;
+  if (OnIrq)
+    OnIrq(true);
 }
 
 //===----------------------------------------------------------------------===//
@@ -84,65 +84,65 @@ void Device::timerTick() {
 void Device::flushPayload(std::size_t Offset, std::size_t Size) {
   if (Size == 0)
     return;
-  Mem_.writeBlock(RiffAddr_ + Offset, WorkBuffer_.data() + Offset, Size);
+  Mem.writeBlock(RiffAddr + Offset, WorkBuffer.data() + Offset, Size);
 }
 
 void Device::reportProtoError(const ParsedRequest *Parsed, uint16_t Code) {
   // Prefer the guest's pre-allocated ERRO chunk (richest diagnostic).
   if (Parsed && Parsed->hasErro() &&
       Parsed->ErroPayloadCapacity >= ErroPayloadSize) {
-    auto Written = writeError(MutableByteSpan(WorkBuffer_), *Parsed, Code);
+    auto Written = writeError(MutableByteSpan(WorkBuffer), *Parsed, Code);
     if (Written) {
       flushPayload(Parsed->ErroPayloadOffset, *Written);
       return;
     }
   }
   // Fall back to the register channel; never touch guest memory.
-  ErrorCodeReg_ = Code;
-  StatusReg_ |= status::ProtoError;
+  ErrorCodeReg = Code;
+  StatusReg |= status::ProtoError;
 }
 
 void Device::processRequest() {
   // A fresh request supersedes any previous completion/error flags.
-  StatusReg_ &= (uint8_t)~(status::ResponseReady | status::ProtoError);
-  ErrorCodeReg_ = 0;
+  StatusReg &= (uint8_t)~(status::ResponseReady | status::ProtoError);
+  ErrorCodeReg = 0;
 
-  RiffAddr_ = decodeRiffPtr();
+  RiffAddr = decodeRiffPtr();
 
   // Read the RIFF header to learn the total size.
-  Mem_.readBlock(WorkBuffer_.data(), RiffAddr_, RiffHdrSize);
-  if (ZBC_READ_U32_LE(WorkBuffer_.data()) != fourcc::Riff) {
+  Mem.readBlock(WorkBuffer.data(), RiffAddr, RiffHdrSize);
+  if (ZBC_READ_U32_LE(WorkBuffer.data()) != fourcc::Riff) {
     reportProtoError(nullptr, proto_err::MalformedRiff);
-    StatusReg_ |= status::ResponseReady;
+    StatusReg |= status::ResponseReady;
     return;
   }
 
-  std::size_t Total = 8 + (std::size_t)ZBC_READ_U32_LE(WorkBuffer_.data() + 4);
-  if (Total > WorkBuffer_.size()) {
+  std::size_t Total = 8 + (std::size_t)ZBC_READ_U32_LE(WorkBuffer.data() + 4);
+  if (Total > WorkBuffer.size()) {
     // The size field is guest-controlled; never let it drive allocation.
     reportProtoError(nullptr, proto_err::MalformedRiff);
-    StatusReg_ |= status::ResponseReady;
+    StatusReg |= status::ResponseReady;
     return;
   }
-  Mem_.readBlock(WorkBuffer_.data(), RiffAddr_, Total);
+  Mem.readBlock(WorkBuffer.data(), RiffAddr, Total);
 
-  auto Parsed = parseRequest(ByteSpan(WorkBuffer_.data(), Total), Config_);
+  auto Parsed = parseRequest(ByteSpan(WorkBuffer.data(), Total), Config);
   if (!Parsed) {
     reportProtoError(nullptr, proto_err::MalformedRiff);
-    StatusReg_ |= status::ResponseReady;
+    StatusReg |= status::ResponseReady;
     return;
   }
 
   // CNFG, if present, overrides the platform defaults for the session.
   if (Parsed->HasCnfg)
-    Config_ = Parsed->Config;
+    Config = Parsed->Config;
 
   if (Parsed->HasCall)
     dispatch(*Parsed);
   else
     reportProtoError(&*Parsed, proto_err::InvalidChunk);
 
-  StatusReg_ |= status::ResponseReady;
+  StatusReg |= status::ResponseReady;
 }
 
 //===----------------------------------------------------------------------===//
@@ -151,13 +151,13 @@ void Device::processRequest() {
 
 void Device::dispatch(ParsedRequest &Req) {
   OpResult Result;
-  Backend &B = *Backend_;
-  Policy &P = *Policy_;
+  Backend &B = *IO;
+  Policy &P = *Auth;
 
   // Emit a result into the RETN chunk, or a register/ERRO error if RETN
   // cannot hold it.
   auto emit = [&](const OpResult &R) {
-    auto Written = writeReturn(MutableByteSpan(WorkBuffer_), Req, R.Value,
+    auto Written = writeReturn(MutableByteSpan(WorkBuffer), Req, R.Value,
                                R.Errno, ByteSpan(R.Data));
     if (Written) {
       flushPayload(Req.RetnPayloadOffset, *Written);

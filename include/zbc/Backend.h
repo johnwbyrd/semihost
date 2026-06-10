@@ -97,7 +97,7 @@ protected:
 class ConsoleBackend : public Backend {
 public:
   ConsoleBackend(ExitCallback OnExit, TimerCallback OnTimer = nullptr)
-      : OnExit_(std::move(OnExit)), OnTimer_(std::move(OnTimer)) {}
+      : OnExit(std::move(OnExit)), OnTimer(std::move(OnTimer)) {}
 
   void writeChar(char C) override;
   void writeString(std::string_view Str) override;
@@ -111,9 +111,9 @@ public:
   OpResult timerConfig(unsigned RateHz) override;
 
 private:
-  ExitCallback OnExit_;
-  TimerCallback OnTimer_;
-  std::chrono::steady_clock::time_point StartTime_ =
+  ExitCallback OnExit;
+  TimerCallback OnTimer;
+  std::chrono::steady_clock::time_point StartTime =
       std::chrono::steady_clock::now();
 };
 
@@ -136,8 +136,8 @@ public:
   bool isTTY(int FD) override;
 
 private:
-  FileDescTable FDTable_;
-  int TmpNameCounter_ = 0;
+  FileDescTable FDTable;
+  int TmpNameCounter = 0;
 };
 
 } // namespace zbc

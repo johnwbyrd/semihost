@@ -52,7 +52,7 @@ OpResult ConsoleBackend::write(int FD, ByteSpan Data) {
 
 OpResult ConsoleBackend::clock() {
   auto Now = std::chrono::steady_clock::now();
-  auto Ms = std::chrono::duration_cast<std::chrono::milliseconds>(Now - StartTime_);
+  auto Ms = std::chrono::duration_cast<std::chrono::milliseconds>(Now - StartTime);
   return OpResult::success((intmax_t)(Ms.count() / 10)); // centiseconds
 }
 
@@ -61,14 +61,14 @@ OpResult ConsoleBackend::time() {
 }
 
 void ConsoleBackend::exit(unsigned Reason, unsigned Subcode) {
-  if (OnExit_)
-    OnExit_(Reason, Subcode);
+  if (OnExit)
+    OnExit(Reason, Subcode);
 }
 
 OpResult ConsoleBackend::timerConfig(unsigned RateHz) {
-  if (!OnTimer_)
+  if (!OnTimer)
     return OpResult::error(ENOSYS);
-  if (!OnTimer_(RateHz))
+  if (!OnTimer(RateHz))
     return OpResult::error(EINVAL); // rate not achievable
   return OpResult::success();
 }
@@ -89,7 +89,7 @@ OpResult FileBackend::open(std::string_view Path, OpenMode Mode) {
     LastErrno = errno;
     return OpResult::error(errno);
   }
-  int FD = FDTable_.allocate(FP);
+  int FD = FDTable.allocate(FP);
   if (FD < 0) {
     std::fclose(FP);
     LastErrno = EMFILE;
@@ -99,20 +99,20 @@ OpResult FileBackend::open(std::string_view Path, OpenMode Mode) {
 }
 
 OpResult FileBackend::close(int FD) {
-  if (FDTable_.isStdio(FD))
+  if (FDTable.isStdio(FD))
     return OpResult::success();
-  if (!FDTable_.isValid(FD)) {
+  if (!FDTable.isValid(FD)) {
     LastErrno = EBADF;
     return OpResult::error(EBADF);
   }
-  FDTable_.release(FD);
+  FDTable.release(FD);
   return OpResult::success();
 }
 
 OpResult FileBackend::read(int FD, std::size_t Count) {
   if (FD == 0)
     return ConsoleBackend::read(FD, Count);
-  std::FILE *FP = FDTable_.get(FD);
+  std::FILE *FP = FDTable.get(FD);
   if (!FP) {
     LastErrno = EBADF;
     return OpResult::error(EBADF);
@@ -133,7 +133,7 @@ OpResult FileBackend::read(int FD, std::size_t Count) {
 OpResult FileBackend::write(int FD, ByteSpan Data) {
   if (FD == 1 || FD == 2)
     return ConsoleBackend::write(FD, Data);
-  std::FILE *FP = FDTable_.get(FD);
+  std::FILE *FP = FDTable.get(FD);
   if (!FP) {
     LastErrno = EBADF;
     return OpResult::error(EBADF);
@@ -147,7 +147,7 @@ OpResult FileBackend::write(int FD, ByteSpan Data) {
 }
 
 OpResult FileBackend::seek(int FD, int64_t Pos) {
-  std::FILE *FP = FDTable_.get(FD);
+  std::FILE *FP = FDTable.get(FD);
   if (!FP) {
     LastErrno = EBADF;
     return OpResult::error(EBADF);
@@ -160,7 +160,7 @@ OpResult FileBackend::seek(int FD, int64_t Pos) {
 }
 
 OpResult FileBackend::fileLength(int FD) {
-  std::FILE *FP = FDTable_.get(FD);
+  std::FILE *FP = FDTable.get(FD);
   if (!FP) {
     LastErrno = EBADF;
     return OpResult::error(EBADF);
@@ -203,7 +203,7 @@ OpResult FileBackend::rename(std::string_view OldPath, std::string_view NewPath)
 
 OpResult FileBackend::tmpnam(int Id) {
   char Buf[64];
-  std::snprintf(Buf, sizeof(Buf), "tmp%05d_%03d", TmpNameCounter_++, Id);
+  std::snprintf(Buf, sizeof(Buf), "tmp%05d_%03d", TmpNameCounter++, Id);
   OpResult R;
   R.Value = 0;
   R.Errno = 0;
@@ -212,6 +212,6 @@ OpResult FileBackend::tmpnam(int Id) {
   return R;
 }
 
-bool FileBackend::isTTY(int FD) { return FDTable_.isStdio(FD); }
+bool FileBackend::isTTY(int FD) { return FDTable.isStdio(FD); }
 
 } // namespace zbc

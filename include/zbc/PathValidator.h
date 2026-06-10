@@ -56,7 +56,7 @@ private:
   bool isAllowed(const std::string &ResolvedPath, bool ForWrite) const;
   void reportViolation(ViolationType Type, std::string_view Path) const;
 
-  PathValidatorConfig Config_;
+  PathValidatorConfig Config;
 };
 
 } // namespace zbc

@@ -26,19 +26,19 @@ std::string resolveReal(const fs::path &P) {
 } // namespace
 
 PathValidator::PathValidator(PathValidatorConfig Config)
-    : Config_(std::move(Config)) {
-  if (!Config_.SandboxDir.empty()) {
-    std::string Resolved = resolveReal(Config_.SandboxDir);
+    : Config(std::move(Config)) {
+  if (!Config.SandboxDir.empty()) {
+    std::string Resolved = resolveReal(Config.SandboxDir);
     if (Resolved.empty()) {
       // SECURITY: cannot resolve sandbox root -> deny everything.
-      reportViolation(ViolationType::SandboxEscape, Config_.SandboxDir);
-      Config_.SandboxDir.clear();
+      reportViolation(ViolationType::SandboxEscape, Config.SandboxDir);
+      Config.SandboxDir.clear();
       return;
     }
     // Store with a trailing separator for prefix matching.
     if (Resolved.back() != static_cast<char>(fs::path::preferred_separator))
       Resolved.push_back(static_cast<char>(fs::path::preferred_separator));
-    Config_.SandboxDir = std::move(Resolved);
+    Config.SandboxDir = std::move(Resolved);
   }
 }
 
@@ -48,7 +48,7 @@ Result<std::string> PathValidator::validate(std::string_view Path,
     reportViolation(ViolationType::NullByte, Path);
     return Result<std::string>::error("path contains null byte");
   }
-  if (ForWrite && Config_.ReadOnly) {
+  if (ForWrite && Config.ReadOnly) {
     reportViolation(ViolationType::WriteProtected, Path);
     return Result<std::string>::error("write denied (read-only mode)");
   }
@@ -56,8 +56,8 @@ Result<std::string> PathValidator::validate(std::string_view Path,
   // Make relative paths relative to the sandbox root.
   fs::path Requested(Path);
   fs::path Combined;
-  if (Requested.is_relative() && !Config_.SandboxDir.empty())
-    Combined = fs::path(Config_.SandboxDir) / Requested;
+  if (Requested.is_relative() && !Config.SandboxDir.empty())
+    Combined = fs::path(Config.SandboxDir) / Requested;
   else
     Combined = Requested;
 
@@ -80,17 +80,17 @@ Result<std::string> PathValidator::validate(std::string_view Path,
 
 bool PathValidator::isAllowed(const std::string &ResolvedPath,
                               bool ForWrite) const {
-  if (!Config_.SandboxDir.empty()) {
+  if (!Config.SandboxDir.empty()) {
     // SandboxDir has a trailing separator; allow the dir itself or anything
     // beneath it.
-    std::string NoSep = Config_.SandboxDir;
+    std::string NoSep = Config.SandboxDir;
     NoSep.pop_back();
     if (ResolvedPath == NoSep ||
-        ResolvedPath.compare(0, Config_.SandboxDir.size(),
-                             Config_.SandboxDir) == 0)
+        ResolvedPath.compare(0, Config.SandboxDir.size(),
+                             Config.SandboxDir) == 0)
       return true;
   }
-  for (const auto &Rule : Config_.AllowedPaths) {
+  for (const auto &Rule : Config.AllowedPaths) {
     const std::string &Prefix = Rule.first;
     bool AllowWrite = Rule.second;
     if (ResolvedPath.compare(0, Prefix.size(), Prefix) == 0) {
@@ -103,15 +103,15 @@ bool PathValidator::isAllowed(const std::string &ResolvedPath,
 
 void PathValidator::reportViolation(ViolationType Type,
                                     std::string_view Path) const {
-  if (Config_.OnViolation)
-    Config_.OnViolation(Type, Path);
+  if (Config.OnViolation)
+    Config.OnViolation(Type, Path);
 }
 
 void PathValidator::addAllowedPath(std::string_view Prefix, bool AllowWrite) {
   std::string Resolved = resolveReal(fs::path(Prefix));
   if (Resolved.empty())
     Resolved = std::string(Prefix);
-  Config_.AllowedPaths.emplace_back(std::move(Resolved), AllowWrite);
+  Config.AllowedPaths.emplace_back(std::move(Resolved), AllowWrite);
 }
 
 } // namespace zbc

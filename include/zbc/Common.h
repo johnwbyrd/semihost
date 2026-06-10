@@ -34,38 +34,38 @@ using Bytes = std::vector<uint8_t>;
 template <typename T> class Span {
 public:
   constexpr Span() = default;
-  constexpr Span(T *Data, std::size_t Size) : Data_(Data), Size_(Size) {}
+  constexpr Span(T *Data, std::size_t Size) : Data(Data), Size(Size) {}
 
   /// Construct from a std::vector (const view).
   template <typename U = T,
             typename = std::enable_if_t<std::is_const<U>::value>>
   Span(const std::vector<std::remove_const_t<T>> &V)
-      : Data_(V.data()), Size_(V.size()) {}
+      : Data(V.data()), Size(V.size()) {}
 
   /// Construct a mutable view from a std::vector.
   template <typename U = T,
             typename = std::enable_if_t<!std::is_const<U>::value>>
-  Span(std::vector<T> &V) : Data_(V.data()), Size_(V.size()) {}
+  Span(std::vector<T> &V) : Data(V.data()), Size(V.size()) {}
 
-  constexpr T *data() const { return Data_; }
-  constexpr std::size_t size() const { return Size_; }
-  constexpr bool empty() const { return Size_ == 0; }
-  constexpr T *begin() const { return Data_; }
-  constexpr T *end() const { return Data_ + Size_; }
-  constexpr T &operator[](std::size_t I) const { return Data_[I]; }
+  constexpr T *data() const { return Data; }
+  constexpr std::size_t size() const { return Size; }
+  constexpr bool empty() const { return Size == 0; }
+  constexpr T *begin() const { return Data; }
+  constexpr T *end() const { return Data + Size; }
+  constexpr T &operator[](std::size_t I) const { return Data[I]; }
 
   /// Sub-span starting at Off for Count elements (Count clamped to bounds).
   Span subspan(std::size_t Off, std::size_t Count) const {
-    if (Off > Size_)
-      Off = Size_;
-    if (Count > Size_ - Off)
-      Count = Size_ - Off;
-    return Span(Data_ + Off, Count);
+    if (Off > Size)
+      Off = Size;
+    if (Count > Size - Off)
+      Count = Size - Off;
+    return Span(Data + Off, Count);
   }
 
 private:
-  T *Data_ = nullptr;
-  std::size_t Size_ = 0;
+  T *Data = nullptr;
+  std::size_t Size = 0;
 };
 
 /// Read-only view of bytes (syscall input data).
@@ -88,14 +88,14 @@ public:
   static Status success() { return Status(true, {}); }
   static Status error(std::string Msg) { return Status(false, std::move(Msg)); }
 
-  bool ok() const { return Ok_; }
-  explicit operator bool() const { return Ok_; }
-  const std::string &message() const { return Msg_; }
+  bool ok() const { return Ok; }
+  explicit operator bool() const { return Ok; }
+  const std::string &message() const { return Msg; }
 
 private:
-  Status(bool Ok, std::string Msg) : Ok_(Ok), Msg_(std::move(Msg)) {}
-  bool Ok_;
-  std::string Msg_;
+  Status(bool Ok, std::string Msg) : Ok(Ok), Msg(std::move(Msg)) {}
+  bool Ok;
+  std::string Msg;
 };
 
 /// A value or an error.
@@ -103,26 +103,26 @@ private:
 /// T need not be default-constructible; the error state stores no T.
 template <typename T> class Result {
 public:
-  Result(T Value) : Value_(std::move(Value)) {}
+  Result(T Value) : Value(std::move(Value)) {}
   static Result error(std::string Msg) {
     Result R;
-    R.Msg_ = std::move(Msg);
+    R.Msg = std::move(Msg);
     return R;
   }
 
-  bool ok() const { return Value_.has_value(); }
+  bool ok() const { return Value.has_value(); }
   explicit operator bool() const { return ok(); }
-  const std::string &message() const { return Msg_; }
+  const std::string &message() const { return Msg; }
 
-  T &operator*() { return *Value_; }
-  const T &operator*() const { return *Value_; }
-  T *operator->() { return &*Value_; }
-  const T *operator->() const { return &*Value_; }
+  T &operator*() { return *Value; }
+  const T &operator*() const { return *Value; }
+  T *operator->() { return &*Value; }
+  const T *operator->() const { return &*Value; }
 
 private:
   Result() = default;
-  std::optional<T> Value_;
-  std::string Msg_;
+  std::optional<T> Value;
+  std::string Msg;
 };
 
 } // namespace zbc
