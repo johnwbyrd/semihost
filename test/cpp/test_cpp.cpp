@@ -23,10 +23,8 @@ extern "C" {
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <random>
 #include <string>
-#ifndef _WIN32
-#include <unistd.h>
-#endif
 
 //===----------------------------------------------------------------------===//
 // Tiny test harness
@@ -156,82 +154,96 @@ static void test_open_denied_by_policy() {
   CHECK(resp.error_code == EACCES);
 }
 
-// Real-file sandboxed round-trip. Relies on POSIX mkdtemp/rmdir and on the
-// host's view of paths matching what fopen sees — skipped on Windows where
-// neither holds without nontrivial portability work.
-#ifndef _WIN32
+// std::filesystem replacement for mkdtemp(): unique subdirectory under the
+// platform temp dir, returned in canonical form so the sandbox root and the
+// request paths agree under PathValidator's canonicalization (which matters
+// on macOS where /tmp is a symlink to /private/tmp).
+static std::string makeUniqueTempDir(std::string_view Prefix) {
+  namespace fs = std::filesystem;
+  std::random_device RD;
+  std::uniform_int_distribution<int> Dist(0, 35);
+  static constexpr const char *Alphabet =
+      "0123456789abcdefghijklmnopqrstuvwxyz";
+  std::error_code EC;
+  for (int Attempt = 0; Attempt < 100; ++Attempt) {
+    std::string Suffix(6, '\0');
+    for (char &C : Suffix)
+      C = Alphabet[Dist(RD)];
+    fs::path Candidate =
+        fs::temp_directory_path() / (std::string(Prefix) + Suffix);
+    if (fs::create_directory(Candidate, EC) && !EC)
+      return fs::weakly_canonical(Candidate, EC).string();
+  }
+  return {};
+}
+
 static void test_file_roundtrip_sandboxed() {
   std::printf("test_file_roundtrip_sandboxed\n");
-  char tmpl[] = "/tmp/zbccppXXXXXX";
-  char *raw_dir = mkdtemp(tmpl);
-  CHECK(raw_dir != nullptr);
-  if (!raw_dir)
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
     return;
 
-  // Canonicalize the sandbox root so platform-specific symlinks (e.g. macOS
-  // resolving /tmp -> /private/tmp) don't make the test request paths look
-  // like they live outside the sandbox after PathValidator canonicalizes
-  // them.
-  std::error_code EC;
-  std::string dir = std::filesystem::weakly_canonical(raw_dir, EC).string();
-  CHECK(!EC);
-  CHECK(!dir.empty());
-
   Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
-            std::make_unique<zbc::SandboxedPolicy>(dir));
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
 
-  std::string path = dir + "/data.txt";
-  const char *payload = "roundtrip!";
+  // Build request paths through fs::path so the separator matches the
+  // canonical form PathValidator will compute (forward slash on POSIX,
+  // backslash on Windows).
+  std::string Path = (fs::path(Dir) / "data.txt").string();
+  const char *Payload = "roundtrip!";
 
-  uint8_t buf[512];
-  zbc_response_t resp;
+  uint8_t Buf[512];
+  zbc_response_t Resp;
 
   // open (write), write, close
-  uintptr_t oargs[3] = {(uintptr_t)path.c_str(), SH_OPEN_W,
-                        (uintptr_t)path.size()};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_OPEN, oargs);
-  CHECK((int)resp.result >= 0);
-  int fd = (int)resp.result;
+  uintptr_t OArgs[3] = {(uintptr_t)Path.c_str(), SH_OPEN_W,
+                        (uintptr_t)Path.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_OPEN, OArgs);
+  CHECK((int)Resp.result >= 0);
+  int FD = (int)Resp.result;
 
-  uintptr_t wargs[3] = {(uintptr_t)fd, (uintptr_t)payload,
-                        (uintptr_t)std::strlen(payload)};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_WRITE, wargs);
-  CHECK((int)resp.result == 0); // 0 bytes NOT written
+  uintptr_t WArgs[3] = {(uintptr_t)FD, (uintptr_t)Payload,
+                        (uintptr_t)std::strlen(Payload)};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_WRITE, WArgs);
+  CHECK((int)Resp.result == 0); // 0 bytes NOT written
 
-  uintptr_t cargs[1] = {(uintptr_t)fd};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_CLOSE, cargs);
-  CHECK((int)resp.result == 0);
+  uintptr_t CArgs[1] = {(uintptr_t)FD};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_CLOSE, CArgs);
+  CHECK((int)Resp.result == 0);
 
   // open (read), read back, verify
-  uintptr_t orargs[3] = {(uintptr_t)path.c_str(), SH_OPEN_R,
-                         (uintptr_t)path.size()};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_OPEN, orargs);
-  CHECK((int)resp.result >= 0);
-  fd = (int)resp.result;
+  uintptr_t ORArgs[3] = {(uintptr_t)Path.c_str(), SH_OPEN_R,
+                         (uintptr_t)Path.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_OPEN, ORArgs);
+  CHECK((int)Resp.result >= 0);
+  FD = (int)Resp.result;
 
-  char readbuf[64];
-  std::memset(readbuf, 0, sizeof(readbuf));
-  size_t want = std::strlen(payload);
+  char ReadBuf[64];
+  std::memset(ReadBuf, 0, sizeof(ReadBuf));
+  size_t Want = std::strlen(Payload);
   // SH_SYS_READ args: fd, dest, len  (per opcode table)
-  uintptr_t rargs[3] = {(uintptr_t)fd, (uintptr_t)readbuf, (uintptr_t)want};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_READ, rargs);
-  CHECK((int)resp.result == 0); // all requested bytes read
-  CHECK(std::memcmp(readbuf, payload, want) == 0);
+  uintptr_t RArgs[3] = {(uintptr_t)FD, (uintptr_t)ReadBuf, (uintptr_t)Want};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_READ, RArgs);
+  CHECK((int)Resp.result == 0); // all requested bytes read
+  CHECK(std::memcmp(ReadBuf, Payload, Want) == 0);
 
-  uintptr_t cargs2[1] = {(uintptr_t)fd};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_CLOSE, cargs2);
+  uintptr_t CArgs2[1] = {(uintptr_t)FD};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_CLOSE, CArgs2);
 
   // path traversal escape is denied
-  std::string escape = std::string(dir) + "/../../etc/passwd";
-  uintptr_t eargs[3] = {(uintptr_t)escape.c_str(), SH_OPEN_R,
-                        (uintptr_t)escape.size()};
-  zbc_call(&resp, &H.Client, buf, sizeof(buf), SH_SYS_OPEN, eargs);
-  CHECK((int)resp.result == -1);
+  std::string Escape =
+      (fs::path(Dir) / ".." / ".." / "etc" / "passwd").string();
+  uintptr_t EArgs[3] = {(uintptr_t)Escape.c_str(), SH_OPEN_R,
+                        (uintptr_t)Escape.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_OPEN, EArgs);
+  CHECK((int)Resp.result == -1);
 
-  std::remove(path.c_str());
-  rmdir(dir.c_str());
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
 }
-#endif // !_WIN32
 
 static void test_malformed_riff_register_channel() {
   std::printf("test_malformed_riff_register_channel\n");
@@ -307,11 +319,7 @@ int main() {
   std::printf("=== C++ host library tests ===\n");
   test_write0_console();
   test_open_denied_by_policy();
-#ifndef _WIN32
   test_file_roundtrip_sandboxed();
-#else
-  std::printf("test_file_roundtrip_sandboxed: SKIPPED (Windows)\n");
-#endif
   test_malformed_riff_register_channel();
   test_timer_reject_einval();
   test_timer_tick_irq();
