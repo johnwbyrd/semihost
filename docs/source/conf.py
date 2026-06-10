@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'ZBC Semihosting'
+project = 'Zero Board Computer Reference'
 copyright = '2024, ZBC Project Contributors'
 author = 'ZBC Project Contributors'
 release = '0.1.0'
