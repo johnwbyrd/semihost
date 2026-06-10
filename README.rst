@@ -10,7 +10,7 @@ Develop your embedded application, your libc, your operating system,
 or your test harness against it, and the same code runs on a Xeon,
 on a 6502, on a doorbell controller with a few kilobytes of RAM, on
 over 200 historical systems through MAME, and on hardware that
-doesn't exist yet -- without writing a single device driver.
+doesn't exist yet, without writing a single device driver.
 
 The word for this is *semihosting*: the guest program (the one running
 on the target CPU) borrows file I/O, console output, and other syscalls
@@ -20,7 +20,7 @@ defined a flavor of this in the early '90s; it works, but only on ARM,
 only with a debug probe, only via ARM-specific trap instructions.  ZBC
 rebuilds the same idea around plain memory-mapped I/O so it travels.
 
-**Full documentation:** https://johnwbyrd.github.io/zbc/
+**Full documentation and reference:** https://johnwbyrd.github.io/zbc/
 
 What ZBC Unlocks
 ----------------
@@ -64,7 +64,7 @@ Three consequences:
   in this repo.
 
 - **No debugger required.**  ARM semihosting needs GDB or a hardware
-  probe to service the trap.  ZBC works in a stock software emulator
+  probea, you to service the trap.  ZBC works in a stock software emulator
   with zero debug infrastructure, and works on real silicon with no
   JTAG attached.
 
