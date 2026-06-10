@@ -71,8 +71,10 @@ intptr_t zbc_read_native_int(const uint8_t *buf, int size, int endianness) {
     }
   }
 
-  /* Sign extend if necessary */
-  if (size < (int)sizeof(intptr_t)) {
+  /* Sign extend if necessary. Skip when size <= 0: an empty integer is
+   * just zero, and computing (size * 8 - 1) for size == 0 would shift by
+   * a negative count (undefined behavior, caught by UBSan). */
+  if (size > 0 && size < (int)sizeof(intptr_t)) {
     sign_bit = (uintptr_t)1U << (size * 8 - 1);
     if (value & sign_bit) {
       sign_extend = ~(((uintptr_t)1U << (size * 8)) - 1);
