@@ -75,7 +75,7 @@ add_library(zbc_semi_host STATIC
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
 target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
-# C++ host library (optional consumers: MAME, LLVM-MOS emulator, etc.)
+# C++ host library for emulators and other host-side embedders.
 # Same RIFF protocol as the C host, but a modern C++17 API: Backend/Policy
 # objects, OpResult/Result value types, and a memory-mapped Device. Reuses
 # the shared C sources for endianness handling so the two implementations

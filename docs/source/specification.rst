@@ -311,8 +311,8 @@ directly above the device, so the device base is::
 
    semihost_base = reserved_start - 512 - 32    (ZBC reference system)
 
-The ZBC reference-system formula yields the values below, which is what the
-MAME and llvm-mos implementations use:
+The ZBC reference-system formula yields the values below, which existing
+implementations use:
 
 .. list-table::
    :header-rows: 1

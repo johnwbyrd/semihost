@@ -15,8 +15,7 @@ When to use which
 - Use the **C host** (:doc:`host`) for C codebases, or where you want the
   zero-allocation, C90 implementation.
 - Use the **C++ host** for C++ emulators that want the ``Backend`` /
-  ``Policy`` object model. (This is the design the LLVM-MOS emulator and the
-  MAME device converge on.)
+  ``Policy`` object model.
 
 Architecture
 ------------
@@ -107,8 +106,8 @@ Mirrors the C host's tiered model:
 Value types
 -----------
 
-The library avoids LLVM/Boost dependencies. ``zbc::Result<T>`` and
-``zbc::Status`` replace ``llvm::Expected`` / ``llvm::Error``;
+The library depends only on the C++17 standard library. ``zbc::Result<T>``
+carries a value or an error message and ``zbc::Status`` a success/failure;
 ``zbc::ByteSpan`` is a minimal ``std::span``-like view; owned data is a
 ``std::vector<uint8_t>`` (``zbc::Bytes``). Strings cross the API as
 ``std::string_view``.
