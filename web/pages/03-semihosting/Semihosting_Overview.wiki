@@ -1,3 +1,6 @@
+<!-- DERIVED PAGE: regenerate from the canonical spec at
+     docs/source/specification.rst (repo root). Do not edit spec details here
+     without updating the canonical source first. -->
 = Semihosting Overview =
 
 '''Semihosting''' is a mechanism that allows programs running on embedded systems or emulators to access host services during development. The Zero Board Computer uses a '''memory-mapped semihosting peripheral''' based on the RIFF protocol to provide architecture-agnostic I/O capabilities.

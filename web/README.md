@@ -1,6 +1,15 @@
-# Zero Board Computer Wiki Documentation Repository
+# Zero Board Computer Wiki Documentation
 
-This repository contains the complete MediaWiki documentation for the Zero Board Computer (ZBC) specification, ready to be deployed to www.zeroboardcomputer.com.
+This directory contains the MediaWiki documentation for the Zero Board Computer
+(ZBC), ready to be deployed to www.zeroboardcomputer.com. It lives inside the
+ZBC monorepo alongside the protocol specification and the reference
+implementations.
+
+> **This wiki is derived documentation.** The single source of truth for the
+> semihosting protocol is `docs/source/specification.rst` at the repo root
+> (rendered at https://johnwbyrd.github.io/semihost/). When spec content
+> changes, edit that file and regenerate the affected wiki pages from it. Do
+> not treat these `.wiki` pages as authoritative.
 
 ## What is Zero Board Computer?
 
@@ -27,10 +36,12 @@ The Zero Board Computer (ZBC) is a **platform-agnostic hardware/system specifica
 │   ├── 06-reference/
 │   ├── 07-developer/
 │   └── 08-templates/
-└── reference/                 # Source materials (copies)
-    ├── source-zbc.rst
-    └── source-semihost.md
+└── upload_wiki.py             # MediaWiki upload automation
 ```
+
+(The former `reference/` directory held hand-copied snapshots of the spec.
+Those were removed when the website was merged into the monorepo, to eliminate
+spec drift. The canonical spec now lives at `docs/source/specification.rst`.)
 
 ## Usage
 
@@ -45,17 +56,13 @@ Each `.wiki` file in the `pages/` directory contains MediaWiki markup that can b
 
 ## Source Materials
 
-This documentation is derived from:
+This documentation is derived from the canonical sources in this monorepo:
 
-1. **MAME ZBC Specification** (`/home/jbyrd/git/mame/docs/source/techspecs/zbc.rst`)
-   - Comprehensive system architecture
-   - MAME reference implementation details
-   - zbcgen automation tooling
+1. **Semihosting protocol specification** — `docs/source/specification.rst`
+   (the authoritative spec: register map, RIFF protocol, syscall reference).
 
-2. **RIFF-Based Semihosting Specification** (`/home/jbyrd/git/semihost/semihost.md` - Version 0.1.0)
-   - Hardware register specification
-   - RIFF protocol details
-   - Operation modes and syscall reference
+2. **MAME ZBC system notes** — `web/reference` previously held a copy of the
+   MAME `zbc.rst` techspec; refer to the MAME ZBC driver and the spec directly.
 
 ## Documentation Structure (48 pages)
 

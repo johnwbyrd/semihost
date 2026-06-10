@@ -22,15 +22,14 @@
 
 ## Source Materials
 
-Must read these files to create the documentation:
+Canonical sources in this monorepo:
 
-1. **`/home/jbyrd/git/mame/docs/source/techspecs/zbc.rst`**
-   - Comprehensive ZBC system specification (10 sections)
-   - Covers: architecture, memory layouts, zbcgen tool, MAME integration
-
-2. **`/home/jbyrd/git/semihost/semihost.md`**
-   - RIFF-based semihosting protocol specification (Version 0.1.0)
+1. **`docs/source/specification.rst`** (single source of truth)
+   - RIFF-based semihosting protocol specification
    - Covers: hardware registers, RIFF protocol, operation modes, syscalls
+
+2. **MAME ZBC driver and techspec** (`src/mame/zbc/` in the MAME tree)
+   - ZBC system architecture, memory layouts, zbcgen tool, MAME integration
    - **Important**: Uses `int_size` terminology (not `word_size`)
 
 ## Content Organization Strategy
@@ -238,16 +237,18 @@ Use clear, descriptive names without namespace prefixes:
 │       ├── Template_Note.wiki
 │       ├── Template_SeeAlso.wiki
 │       └── Template_ZBC_Navigation.wiki
-└── reference/
-    ├── source-zbc.rst (copy of /home/jbyrd/git/mame/docs/source/techspecs/zbc.rst)
-    └── source-semihost.md (copy of /home/jbyrd/git/semihost/semihost.md)
+└── upload_wiki.py
 ```
+
+Note: spec sources are no longer copied into `reference/`. The canonical spec
+lives at the monorepo root in `docs/source/specification.rst`; wiki pages are
+derived from it.
 
 ## Implementation Phases
 
 ### Phase 1: Setup and Templates
 - Create directory structure
-- Copy source materials to reference/
+- Reference the canonical spec at `docs/source/specification.rst`
 - Create MediaWiki templates (Warning, Note, SeeAlso, Navigation)
 - Create README.md
 

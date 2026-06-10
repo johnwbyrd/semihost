@@ -2118,7 +2118,7 @@ This document shows the detailed content outline for all 48 wiki pages.
     - Report to MAME developers
 - **Getting Help**
   - Check: This wiki documentation
-  - Check: ZBC specification (PLAN.md, reference/)
+  - Check: ZBC specification (docs/source/specification.rst)
   - Check: MAME documentation
   - Use: MAME debugger for investigation
   - Use: Verbose logging (-verbose flag)

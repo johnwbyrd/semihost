@@ -27,6 +27,19 @@ muck around writing device drivers.
 
 **Full documentation:** https://johnwbyrd.github.io/semihost/
 
+Repository Layout
+-----------------
+
+This is the ZBC monorepo -- all things Zero Board Computer live here:
+
+- ``include/`` ``src/`` -- C reference library (client + host), C90
+- ``docs/`` -- **canonical** protocol specification (Sphinx, rendered to the
+  documentation site above); ``docs/source/specification.rst`` is the single
+  source of truth for the protocol
+- ``test/`` ``fuzz/`` -- host tests, on-target tests, RIFF parser fuzzing
+- ``web/`` -- MediaWiki content for www.zeroboardcomputer.com (derived from the
+  canonical spec; see ``web/README.md``)
+
 Who Is This For?
 ----------------
 
