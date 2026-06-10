@@ -24,7 +24,9 @@ extern "C" {
 #include <filesystem>
 #include <memory>
 #include <string>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 //===----------------------------------------------------------------------===//
 // Tiny test harness
@@ -154,6 +156,10 @@ static void test_open_denied_by_policy() {
   CHECK(resp.error_code == EACCES);
 }
 
+// Real-file sandboxed round-trip. Relies on POSIX mkdtemp/rmdir and on the
+// host's view of paths matching what fopen sees — skipped on Windows where
+// neither holds without nontrivial portability work.
+#ifndef _WIN32
 static void test_file_roundtrip_sandboxed() {
   std::printf("test_file_roundtrip_sandboxed\n");
   char tmpl[] = "/tmp/zbccppXXXXXX";
@@ -225,6 +231,7 @@ static void test_file_roundtrip_sandboxed() {
   std::remove(path.c_str());
   rmdir(dir.c_str());
 }
+#endif // !_WIN32
 
 static void test_malformed_riff_register_channel() {
   std::printf("test_malformed_riff_register_channel\n");
@@ -300,7 +307,11 @@ int main() {
   std::printf("=== C++ host library tests ===\n");
   test_write0_console();
   test_open_denied_by_policy();
+#ifndef _WIN32
   test_file_roundtrip_sandboxed();
+#else
+  std::printf("test_file_roundtrip_sandboxed: SKIPPED (Windows)\n");
+#endif
   test_malformed_riff_register_channel();
   test_timer_reject_einval();
   test_timer_tick_irq();
