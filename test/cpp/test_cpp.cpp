@@ -21,6 +21,7 @@ extern "C" {
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <unistd.h>
@@ -156,15 +157,24 @@ static void test_open_denied_by_policy() {
 static void test_file_roundtrip_sandboxed() {
   std::printf("test_file_roundtrip_sandboxed\n");
   char tmpl[] = "/tmp/zbccppXXXXXX";
-  char *dir = mkdtemp(tmpl);
-  CHECK(dir != nullptr);
-  if (!dir)
+  char *raw_dir = mkdtemp(tmpl);
+  CHECK(raw_dir != nullptr);
+  if (!raw_dir)
     return;
+
+  // Canonicalize the sandbox root so platform-specific symlinks (e.g. macOS
+  // resolving /tmp -> /private/tmp) don't make the test request paths look
+  // like they live outside the sandbox after PathValidator canonicalizes
+  // them.
+  std::error_code EC;
+  std::string dir = std::filesystem::weakly_canonical(raw_dir, EC).string();
+  CHECK(!EC);
+  CHECK(!dir.empty());
 
   Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
             std::make_unique<zbc::SandboxedPolicy>(dir));
 
-  std::string path = std::string(dir) + "/data.txt";
+  std::string path = dir + "/data.txt";
   const char *payload = "roundtrip!";
 
   uint8_t buf[512];
@@ -213,7 +223,7 @@ static void test_file_roundtrip_sandboxed() {
   CHECK((int)resp.result == -1);
 
   std::remove(path.c_str());
-  rmdir(dir);
+  rmdir(dir.c_str());
 }
 
 static void test_malformed_riff_register_channel() {
