@@ -4,9 +4,11 @@
 #
 # Directory structure:
 #   test/
-#   ├── common/     - Shared test infrastructure (harness, mocks)
-#   ├── host/       - Tests that run on build machine
-#   └── target/     - Cross-compiled tests for emulators
+#   ├── common/      - Shared test infrastructure (harness, mocks)
+#   ├── c/           - Host tests against the C library
+#   ├── cpp/         - Host tests against the C++ library
+#   ├── conformance/ - C-vs-C++ wire-protocol equivalence
+#   └── target/      - Cross-compiled tests for emulators
 
 cmake_minimum_required(VERSION 3.10)
 
@@ -14,7 +16,8 @@ cmake_minimum_required(VERSION 3.10)
 # Verify that library sources don't use malloc/calloc/realloc/free
 # Exception: ANSI backend may allocate for tracking open files
 file(GLOB LIB_SOURCES
-    "${CMAKE_SOURCE_DIR}/src/*.c"
+    "${CMAKE_SOURCE_DIR}/src/shared/*.c"
+    "${CMAKE_SOURCE_DIR}/src/c/*.c"
 )
 
 foreach(src ${LIB_SOURCES})
@@ -37,8 +40,11 @@ endforeach()
 
 message(STATUS "Static allocation check passed - no malloc/calloc/realloc in library sources (ANSI backend exempt)")
 
-# Host tests (always built)
-add_subdirectory(host)
+# Per-language host tests
+add_subdirectory(c)
+if(ZBC_BUILD_CPP)
+    add_subdirectory(cpp)
+endif()
 
 # Conformance suite needs both host implementations
 if(ZBC_BUILD_CPP)

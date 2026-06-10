@@ -46,34 +46,38 @@ else()
     add_compile_options(-Wall -Wextra -pedantic -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments)
 endif()
 
-# Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+# Include directories (per-tier; sources keep existing #include directives)
+include_directories(
+    ${CMAKE_SOURCE_DIR}/include/shared
+    ${CMAKE_SOURCE_DIR}/include/c
+    ${CMAKE_SOURCE_DIR}/include/cpp
+)
 
-# Shared sources used by both client and host
+# Shared sources: protocol primitives reused by every host/client/binding.
 set(ZBC_SHARED_SOURCES
-    src/zbc_opcode_table.c
-    src/zbc_riff.c
+    src/shared/zbc_opcode_table.c
+    src/shared/zbc_riff.c
 )
 
 # Client library
 add_library(zbc_semi_client STATIC
     ${ZBC_SHARED_SOURCES}
-    src/zbc_client.c
-    src/zbc_api.c
+    src/c/zbc_client.c
+    src/c/zbc_api.c
 )
 target_compile_definitions(zbc_semi_client PRIVATE ZBC_CLIENT)
 
 # Host library
 add_library(zbc_semi_host STATIC
     ${ZBC_SHARED_SOURCES}
-    src/zbc_host.c
-    src/zbc_backend_dummy.c
-    src/zbc_ansi_common.c
-    src/zbc_ansi_secure.c
-    src/zbc_ansi_insecure.c
+    src/c/zbc_host.c
+    src/c/zbc_backend_dummy.c
+    src/c/zbc_ansi_common.c
+    src/c/zbc_ansi_secure.c
+    src/c/zbc_ansi_insecure.c
 )
 target_compile_definitions(zbc_semi_host PRIVATE ZBC_HOST)
-target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src)
+target_include_directories(zbc_semi_host PRIVATE ${CMAKE_SOURCE_DIR}/src/c)
 
 # C++ host library for emulators and other host-side embedders.
 # Same RIFF protocol as the C host, but a modern C++17 API: Backend/Policy
@@ -91,7 +95,10 @@ if(ZBC_BUILD_CPP)
         src/cpp/Policy.cpp
         src/cpp/Device.cpp
     )
-    target_include_directories(zbc_semi_hostpp PUBLIC ${CMAKE_SOURCE_DIR}/include)
+    target_include_directories(zbc_semi_hostpp PUBLIC
+        ${CMAKE_SOURCE_DIR}/include/shared
+        ${CMAKE_SOURCE_DIR}/include/cpp
+    )
     message(STATUS "C++ host library (zbc_semi_hostpp): enabled")
 endif()
 
@@ -108,10 +115,10 @@ if(ZBC_USE_SECCOMP)
     target_compile_definitions(zbc_semi_host PRIVATE ZBC_HAVE_SECCOMP)
     target_include_directories(zbc_semi_host PRIVATE ${SECCOMP_INCLUDE_DIRS})
     target_link_libraries(zbc_semi_host PRIVATE ${SECCOMP_LIBRARIES})
-    target_sources(zbc_semi_host PRIVATE src/platform/linux/sandbox_seccomp.c)
+    target_sources(zbc_semi_host PRIVATE src/c/platform/linux/sandbox_seccomp.c)
     message(STATUS "Seccomp sandboxing: enabled")
 else()
-    target_sources(zbc_semi_host PRIVATE src/platform/generic/sandbox_stub.c)
+    target_sources(zbc_semi_host PRIVATE src/c/platform/generic/sandbox_stub.c)
     message(STATUS "Sandboxing: disabled (stub)")
 endif()
 

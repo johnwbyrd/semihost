@@ -1,8 +1,6 @@
-# ZBC Host Tests
-#
-# Tests that run on the build machine (not cross-compiled)
+# Host tests for the C library (client + host + ANSI backends + sandbox).
 
-# Main test executable
+# Main test executable: client/host round-trip, high-level API, ANSI backends.
 add_executable(zbc_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/test_harness.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_device.c
@@ -15,43 +13,25 @@ add_executable(zbc_tests
     test_main.c
 )
 
-# Include paths
 target_include_directories(zbc_tests PRIVATE
-    ${CMAKE_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/../common
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Tests need both client and host definitions
+# Tests need both client and host definitions.
 target_compile_definitions(zbc_tests PRIVATE ZBC_CLIENT ZBC_HOST)
+target_link_libraries(zbc_tests zbc_semi_client zbc_semi_host)
 
-# Link against the semihosting libraries
-target_link_libraries(zbc_tests
-    zbc_semi_client
-    zbc_semi_host
-)
-
-# Register test with CTest
 add_test(NAME zbc_semihost_tests COMMAND zbc_tests)
 
 # Sandbox tests - separate binary due to fork() requirement for test isolation
-# (seccomp activation is irreversible within a process)
+# (seccomp activation is irreversible within a process).
 add_executable(zbc_sandbox_tests test_sandbox.c)
-target_include_directories(zbc_sandbox_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(zbc_sandbox_tests zbc_semi_host)
 
-# Pass through seccomp define from parent
 if(ZBC_USE_SECCOMP)
     target_compile_definitions(zbc_sandbox_tests PRIVATE ZBC_HAVE_SECCOMP)
     target_link_libraries(zbc_sandbox_tests ${SECCOMP_LIBRARIES})
 endif()
 
 add_test(NAME zbc_sandbox_tests COMMAND zbc_sandbox_tests)
-
-# C++ host library tests (conformance: C client <-> C++ host)
-if(ZBC_BUILD_CPP)
-    add_executable(zbc_cpp_tests test_cpp.cpp)
-    target_include_directories(zbc_cpp_tests PRIVATE ${CMAKE_SOURCE_DIR}/include)
-    target_link_libraries(zbc_cpp_tests zbc_semi_hostpp zbc_semi_client)
-    add_test(NAME zbc_cpp_tests COMMAND zbc_cpp_tests)
-endif()

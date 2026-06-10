@@ -30,15 +30,27 @@ muck around writing device drivers.
 Repository Layout
 -----------------
 
-This is the ZBC monorepo -- all things Zero Board Computer live here:
+This is the ZBC monorepo -- all things Zero Board Computer live here.
+Sources are organized by language so new implementations (Rust, etc.) can
+slot in as siblings without disturbing existing ones:
 
-- ``include/`` ``src/`` -- C reference library (client + host), C90
-- ``docs/`` -- **canonical** protocol specification (Sphinx, rendered to the
-  documentation site above); ``docs/source/specification.rst`` is the single
-  source of truth for the protocol
-- ``test/`` ``fuzz/`` -- host tests, on-target tests, RIFF parser fuzzing
-- ``web/`` -- MediaWiki content for www.zeroboardcomputer.com (derived from the
-  canonical spec; see ``web/README.md``)
+- ``include/shared/`` ``src/shared/`` -- language-agnostic protocol primitives
+  (RIFF codec, opcode table, ``zbc_protocol.h``); consumed by every
+  implementation so the wire format can't drift
+- ``include/c/`` ``src/c/`` -- C90 reference client and host libraries,
+  plus the ANSI/stdio backend and platform sandbox code
+- ``include/cpp/zbc/`` ``src/cpp/`` -- C++17 host library (``zbc::Device`` /
+  ``zbc::Backend`` / ``zbc::Policy``) intended for emulators
+- ``test/`` -- ``c/`` and ``cpp/`` host tests, ``conformance/`` for
+  C-vs-C++ wire-protocol equivalence, ``target/`` for cross-compiled
+  on-emulator runs, ``common/`` for the shared test harness
+- ``docs/`` -- Sphinx documentation site; the **canonical protocol
+  specification** is `docs/source/specification.rst
+  <docs/source/specification.rst>`_ -- single source of truth for the wire
+  format and the contract any new implementation must conform to
+- ``fuzz/`` -- libFuzzer corpora and target for the RIFF parser
+- ``web/`` -- MediaWiki content for www.zeroboardcomputer.com (derived from
+  the canonical spec; see ``web/README.md``)
 
 Who Is This For?
 ----------------
