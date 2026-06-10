@@ -1,9 +1,9 @@
-==================
-ZBC Semihosting
-==================
+=============================
+Zero Board Computer Reference
+=============================
 
 .. include:: ../../README.rst
-   :start-after: Zero Board Computer Semihosting
+   :start-after: Zero Board Computer
    :end-before: Quick Start
 
 Documentation

@@ -1,5 +1,5 @@
-Zero Board Computer Semihosting
-===============================
+Zero Board Computer
+===================
 
 **One standard for getting bytes in and out of any CPU -- past, present,
 or yet to be designed.**
