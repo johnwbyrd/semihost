@@ -1,57 +1,99 @@
 Zero Board Computer Semihosting
 ===============================
 
-Bringing a new CPU to life is a chicken-and-egg problem: you have silicon
-(or an emulator) that can compute, but no way to get bytes in or out.
-No filesystem. No ``printf``.  No way to run the GCC test suite.  The
-classical answer is *semihosting* -- let the host machine (the emulator,
-the debugger probe) service the guest's syscalls, so a bare-metal
-``fopen`` actually opens a real file on the developer's laptop.
+**One standard for getting bytes in and out of any CPU -- past, present,
+or yet to be designed.**
 
-ARM standardized semihosting in the early '90s and it works beautifully
--- if you're on ARM, with a debug probe, using ARM's specific trap
-instructions.  Everywhere else, you reinvent it.  ZBC semihosting is the
-same idea rebuilt around memory-mapped I/O: a 32-byte register window,
-a RIFF buffer in RAM, and a doorbell write.  No trap instructions, no
-debugger required, works the same on any CPU.
+The Zero Board Computer (ZBC) is a small, deliberately boring
+specification for a memory-mapped I/O device.  Write your libc, your
+operating system, or your test harness against it, and the same code
+runs on a Xeon, on a 6502, on a doorbell controller with a few kilobytes
+of RAM, on over 200 historical systems through MAME, and on hardware
+that doesn't exist yet -- without writing a single device driver.
+
+The word for this is *semihosting*: the guest program (the one running
+on the target CPU) borrows file I/O, console output, and other syscalls
+from a host machine -- an emulator, a simulator, or a developer's
+laptop -- because the guest has no operating system of its own.  ARM
+defined a flavor of this in the early '90s; it works, but only on ARM,
+only with a debug probe, only via ARM-specific trap instructions.  ZBC
+rebuilds the same idea around plain memory-mapped I/O so it travels.
 
 **Full documentation:** https://johnwbyrd.github.io/zbc/
 
-What's Different
+What ZBC Unlocks
 ----------------
 
-- **Memory-mapped, not trap-instruction.**  A 32-byte mmio device anyone
-  can implement.  Works in a stock emulator with no debug infrastructure;
-  works on real silicon with no JTAG probe; an FPGA can implement the
-  device directly in hardware.
-- **Architecture-agnostic by construction.**  The wire protocol is RIFF
-  chunks with guest-declared endianness, so an 8-bit 6502 speaks the same
-  language as 64-bit x86.  The repo has live on-target tests for both
-  today.
-- **ARM-compatible syscall numbers.**  Drop-in with picolibc, newlib, and
-  toolchains that already speak ARM semihosting.  You inherit decades of
-  libc work instead of inventing a new ABI.
+- **Any CPU, from doorbells to data centers.**  The ZBC device is a
+  32-byte register window any CPU can read and write.  No special
+  instructions, no debug probe, no privileged mode.  An 8-bit
+  microcontroller with 4 KB of RAM runs the same protocol an x86-64
+  server runs.
+
+- **Build embedded systems before any hardware exists.**  ZBC is a
+  standard.  Write your libc, your operating system, or your application
+  against it, and you can develop and test the whole stack in an emulator
+  with no silicon at all.  When the real chip arrives, the software
+  already works.
+
+- **Computer archaeology, made practical.**  ZBC integrates with MAME,
+  which emulates over 200 historical systems -- vintage 8- and 16-bit
+  micros, arcade-era processors, classic minicomputers, chips you've
+  only ever read about in old papers.  Drop a ZBC device into a
+  MAME-emulated 6502, Z80, or 68000 system and ``printf``, ``fopen``,
+  and the GCC test suite work on hardware that's been out of production
+  for decades.
+
+- **Bring up CPUs that don't exist yet.**  Designing a new ISA?  Writing
+  a simulator for a research architecture?  ZBC gives the guest side a
+  working libc on day one of bringup, before you've decided what your
+  trap instructions look like.
+
+How Is This Possible?
+---------------------
+
+ZBC trades trap instructions for a 32-byte memory-mapped device.  The
+guest writes a small RIFF-formatted buffer into RAM, pokes a doorbell
+register, and the host reads the buffer and executes the syscall.
+Three consequences:
+
+- **Architecture-agnostic by construction.**  The wire format is RIFF
+  chunks with guest-declared endianness, so an 8-bit 6502 speaks the
+  same protocol as a 64-bit Xeon.  Live on-target tests for both ship
+  in this repo.
+
+- **No debugger required.**  ARM semihosting needs GDB or a hardware
+  probe to service the trap.  ZBC works in a stock software emulator
+  with zero debug infrastructure, and works on real silicon with no
+  JTAG attached.
+
+- **ARM-compatible syscall numbers.**  Same opcode numbering as ARM
+  semihosting, so picolibc, newlib, and toolchains that already speak
+  ARM semihosting work nearly unchanged.  You inherit decades of libc
+  effort instead of inventing a new ABI.
 
 Who Reaches For This
 --------------------
 
-- **Bringing up a new CPU or toolchain.**  Drop the C client library into
-  your libc port; run the GCC test suite against your simulator on day
-  one.  Hours, not weeks.
+- **Bringing up a new CPU or toolchain.**  Drop the C client library
+  into your libc port; run the GCC test suite against your simulator
+  on day one.
 - **Compiler regression suites across many architectures.**  One
-  semihosting implementation for all of them -- the MAME-style "300 CPUs,
-  one test harness" model.
-- **Adding semihosting to an emulator.**  Expose a 32-byte mmio window;
-  link the C++ host library.  An afternoon, not a quarter.
-- **FPGA first-boot demos.**  Show ``printf`` working the day after first
-  boot, without writing a UART driver.
+  semihosting implementation for every target.
+- **Adding semihosting to an emulator.**  Expose a 32-byte mmio window
+  and link the C++ host library.  An afternoon, not a quarter.
+- **Resurrecting vintage hardware.**  Run modern code on anything MAME
+  emulates -- the 1980s home computer in your closet, the arcade board
+  in the museum.
+- **FPGA first-boot demos.**  ``printf`` working the day after first
+  boot, no UART driver.
 
 The Protocol Is the Contract
 ----------------------------
 
 The single source of truth for the wire format is
-`docs/source/specification.rst <docs/source/specification.rst>`_.  The C
-and C++ host libraries in this repo are *implementations* of that
+`docs/source/specification.rst <docs/source/specification.rst>`_.  The
+C and C++ host libraries in this repo are *implementations* of that
 contract, and the conformance suite
 (`test/conformance/test_conformance.cpp
 <test/conformance/test_conformance.cpp>`_) enforces byte-for-byte
@@ -63,8 +105,8 @@ What's In This Repo
 -------------------
 
 Sources are organized by language so new implementations can slot in as
-siblings without disturbing existing ones.  The protocol primitives every
-implementation needs (RIFF codec, opcode table, header) live in
+siblings without disturbing existing ones.  The protocol primitives
+every implementation needs (RIFF codec, opcode table, header) live in
 ``shared/``; each language tier owns its own client, host, and tests on
 top of that base.
 
