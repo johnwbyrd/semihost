@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_RIFFCODEC_H
-#define ZBC_RIFFCODEC_H
+#ifndef ZBC_RIFF_CODEC_HPP
+#define ZBC_RIFF_CODEC_HPP
 
 #include "zbc/Common.h"
 #include "zbc/Protocol.h"
@@ -87,4 +87,4 @@ Result<std::size_t> writeError(MutableByteSpan Buf, const ParsedRequest &Req,
 
 } // namespace zbc
 
-#endif // ZBC_RIFFCODEC_H
+#endif // ZBC_RIFF_CODEC_HPP

@@ -10,16 +10,14 @@
 
 namespace zbc {
 
-namespace {
-constexpr std::size_t WorkBufferSize = 4096;
-} // namespace
-
 constexpr char Device::Signature_[];
+constexpr std::size_t Device::DefaultWorkBufferSize;
 
 Device::Device(GuestMemory &Mem, PlatformConfig Config,
-               std::unique_ptr<Backend> Backend, std::unique_ptr<Policy> Pol)
+               std::unique_ptr<Backend> Backend, std::unique_ptr<Policy> Pol,
+               std::size_t WorkBufSize)
     : Mem_(Mem), Config_(Config), Backend_(std::move(Backend)),
-      Policy_(std::move(Pol)), WorkBuffer_(WorkBufferSize) {}
+      Policy_(std::move(Pol)), WorkBuffer_(WorkBufSize) {}
 
 //===----------------------------------------------------------------------===//
 // Register window
@@ -120,8 +118,12 @@ void Device::processRequest() {
   }
 
   std::size_t Total = 8 + (std::size_t)ZBC_READ_U32_LE(WorkBuffer_.data() + 4);
-  if (Total > WorkBuffer_.size())
-    WorkBuffer_.resize(Total);
+  if (Total > WorkBuffer_.size()) {
+    // The size field is guest-controlled; never let it drive allocation.
+    reportProtoError(nullptr, proto_err::MalformedRiff);
+    StatusReg_ |= status::ResponseReady;
+    return;
+  }
   Mem_.readBlock(WorkBuffer_.data(), RiffAddr_, Total);
 
   auto Parsed = parseRequest(ByteSpan(WorkBuffer_.data(), Total), Config_);

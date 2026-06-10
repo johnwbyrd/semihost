@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_POLICY_H
-#define ZBC_POLICY_H
+#ifndef ZBC_POLICY_HPP
+#define ZBC_POLICY_HPP
 
 #include "zbc/Common.h"
 #include "zbc/PathValidator.h"
@@ -119,4 +119,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_POLICY_H
+#endif // ZBC_POLICY_HPP

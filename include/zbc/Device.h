@@ -18,8 +18,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_DEVICE_H
-#define ZBC_DEVICE_H
+#ifndef ZBC_DEVICE_HPP
+#define ZBC_DEVICE_HPP
 
 #include "zbc/Backend.h"
 #include "zbc/GuestMemory.h"
@@ -38,12 +38,19 @@ public:
   /// Asserts (true) or deasserts (false) the CPU interrupt line.
   using IrqCallback = std::function<void(bool Assert)>;
 
-  /// @param Mem      Guest memory accessor (must outlive the device).
-  /// @param Config   Platform defaults (CNFG, if sent, overrides them).
-  /// @param Backend  Performs the actual I/O.
-  /// @param Pol      Authorizes each operation.
+  /// Default work buffer size; bounds the largest acceptable request.
+  static constexpr std::size_t DefaultWorkBufferSize = 4096;
+
+  /// @param Mem         Guest memory accessor (must outlive the device).
+  /// @param Config      Platform defaults (CNFG, if sent, overrides them).
+  /// @param Backend     Performs the actual I/O.
+  /// @param Pol         Authorizes each operation.
+  /// @param WorkBufSize Work buffer size. Requests whose RIFF size exceeds
+  ///                    this are rejected as malformed (the size field is
+  ///                    guest-controlled and must not drive allocation).
   Device(GuestMemory &Mem, PlatformConfig Config,
-         std::unique_ptr<Backend> Backend, std::unique_ptr<Policy> Pol);
+         std::unique_ptr<Backend> Backend, std::unique_ptr<Policy> Pol,
+         std::size_t WorkBufSize = DefaultWorkBufferSize);
 
   Device(const Device &) = delete;
   Device &operator=(const Device &) = delete;
@@ -96,4 +103,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_DEVICE_H
+#endif // ZBC_DEVICE_HPP

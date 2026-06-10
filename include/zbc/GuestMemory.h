@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_GUESTMEMORY_H
-#define ZBC_GUESTMEMORY_H
+#ifndef ZBC_GUEST_MEMORY_HPP
+#define ZBC_GUEST_MEMORY_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -40,4 +40,4 @@ public:
 
 } // namespace zbc
 
-#endif // ZBC_GUESTMEMORY_H
+#endif // ZBC_GUEST_MEMORY_HPP

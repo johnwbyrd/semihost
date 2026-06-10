@@ -11,8 +11,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_PATHVALIDATOR_H
-#define ZBC_PATHVALIDATOR_H
+#ifndef ZBC_PATH_VALIDATOR_HPP
+#define ZBC_PATH_VALIDATOR_HPP
 
 #include "zbc/Common.h"
 
@@ -61,4 +61,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_PATHVALIDATOR_H
+#endif // ZBC_PATH_VALIDATOR_HPP

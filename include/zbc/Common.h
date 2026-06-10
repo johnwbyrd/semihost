@@ -12,8 +12,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_COMMON_H
-#define ZBC_COMMON_H
+#ifndef ZBC_COMMON_HPP
+#define ZBC_COMMON_HPP
 
 #include <cstddef>
 #include <cstdint>
@@ -127,4 +127,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_COMMON_H
+#endif // ZBC_COMMON_HPP

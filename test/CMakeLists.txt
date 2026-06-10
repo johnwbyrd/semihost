@@ -39,3 +39,8 @@ message(STATUS "Static allocation check passed - no malloc/calloc/realloc in lib
 
 # Host tests (always built)
 add_subdirectory(host)
+
+# Conformance suite needs both host implementations
+if(ZBC_BUILD_CPP)
+    add_subdirectory(conformance)
+endif()

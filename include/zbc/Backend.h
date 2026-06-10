@@ -17,8 +17,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_BACKEND_H
-#define ZBC_BACKEND_H
+#ifndef ZBC_BACKEND_HPP
+#define ZBC_BACKEND_HPP
 
 #include "zbc/Common.h"
 #include "zbc/FileDescTable.h"
@@ -142,4 +142,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_BACKEND_H
+#endif // ZBC_BACKEND_HPP

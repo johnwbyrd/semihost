@@ -10,8 +10,8 @@
 ///
 //===----------------------------------------------------------------------===//
 
-#ifndef ZBC_FILEDESCTABLE_H
-#define ZBC_FILEDESCTABLE_H
+#ifndef ZBC_FILE_DESC_TABLE_HPP
+#define ZBC_FILE_DESC_TABLE_HPP
 
 #include <array>
 #include <cstdio>
@@ -47,4 +47,4 @@ private:
 
 } // namespace zbc
 
-#endif // ZBC_FILEDESCTABLE_H
+#endif // ZBC_FILE_DESC_TABLE_HPP
