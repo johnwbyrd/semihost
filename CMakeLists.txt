@@ -11,7 +11,7 @@
 #   cmake -B build -G "Xcode"
 
 cmake_minimum_required(VERSION 3.10)
-project(zbc_semihost C CXX)
+project(zbc C CXX)
 
 # Set the default build type to Release.
 # Users can override this with -DCMAKE_BUILD_TYPE=Debug or similar.
