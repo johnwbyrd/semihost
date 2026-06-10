@@ -80,7 +80,8 @@ Device Register Offsets
    #define ZBC_REG_SIGNATURE   0x00  /* 8 bytes, R - ASCII "SEMIHOST" */
    #define ZBC_REG_RIFF_PTR    0x08  /* 16 bytes, RW - pointer to RIFF buffer */
    #define ZBC_REG_DOORBELL    0x18  /* 1 byte, W - write to trigger request */
-   #define ZBC_REG_STATUS      0x19  /* 1 byte, RW - interrupt pending (write 0 to clear) */
+   #define ZBC_REG_STATUS      0x19  /* 1 byte, RW - status/interrupt bitmask (write 0 to ack) */
+   #define ZBC_REG_ERROR_CODE  0x1A  /* 2 bytes, R - last protocol error code (LE, 0=none) */
    #define ZBC_REG_SIZE        0x20  /* Total register space: 32 bytes */
 
 Structures

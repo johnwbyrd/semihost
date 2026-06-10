@@ -48,9 +48,14 @@ convenient address in your emulator's memory space:
      - 1
      - STATUS
      - RW
-     - Interrupt pending (write 0 to clear)
-   * - 0x1A-0x1F
-     - 6
+     - Status/interrupt bitmask (write 0 to acknowledge)
+   * - 0x1A-0x1B
+     - 2
+     - ERROR_CODE
+     - R
+     - Last protocol error code (little-endian, 0 = none)
+   * - 0x1C-0x1F
+     - 4
      - RESERVED
      - \-
      - Reserved for future use
@@ -135,7 +140,10 @@ When the guest writes to DOORBELL, call ``zbc_host_process()``:
 
    void on_doorbell_write(uintptr_t riff_ptr) {
        zbc_host_process(&host, riff_ptr);
-       /* Set STATUS bit 0 in your device register emulation */
+       /* Set STATUS bit 1 (ZBC_STATUS_RESPONSE_READY) in your device
+        * register emulation. On an emulator the request is fully processed
+        * synchronously here, so the response is ready as soon as this
+        * returns. */
    }
 
 The host library reads the RIFF request from guest memory, dispatches to
