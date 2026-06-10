@@ -1,8 +1,8 @@
 Security
 =========
 
-ZBC Semihosting provides several layers of protection to prevent guest code
-from compromising the host system. However, semihosting is inherently powerful --
+ZBC provides several layers of protection to prevent guest code from
+compromising the host system. However, semihosting is inherently powerful --
 guest code can access host files, console, and system calls. Use appropriate
 backends and configurations for your threat model.
 

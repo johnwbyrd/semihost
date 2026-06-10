@@ -1,7 +1,7 @@
 Client Library
 ==============
 
-The ZBC semihosting client library gives you file I/O, console access, and
+The ZBC client library gives you file I/O, console access, and
 time services from within your guest, without needing to write device drivers
 for your particular real or virtual hardware.  It's the quickest way to bring
 up code for your new architecture or emulator.

@@ -2,7 +2,7 @@ API Reference
 =============
 
 This section provides detailed API documentation for all public functions
-and types in the ZBC Semihosting library.
+and types in the ZBC reference libraries.
 
 Overview
 --------
