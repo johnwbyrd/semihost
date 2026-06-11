@@ -91,7 +91,7 @@ static int vcon_rx(zbc_vcon_state_t *vcon, void *dest, size_t len,
  * Transport entry point
  *========================================================================*/
 
-static void fill_response(zbc_response_t *response, int result,
+static void vcon_fill_response(zbc_response_t *response, int result,
                           int error_code) {
   response->result = result;
   response->error_code = error_code;
@@ -122,7 +122,7 @@ static int vcon_transport_call(zbc_response_t *response,
     if (rc != ZBC_OK) {
       return rc;
     }
-    fill_response(response, 0, 0);
+    vcon_fill_response(response, 0, 0);
     return ZBC_OK;
   }
 
@@ -132,7 +132,7 @@ static int vcon_transport_call(zbc_response_t *response,
     if (rc != ZBC_OK) {
       return rc;
     }
-    fill_response(response, 0, 0);
+    vcon_fill_response(response, 0, 0);
     return ZBC_OK;
   }
 
@@ -144,10 +144,10 @@ static int vcon_transport_call(zbc_response_t *response,
       if (rc != ZBC_OK) {
         return rc;
       }
-      fill_response(response, 0, 0);
+      vcon_fill_response(response, 0, 0);
     } else {
       vcon->last_errno = ZBC_ERRNO_EBADF;
-      fill_response(response, -1, ZBC_ERRNO_EBADF);
+      vcon_fill_response(response, -1, ZBC_ERRNO_EBADF);
     }
     return ZBC_OK;
   }
@@ -164,12 +164,12 @@ static int vcon_transport_call(zbc_response_t *response,
       if (rc != ZBC_OK) {
         return rc;
       }
-      fill_response(response, (int)(count - got), 0);
+      vcon_fill_response(response, (int)(count - got), 0);
       response->data = dest;
       response->data_size = got;
     } else {
       vcon->last_errno = ZBC_ERRNO_EBADF;
-      fill_response(response, -1, ZBC_ERRNO_EBADF);
+      vcon_fill_response(response, -1, ZBC_ERRNO_EBADF);
     }
     return ZBC_OK;
   }
@@ -182,30 +182,30 @@ static int vcon_transport_call(zbc_response_t *response,
     if (rc != ZBC_OK) {
       return rc;
     }
-    fill_response(response, (got == 1) ? (int)c : -1, 0);
+    vcon_fill_response(response, (got == 1) ? (int)c : -1, 0);
     return ZBC_OK;
   }
 
   case SH_SYS_ISTTY: {
     int fd = (int)args[0];
-    fill_response(response, (fd >= 0 && fd <= 2) ? 1 : 0, 0);
+    vcon_fill_response(response, (fd >= 0 && fd <= 2) ? 1 : 0, 0);
     return ZBC_OK;
   }
 
   case SH_SYS_ISERROR: {
     intptr_t status = (intptr_t)args[0];
-    fill_response(response, (status < 0) ? 1 : 0, 0);
+    vcon_fill_response(response, (status < 0) ? 1 : 0, 0);
     return ZBC_OK;
   }
 
   case SH_SYS_ERRNO:
-    fill_response(response, vcon->last_errno, 0);
+    vcon_fill_response(response, vcon->last_errno, 0);
     return ZBC_OK;
 
   default:
     /* File ops belong to the 9p transport; time/exit to platform hooks. */
     vcon->last_errno = ZBC_ERRNO_ENOSYS;
-    fill_response(response, -1, ZBC_ERRNO_ENOSYS);
+    vcon_fill_response(response, -1, ZBC_ERRNO_ENOSYS);
     return ZBC_OK;
   }
 }

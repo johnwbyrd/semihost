@@ -438,7 +438,7 @@ int zbc_9p_mount(zbc_9p_state_t *s) {
  * Opcode implementations
  *========================================================================*/
 
-static void fill_response(zbc_response_t *response, int result,
+static void p9_fill_response(zbc_response_t *response, int result,
                           int error_code) {
   response->result = result;
   response->error_code = error_code;
@@ -451,7 +451,7 @@ static void fill_response(zbc_response_t *response, int result,
 /* Fail with a POSIX errno: result -1, sticky SYS_ERRNO state. */
 static void fail_errno(zbc_9p_state_t *s, zbc_response_t *response, int err) {
   s->last_errno = err;
-  fill_response(response, -1, err);
+  p9_fill_response(response, -1, err);
 }
 
 /* SH_OPEN_* -> Tlopen/Tlcreate flags. Binary modes map like text modes. */
@@ -572,7 +572,7 @@ static int do_open(zbc_9p_state_t *s, zbc_response_t *response,
   }
 
   s->files[slot].in_use = 1;
-  fill_response(response, slot + 3, 0);
+  p9_fill_response(response, slot + 3, 0);
   return ZBC_OK;
 }
 
@@ -597,7 +597,7 @@ static int do_close(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
   /* Tclunk releases the fid even on error; the slot is freed either way. */
   p9_clunk(s, P9_FID_FILE(slot));
   s->files[slot].in_use = 0;
-  fill_response(response, 0, 0);
+  p9_fill_response(response, 0, 0);
   return ZBC_OK;
 }
 
@@ -661,7 +661,7 @@ static int do_read(zbc_9p_state_t *s, zbc_response_t *response, int fd,
     }
   }
 
-  fill_response(response, (int)(count - got), 0); /* bytes NOT read */
+  p9_fill_response(response, (int)(count - got), 0); /* bytes NOT read */
   response->data = dest;
   response->data_size = got;
   return ZBC_OK;
@@ -718,7 +718,7 @@ static int do_write(zbc_9p_state_t *s, zbc_response_t *response, int fd,
     }
   }
 
-  fill_response(response, (int)(count - written), 0); /* bytes NOT written */
+  p9_fill_response(response, (int)(count - written), 0); /* bytes NOT written */
   return ZBC_OK;
 }
 
@@ -741,7 +741,7 @@ static int do_flen(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
     fail_errno(s, response, p9err);
     return ZBC_OK;
   }
-  fill_response(response, (int)size, 0);
+  p9_fill_response(response, (int)size, 0);
   return ZBC_OK;
 }
 
@@ -773,7 +773,7 @@ static int do_remove(zbc_9p_state_t *s, zbc_response_t *response,
     fail_errno(s, response, p9err);
     return ZBC_OK;
   }
-  fill_response(response, 0, 0);
+  p9_fill_response(response, 0, 0);
   return ZBC_OK;
 }
 
@@ -828,7 +828,7 @@ static int do_rename(zbc_9p_state_t *s, zbc_response_t *response,
     fail_errno(s, response, p9err);
     return ZBC_OK;
   }
-  fill_response(response, 0, 0);
+  p9_fill_response(response, 0, 0);
   return ZBC_OK;
 }
 
@@ -861,7 +861,7 @@ static int do_tmpnam(zbc_9p_state_t *s, zbc_response_t *response, char *dest,
   for (i = 0; i < (int)sizeof(name); i++) {
     dest[i] = name[i];
   }
-  fill_response(response, 0, 0);
+  p9_fill_response(response, 0, 0);
   response->data = (const uint8_t *)dest;
   response->data_size = sizeof(name);
   return ZBC_OK;
@@ -906,7 +906,7 @@ static int p9_transport_call(zbc_response_t *response,
       fail_errno(s, response, ZBC_ERRNO_EBADF);
     } else {
       s->files[slot].offset = (uint32_t)args[1];
-      fill_response(response, 0, 0);
+      p9_fill_response(response, 0, 0);
     }
     return ZBC_OK;
   }
@@ -927,25 +927,25 @@ static int p9_transport_call(zbc_response_t *response,
 
   case SH_SYS_ISTTY: {
     int fd = (int)args[0];
-    fill_response(response, (fd >= 0 && fd <= 2) ? 1 : 0, 0);
+    p9_fill_response(response, (fd >= 0 && fd <= 2) ? 1 : 0, 0);
     return ZBC_OK;
   }
 
   case SH_SYS_ISERROR: {
     intptr_t status = (intptr_t)args[0];
-    fill_response(response, (status < 0) ? 1 : 0, 0);
+    p9_fill_response(response, (status < 0) ? 1 : 0, 0);
     return ZBC_OK;
   }
 
   case SH_SYS_ERRNO:
-    fill_response(response, s->last_errno, 0);
+    p9_fill_response(response, s->last_errno, 0);
     return ZBC_OK;
 
   default:
     /* Console opcodes route to the console transport in a composite;
      * time/exit go to platform hooks. */
     s->last_errno = ZBC_ERRNO_ENOSYS;
-    fill_response(response, -1, ZBC_ERRNO_ENOSYS);
+    p9_fill_response(response, -1, ZBC_ERRNO_ENOSYS);
     return ZBC_OK;
   }
 }
