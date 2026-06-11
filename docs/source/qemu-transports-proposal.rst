@@ -103,6 +103,11 @@ build-RIFF/doorbell/parse path moves behind the vtable as the **default
 transport**, preserving current behavior bit-for-bit. ``zbc_api_*`` and
 ``zbc_semihost()`` do not change at all.
 
+The transport field is public. Assigning it directly before the first
+call overrides the probe chain entirely -- that is the whole
+selection-override mechanism, and there is no dedicated API for it.
+Users own the code; they can break it if they want.
+
 A transport need not implement every opcode itself; transports compose.
 The composition mirrors the C++ host library's Backend hierarchy
 (inert base → ``ConsoleBackend`` → ``FileBackend``): a console-capable
@@ -150,9 +155,11 @@ call), the library probes in order:
    is 2 (modern). DeviceID (offset 0x008) selects the driver: 3 = console,
    9 = 9P transport, 0 = empty slot. Select the QEMU composite transport
    with whichever devices were found.
-3. **No transport.** Call a weak hook ``zbc_no_transport()``; the default
-   implementation spins (a deliberate, debuggable hang at a known symbol).
-   Platforms may override it to write a panic code somewhere visible.
+3. **No transport.** Select the **null transport**: every operation
+   returns -1 with errno ``ENOSYS``, immediately and deterministically.
+   The library never hangs. The selected transport is a public field of
+   ``zbc_client_state_t``, so a guest that wants to react to probe
+   failure can inspect it.
 
 Trap semihosting is **not** part of the runtime chain (see below); it is a
 build-time selection.
@@ -187,8 +194,9 @@ Known virtio-mmio Windows
 
 These constants live in the per-platform port (alongside the ZBC device
 base address), not in the transport core. Machines that expose virtio only
-over PCI (x86 ``pc``/``q35``) are out of scope for the first
-implementation; PCI enumeration is a documented future extension.
+over PCI (x86 ``pc``/``q35``) are **permanently out of scope**: PCI
+enumeration is exactly the kind of platform-specific surface this library
+refuses to grow, and ``microvm`` is the supported x86 machine.
 
 Transport: Native Trap Semihosting
 ----------------------------------
@@ -213,8 +221,9 @@ Properties:
   as SYS_ERRNO, recover -- drags per-architecture vector management into
   the library. Therefore the trap transport is an explicit **build-time
   selection** (``-DZBC_TRANSPORT_TRAP``) for ports that want it, not a
-  link in the runtime probe chain. Revisiting this once per-arch fault
-  shims exist is an open question.
+  link in the runtime probe chain. This is a final decision, not a
+  stopgap: maintaining per-architecture fault shims is precisely the
+  platform-specific code this library exists to avoid.
 
 Where the trap transport is selected, the virtio drivers are unnecessary
 and are not linked.
@@ -325,6 +334,12 @@ open_flags}``; fds 0-2 are reserved for the console transport, user files
 start at 3. Because 9p reads and writes carry explicit offsets, SYS_SEEK
 is pure fd-table state and never touches the wire.
 
+The fd table is a **private detail of the 9p transport**, not shared seam
+infrastructure: 9p is the only transport with client-side file
+descriptors (the RIFF and trap transports delegate fd ownership to the
+host). The equivalence suite verifies that fd semantics nevertheless
+match across transports.
+
 Errno mapping is direct: every 9P2000.L failure is an ``Rlerror`` carrying
 a Linux errno, which flows into ``response->error_code`` unchanged.
 
@@ -426,7 +441,7 @@ per-platform hooks with safe defaults:
    * - SYS_EXIT / SYS_EXIT_EXTENDED
      - ``isa-debug-exit`` (x86), ``sifive_test`` (RISC-V ``virt``),
        PSCI ``SYSTEM_OFF`` (ARM ``virt``)
-     - Spin at a known symbol
+     - -1 / ``ENOSYS`` (returns to the caller; the library never hangs)
    * - SYS_CLOCK, SYS_ELAPSED, SYS_TICKFREQ
      - Cycle counter / CLINT ``mtime`` / TSC, per platform
      - -1 / ``ENOSYS``
@@ -546,28 +561,34 @@ Implementation Plan
 Step 2 is deliberately early: it proves the seam end-to-end on stock QEMU
 with trivial transport code before the virtio investment.
 
-Open Questions
---------------
+Design Decisions
+----------------
 
-1. **Probe-chain failure mode.** Is spin-at-a-symbol the right default
-   for ``zbc_no_transport()``, or should the library attempt a best-effort
-   console message first (chicken-and-egg if no transport exists)?
-2. **fd-table placement.** Per-transport (the RIFF path needs none -- the
-   host owns fds) versus shared in the seam. Per-transport is proposed
-   here; the cost is that SYS_ERRNO and fd-validity semantics must be
-   re-verified by the equivalence suite for each transport.
-3. **Trap-transport probing.** Worth building per-arch fault shims so the
-   trap can join the runtime probe chain, or is build-time selection
-   permanently acceptable?
-4. **virtio-pci.** Needed eventually for x86 ``pc``/``q35`` (and for
-   VMMs without virtio-mmio)? Or is ``microvm`` an acceptable answer for
-   x86 indefinitely?
-5. **Selection override.** Should a guest be able to force a transport at
-   runtime (environment of the embedder, linker symbol) rather than
-   trusting the probe order?
-6. **Read/write loop semantics.** When a looped 9p SYS_READ hits EOF
-   mid-way, partial-read accounting must match the host backends exactly;
-   pin this down in the equivalence suite early.
+Questions raised by the initial draft, settled during review, and
+recorded here with rationale.
+
+1. **Probe failure never hangs.** If no transport is found, the null
+   transport is selected and every call fails immediately with -1 /
+   ``ENOSYS``. No spin loops, no weak panic hooks: the library either
+   works or fails deterministically.
+2. **The fd table belongs to the 9p transport.** A shared fd layer in
+   the seam would be infrastructure only one transport uses; instead the
+   9p transport owns its table privately, and the equivalence suite
+   proves fd semantics match across transports.
+3. **Trap transport is build-time, permanently.** Runtime trap probing
+   would require per-architecture fault shims -- exactly the
+   N-platforms-of-specialized-code burden this design exists to avoid.
+4. **No virtio-pci, ever.** ``microvm`` is the supported x86 machine,
+   indefinitely. PCI enumeration is rejected as platform-specific
+   surface area.
+5. **Transport override is just the public vtable field.** Assign
+   ``state->transport`` before the first call to bypass the probe; no
+   dedicated selection API. Users have the code and may break it as
+   they please.
+6. **Partial-transfer accounting is pinned early.** The equivalence
+   suite covers EOF-mid-loop reads and short writes from the first 9p
+   milestone, so looped ``Tread``/``Twrite`` accounting cannot drift
+   from host-backend behavior.
 
 Revision History
 ----------------
@@ -581,3 +602,8 @@ Revision History
    * - 2026-06
      - Initial proposal: transport seam, probe chain, trap/virtio-console/
        virtio-9p transports for stock QEMU
+   * - 2026-06
+     - Open questions resolved: null transport on probe failure (never
+       hang), 9p-private fd table, trap transport build-time permanently,
+       microvm-only on x86 (no virtio-pci), override via public vtable
+       field
