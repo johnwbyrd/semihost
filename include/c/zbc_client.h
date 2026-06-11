@@ -132,11 +132,12 @@ const zbc_transport_t *zbc_transport_riff(void);
 const zbc_transport_t *zbc_transport_null(void);
 
 /**
- * POSIX ENOSYS ("function not implemented") as reported by the null
- * transport. Defined here because freestanding targets have no <errno.h>;
- * the value matches Linux.
+ * POSIX errno values reported by guest-side transports for operations
+ * they implement (or refuse) locally. Defined here because freestanding
+ * targets have no <errno.h>; the values match Linux.
  */
-#define ZBC_ERRNO_ENOSYS 38
+#define ZBC_ERRNO_EBADF 9   /**< Bad file descriptor */
+#define ZBC_ERRNO_ENOSYS 38 /**< Function not implemented */
 
 /*========================================================================
  * Client API

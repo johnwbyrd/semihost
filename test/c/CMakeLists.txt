@@ -5,8 +5,11 @@ add_executable(zbc_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/test_harness.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_device.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_virtio.c
     test_client_builder.c
     test_transport.c
+    test_virtio.c
+    test_vcon.c
     test_roundtrip.c
     test_api.c
     test_ansi_insecure.c

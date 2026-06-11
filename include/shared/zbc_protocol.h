@@ -202,6 +202,7 @@ typedef uint32_t uintptr_t;
 #define ZBC_ERR_TIMEOUT           (-12)  /* Operation timed out */
 #define ZBC_ERR_INVALID_ARG       (-13)  /* Invalid argument */
 #define ZBC_ERR_PARSE_ERROR       (-14)  /* Malformed RIFF data */
+#define ZBC_ERR_AGAIN             (-15)  /* Not ready yet; poll again */
 
 /*========================================================================
  * Protocol error codes (in ERRO chunk, or in the ERROR_CODE register
