@@ -506,7 +506,10 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
       found_retn = 1;
       /* RETN: result[int_size] + errno[4] + optional DATA sub-chunk */
       if (size >= (size_t)int_size + ZBC_RETN_ERRNO_SIZE) {
-        response->result = zbc_read_native_int(chunk_data, int_size, endian);
+        /* int_size equals sizeof(int) on the client by construction; the
+         * cast cannot lose data here. Host-side parsing keeps the wider
+         * intptr_t (see zbc_protocol.h's parsed-message struct). */
+        response->result = (int)zbc_read_native_int(chunk_data, int_size, endian);
         response->error_code = (int)ZBC_READ_U32_LE(chunk_data + int_size);
 
         /* Check for DATA sub-chunk within RETN */

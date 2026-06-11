@@ -129,7 +129,7 @@ static int test_file_length(void)
     const char *test_data = "1234567890"; /* 10 bytes */
     int fd;
     int result;
-    int len;
+    intmax_t len;
 
     make_temp_path(filename, sizeof(filename), "zbc_test_flen.txt");
     filename_len = strlen(filename);
@@ -597,6 +597,7 @@ static int test_stress_fd_io_functional(void)
     int opened_count;
     int result;
     int len;
+    intmax_t flen_result;
 
     /* Initialize */
     for (i = 0; i < STRESS_FILE_COUNT_SMALL; i++) {
@@ -640,8 +641,8 @@ static int test_stress_fd_io_functional(void)
     /* Verify flen works on all files */
     for (i = 0; i < opened_count; i++) {
         sprintf(write_buf, "file_%04d_data", i);
-        len = be->flen(ctx, fds[i]);
-        TEST_ASSERT(len == (int)strlen(write_buf), "flen incorrect");
+        flen_result = be->flen(ctx, fds[i]);
+        TEST_ASSERT(flen_result == (intmax_t)strlen(write_buf), "flen incorrect");
     }
 
     /* Cleanup */
