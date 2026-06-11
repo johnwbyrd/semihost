@@ -23,6 +23,8 @@ void zbc_client_init(zbc_client_state_t *state, volatile void *dev_base) {
   state->endianness = (uint8_t)ZBC_CLIENT_ENDIANNESS;
   state->doorbell_callback = (void (*)(void *))0;
   state->doorbell_ctx = (void *)0;
+  state->transport = zbc_transport_riff();
+  state->transport_ctx = (void *)0;
 }
 
 int zbc_client_check_signature(const zbc_client_state_t *state) {
@@ -560,18 +562,18 @@ int zbc_parse_response(zbc_response_t *response, const uint8_t *buf,
 }
 
 /*========================================================================
- * Main entry points
+ * RIFF/doorbell device transport (the default)
+ *
+ * The original zbc_call() pipeline -- build RIFF request, submit via
+ * RIFF_PTR + DOORBELL, parse RETN/ERRO -- packaged as a transport.
  *========================================================================*/
 
-int zbc_call(zbc_response_t *response, zbc_client_state_t *state, void *buf,
-             size_t buf_size, int opcode, uintptr_t *args) {
+static int riff_transport_call(zbc_response_t *response,
+                               zbc_client_state_t *state, void *buf,
+                               size_t buf_size, int opcode, uintptr_t *args) {
   const zbc_opcode_entry_t *entry;
   size_t riff_size;
   int rc;
-
-  if (!response || !state || !buf) {
-    return ZBC_ERR_INVALID_ARG;
-  }
 
   entry = zbc_opcode_lookup(opcode);
   if (!entry) {
@@ -629,6 +631,29 @@ int zbc_call(zbc_response_t *response, zbc_client_state_t *state, void *buf,
   }
 
   return ZBC_OK;
+}
+
+static const zbc_transport_t riff_transport_vtable = {riff_transport_call};
+
+const zbc_transport_t *zbc_transport_riff(void) {
+  return &riff_transport_vtable;
+}
+
+/*========================================================================
+ * Main entry points
+ *========================================================================*/
+
+int zbc_call(zbc_response_t *response, zbc_client_state_t *state, void *buf,
+             size_t buf_size, int opcode, uintptr_t *args) {
+  if (!response || !state || !buf) {
+    return ZBC_ERR_INVALID_ARG;
+  }
+
+  if (!state->transport || !state->transport->call) {
+    return ZBC_ERR_NOT_INITIALIZED;
+  }
+
+  return state->transport->call(response, state, buf, buf_size, opcode, args);
 }
 
 uintptr_t zbc_semihost(zbc_client_state_t *state, uint8_t *riff_buf,

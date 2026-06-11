@@ -39,12 +39,15 @@ extern "C" {
  * Client Types
  *========================================================================*/
 
+/** Forward declaration: the transport vtable references the client state. */
+struct zbc_transport_s;
+
 /**
  * Client state structure.
  *
  * Initialize with zbc_client_init() before use.
  */
-typedef struct {
+typedef struct zbc_client_state_s {
     volatile uint8_t *dev_base;  /**< Pointer to device registers */
     uint8_t cnfg_sent;           /**< 1 if CNFG chunk has been sent */
     uint8_t int_size;            /**< sizeof(int) on this platform */
@@ -52,6 +55,15 @@ typedef struct {
     uint8_t endianness;          /**< ZBC_ENDIAN_LITTLE or ZBC_ENDIAN_BIG */
     void (*doorbell_callback)(void *);  /**< For testing */
     void *doorbell_ctx;          /**< Context for doorbell callback */
+
+    /**
+     * Transport vtable. zbc_client_init() selects the RIFF/doorbell
+     * device transport; assign a different vtable before the first
+     * zbc_call() to override (this is the entire selection-override
+     * mechanism -- there is no dedicated API).
+     */
+    const struct zbc_transport_s *transport;
+    void *transport_ctx;         /**< Transport-private context */
 } zbc_client_state_t;
 
 /**
@@ -67,6 +79,64 @@ typedef struct {
     int is_error;         /**< 1 if ERRO chunk received */
     int proto_error;      /**< Protocol error code from ERRO */
 } zbc_response_t;
+
+/*========================================================================
+ * Transports
+ *
+ * A transport executes one semihosting operation: it fills the response
+ * (result, errno, optional data) and, for data-returning opcodes such as
+ * SYS_READ, copies payload into the caller's destination buffer from
+ * args[] per the opcode table. The observable semantics at the
+ * zbc_call() boundary are identical for every transport; only the wire
+ * underneath differs (ZBC RIFF device, virtio, trap, ...).
+ *========================================================================*/
+
+/** Transport vtable. */
+typedef struct zbc_transport_s {
+    /**
+     * Execute one semihosting operation.
+     *
+     * @param[out] response Receives parsed response
+     * @param state         Initialized client state (transport_ctx within)
+     * @param buf           Caller-provided working buffer
+     * @param buf_size      Size of working buffer
+     * @param opcode        SH_SYS_* opcode
+     * @param args          Argument array (layout per opcode), may be NULL
+     * @return ZBC_OK on success, ZBC_ERR_* on protocol/transport error
+     */
+    int (*call)(zbc_response_t *response, struct zbc_client_state_s *state,
+                void *buf, size_t buf_size, int opcode, uintptr_t *args);
+} zbc_transport_t;
+
+/**
+ * The RIFF/doorbell device transport (the default).
+ *
+ * Builds a RIFF request in the working buffer, submits it via the
+ * memory-mapped ZBC device (RIFF_PTR + DOORBELL), and parses the
+ * RETN/ERRO response. This is the transport zbc_client_init() selects.
+ *
+ * @return Pointer to the transport vtable (static, never NULL)
+ */
+const zbc_transport_t *zbc_transport_riff(void);
+
+/**
+ * The null transport: every operation fails immediately.
+ *
+ * Selected when transport discovery finds no usable device. Each call
+ * succeeds at the transport level (returns ZBC_OK) with result -1 and
+ * errno ZBC_ERRNO_ENOSYS in the response -- deterministic failure, no
+ * hardware access, no hang.
+ *
+ * @return Pointer to the transport vtable (static, never NULL)
+ */
+const zbc_transport_t *zbc_transport_null(void);
+
+/**
+ * POSIX ENOSYS ("function not implemented") as reported by the null
+ * transport. Defined here because freestanding targets have no <errno.h>;
+ * the value matches Linux.
+ */
+#define ZBC_ERRNO_ENOSYS 38
 
 /*========================================================================
  * Client API
