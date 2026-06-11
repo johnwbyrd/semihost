@@ -66,6 +66,7 @@ add_library(zbc_semi_client STATIC
     src/c/zbc_transport_null.c
     src/c/zbc_virtio.c
     src/c/zbc_transport_vcon.c
+    src/c/zbc_transport_9p.c
     src/c/zbc_api.c
 )
 target_compile_definitions(zbc_semi_client PRIVATE ZBC_CLIENT)

@@ -136,7 +136,10 @@ const zbc_transport_t *zbc_transport_null(void);
  * they implement (or refuse) locally. Defined here because freestanding
  * targets have no <errno.h>; the values match Linux.
  */
+#define ZBC_ERRNO_ENOENT 2  /**< No such file or directory */
 #define ZBC_ERRNO_EBADF 9   /**< Bad file descriptor */
+#define ZBC_ERRNO_EINVAL 22 /**< Invalid argument */
+#define ZBC_ERRNO_EMFILE 24 /**< Too many open files */
 #define ZBC_ERRNO_ENOSYS 38 /**< Function not implemented */
 
 /*========================================================================
