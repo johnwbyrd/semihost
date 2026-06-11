@@ -3,7 +3,8 @@
 # Detects gcc -m32 capability and sets up cross-compilation.
 
 set(ZBC_PLATFORM_NAME "i386")
-set(ZBC_PLATFORM_MAME_MACHINE "zbci386")
+set(ZBC_PLATFORM_i386_RUNNERS mame)
+set(ZBC_PLATFORM_i386_MAME_MACHINE "zbci386")
 
 # Check for 32-bit capable GCC
 find_program(GCC_EXECUTABLE gcc)

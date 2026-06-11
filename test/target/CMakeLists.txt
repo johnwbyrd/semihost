@@ -62,9 +62,9 @@ message(STATUS "Available platforms: ${ZBC_AVAILABLE_PLATFORMS}")
 
 # Client library sources (needed for each platform build)
 set(ZBC_CLIENT_SOURCES
-    ${CMAKE_SOURCE_DIR}/src/zbc_client.c
-    ${CMAKE_SOURCE_DIR}/src/zbc_riff.c
-    ${CMAKE_SOURCE_DIR}/src/zbc_opcode_table.c
+    ${CMAKE_SOURCE_DIR}/src/c/zbc_client.c
+    ${CMAKE_SOURCE_DIR}/src/shared/zbc_riff.c
+    ${CMAKE_SOURCE_DIR}/src/shared/zbc_opcode_table.c
 )
 
 # Test source
@@ -99,7 +99,8 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
         OUTPUT ${ELF_OUTPUT}
         COMMAND ${CC}
             ${CFLAGS}
-            -I${CMAKE_SOURCE_DIR}/include
+            -I${CMAKE_SOURCE_DIR}/include/c
+            -I${CMAKE_SOURCE_DIR}/include/shared
             -I${CMAKE_CURRENT_SOURCE_DIR}
             -I${PLATFORM_DIR}
             -DZBC_CLIENT
@@ -121,31 +122,38 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
 
     add_custom_target(${target_name} ALL DEPENDS ${ELF_OUTPUT})
 
-    # Register tests with available runners
-    if(ZBC_RUNNER_MAME_FOUND)
-        # Get MAME machine name for this platform
-        if(platform STREQUAL "i386")
-            set(mame_machine "zbci386")
-        elseif(platform STREQUAL "m6502")
-            set(mame_machine "zbcm6502")
+    # Register tests with each runner this platform declares it supports.
+    # Per-runner config (machine name, qemu flags, etc.) lives in the
+    # platform's platform.cmake as ZBC_PLATFORM_<p>_<RUNNER>_* variables.
+    foreach(runner ${ZBC_PLATFORM_${platform}_RUNNERS})
+        if(runner STREQUAL "mame")
+            if(NOT ZBC_RUNNER_MAME_FOUND)
+                continue()
+            endif()
+            set(mame_machine ${ZBC_PLATFORM_${platform}_MAME_MACHINE})
+            if(NOT mame_machine)
+                message(WARNING
+                    "Platform ${platform} declares mame runner but "
+                    "ZBC_PLATFORM_${platform}_MAME_MACHINE is unset")
+                continue()
+            endif()
+
+            add_mame_test(
+                zbc_target_${platform}_mame
+                ${ELF_OUTPUT}
+                ${mame_machine}
+                TIMEOUT 60
+                INPUT "A"  # Input for READC test
+            )
+
+            set_tests_properties(zbc_target_${platform}_mame PROPERTIES
+                DEPENDS ${target_name}
+            )
         else()
-            message(WARNING "No MAME machine mapping for platform: ${platform}")
-            continue()
+            message(WARNING
+                "Platform ${platform} declared unknown runner: ${runner}")
         endif()
-
-        add_mame_test(
-            zbc_target_${platform}_mame
-            ${ELF_OUTPUT}
-            ${mame_machine}
-            TIMEOUT 60
-            INPUT "A"  # Input for READC test
-        )
-
-        # Make test depend on build
-        set_tests_properties(zbc_target_${platform}_mame PROPERTIES
-            DEPENDS ${target_name}
-        )
-    endif()
+    endforeach()
 
 endforeach()
 

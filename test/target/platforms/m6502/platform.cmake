@@ -3,7 +3,8 @@
 # Detects llvm-mos compiler and sets up cross-compilation.
 
 set(ZBC_PLATFORM_NAME "m6502")
-set(ZBC_PLATFORM_MAME_MACHINE "zbcm6502")
+set(ZBC_PLATFORM_m6502_RUNNERS mame)
+set(ZBC_PLATFORM_m6502_MAME_MACHINE "zbcm6502")
 
 # Look for mos-clang (llvm-mos compiler)
 find_program(LLVM_MOS_CLANG mos-clang
