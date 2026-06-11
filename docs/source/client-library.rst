@@ -348,6 +348,30 @@ Open Mode Flags
 See ``zbc_protocol.h`` for the full list (modes 0-11 corresponding to
 fopen modes).
 
+Transports
+----------
+
+``zbc_call()`` dispatches every operation through a transport vtable on
+the client state. ``zbc_client_init()`` selects the default: the ZBC
+device transport (RIFF buffer + RIFF_PTR + DOORBELL) described in this
+document. Assigning a different vtable to ``state->transport`` before
+the first call overrides it -- that is the entire selection mechanism.
+
+Available transports (see :doc:`qemu-transports-proposal` for design):
+
+- ``zbc_transport_riff()`` -- the ZBC memory-mapped device (default).
+- ``zbc_transport_null()`` -- every operation fails immediately with
+  -1 / ``ZBC_ERRNO_ENOSYS``; the terminal state when discovery finds no
+  device. Never touches hardware, never hangs.
+- ``zbc_transport_vcon()`` -- console opcodes over a virtio-console
+  device on a stock emulator (``zbc_vcon.h``).
+- ``zbc_transport_9p()`` -- file opcodes over a virtio-9p (9P2000.L)
+  device, e.g. QEMU's built-in ``-fsdev``/``-virtfs`` export
+  (``zbc_9p.h``).
+
+Whatever the transport, the observable semantics at the ``zbc_call()``
+boundary are identical; guest code and the high-level API never change.
+
 Buffer Management
 -----------------
 

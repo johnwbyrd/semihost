@@ -561,6 +561,16 @@ Implementation Plan
 Step 2 is deliberately early: it proves the seam end-to-end on stock QEMU
 with trivial transport code before the virtio investment.
 
+.. note::
+
+   **Status:** steps 1, 3, 4, and 5 are implemented and host-tested
+   (transport seam + null transport; virtio core with mock-device unit
+   tests; virtio-console; virtio-9p against a scripted 9P2000.L server).
+   Step 2 (trap thunk) and step 6 (QEMU on-target runner) remain, as
+   does the composite transport that routes console opcodes to vcon and
+   file opcodes to 9p behind one vtable, and the cross-transport
+   equivalence suite.
+
 Design Decisions
 ----------------
 
