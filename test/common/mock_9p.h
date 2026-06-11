@@ -41,15 +41,16 @@ typedef struct {
   char dirs[MOCK9P_MAX_DIRS][MOCK9P_PATH_MAX];
   int dir_count;
   mock9p_fid_t fids[MOCK9P_MAX_FIDS];
-  uint32_t reply_msize; /* 0 = echo the client's msize */
-  int request_count;    /* T-messages processed */
+  uint32_t reply_msize;    /* 0 = echo the client's msize */
+  int request_count;       /* T-messages processed */
+  uint64_t last_io_offset; /* offset of the most recent Tread/Twrite */
 } mock9p_t;
 
 void mock9p_init(mock9p_t *fs);
 
 /* Add a file with initial contents. Returns NULL if full. */
-mock9p_file_t *mock9p_add_file(mock9p_t *fs, const char *path,
-                               const void *data, size_t len);
+mock9p_file_t *mock9p_add_file(mock9p_t *fs, const char *path, const void *data,
+                               size_t len);
 
 /* Register a directory (the root "" is implicit). */
 void mock9p_add_dir(mock9p_t *fs, const char *path);

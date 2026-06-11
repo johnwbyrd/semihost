@@ -368,6 +368,59 @@ static void test_9p_misc(void) {
 }
 
 /*------------------------------------------------------------------------
+ * Test: offsets travel the wire at full 64-bit width
+ *
+ * Width neutrality (see CLAUDE.md): the transport must never narrow a
+ * wire field. Seek beyond 4 GiB and verify the Tread carried the full
+ * offset, high word included.
+ *------------------------------------------------------------------------*/
+
+static void test_9p_full_width_offsets(void) {
+  uint8_t dest[8];
+  uintptr_t args[3];
+  zbc_response_t response;
+  uint64_t big_offset;
+  int fd;
+
+  if (sizeof(uintptr_t) < 8) {
+    /* This host's ABI cannot express a > 4 GiB seek argument; the
+     * accumulated-offset path is still 64-bit, but skip the wire check. */
+    return;
+  }
+  /* Defined double shift; equals 2^32 + 0x10 on 64-bit hosts. */
+  big_offset = ((uint64_t)1 << 32) + 0x10;
+
+  TEST_ASSERT_EQ(setup_9p(&g_fx), ZBC_OK);
+  TEST_ASSERT(mock9p_add_file(&g_fx.fs, "f", "x", 1) != (mock9p_file_t *)0);
+
+  fd = zbc_api_open(&g_fx.api, "f", SH_OPEN_R);
+  TEST_ASSERT(fd >= 3);
+
+  /* SEEK through zbc_call: the high-level API narrows pos to int (an
+   * ABI choice), so drive the raw args array with the full value. */
+  args[0] = (uintptr_t)fd;
+  args[1] = (uintptr_t)big_offset;
+  TEST_ASSERT_EQ(zbc_call(&response, &g_fx.client, g_fx.riff, sizeof(g_fx.riff),
+                          SH_SYS_SEEK, args),
+                 ZBC_OK);
+  TEST_ASSERT_EQ(response.result, 0);
+
+  /* Read at that offset: EOF (nothing read), but the wire must have
+   * carried the full 64-bit offset including the high word. */
+  args[0] = (uintptr_t)fd;
+  args[1] = (uintptr_t)dest;
+  args[2] = sizeof(dest);
+  TEST_ASSERT_EQ(zbc_call(&response, &g_fx.client, g_fx.riff, sizeof(g_fx.riff),
+                          SH_SYS_READ, args),
+                 ZBC_OK);
+  TEST_ASSERT_EQ(response.result, (int)sizeof(dest)); /* bytes NOT read */
+  TEST_ASSERT(g_fx.fs.last_io_offset == big_offset);
+  TEST_ASSERT((uint32_t)(g_fx.fs.last_io_offset >> 32) == 1);
+
+  TEST_ASSERT_EQ(zbc_api_close(&g_fx.api, fd), 0);
+}
+
+/*------------------------------------------------------------------------
  * Suite runner
  *------------------------------------------------------------------------*/
 
@@ -386,6 +439,7 @@ void run_9p_tests(void) {
   RUN_TEST(9p_chunked_io);
   RUN_TEST(9p_fd_exhaustion);
   RUN_TEST(9p_misc);
+  RUN_TEST(9p_full_width_offsets);
 
   END_SUITE();
 }

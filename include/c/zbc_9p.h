@@ -14,8 +14,10 @@
  *
  * Because 9p reads and writes carry explicit offsets, the file position
  * (and therefore SYS_SEEK) is pure guest-side state in the fd table,
- * which is private to this transport. File offsets are 32-bit in this
- * implementation.
+ * which is private to this transport. Offsets and sizes are carried at
+ * the wire's full 64-bit width regardless of the guest's word size, so
+ * even an 8-bit guest can stream through files larger than its own
+ * address space.
  */
 
 #ifndef ZBC_9P_H
@@ -40,7 +42,7 @@ extern "C" {
 
 /** One open file: 9p fid plus guest-side position state. */
 typedef struct {
-  uint32_t offset; /**< File position (SYS_SEEK state) */
+  uint64_t offset; /**< File position (SYS_SEEK state), full wire width */
   uint8_t in_use;
 } zbc_9p_file_t;
 

@@ -66,11 +66,10 @@ static void wr_u32(p9_wr_t *w, uint32_t v) {
   w->pos += 4;
 }
 
-/* 64-bit field from a 32-bit value (this implementation tracks 32-bit
- * file offsets; the high word is always zero). */
-static void wr_u64_32(p9_wr_t *w, uint32_t lo) {
-  wr_u32(w, lo);
-  wr_u32(w, 0);
+/* 64-bit field at full wire width, written as two LE words. */
+static void wr_u64(p9_wr_t *w, uint64_t v) {
+  wr_u32(w, (uint32_t)v);
+  wr_u32(w, (uint32_t)(v >> 32));
 }
 
 static void wr_bytes(p9_wr_t *w, const void *data, size_t len) {
@@ -259,7 +258,7 @@ static int p9_walk(zbc_9p_state_t *s, uint32_t base_fid, uint32_t newfid,
         i++;
       }
       if (n >= ZBC_9P_MAXWELEM) {
-        *p9err = 36; /* ENAMETOOLONG: deeper than one Twalk carries */
+        *p9err = ZBC_ERRNO_ENAMETOOLONG; /* deeper than one Twalk carries */
         return ZBC_OK;
       }
       comp[n] = path + start;
@@ -298,16 +297,17 @@ static int p9_walk(zbc_9p_state_t *s, uint32_t base_fid, uint32_t newfid,
   return ZBC_OK;
 }
 
-/* Fetch the file size via Tgetattr. */
-static int p9_getattr_size(zbc_9p_state_t *s, uint32_t fid, uint32_t *size_out,
+/* Fetch the file size via Tgetattr, at full 64-bit wire width. */
+static int p9_getattr_size(zbc_9p_state_t *s, uint32_t fid, uint64_t *size_out,
                            int *p9err) {
   p9_wr_t w;
   p9_rd_t reply;
+  uint32_t lo, hi;
   int rc;
 
   wr_begin(&w, s, ZBC_9P_TGETATTR, P9_TAG);
   wr_u32(&w, fid);
-  wr_u64_32(&w, (uint32_t)ZBC_9P_GETATTR_SIZE);
+  wr_u64(&w, (uint64_t)ZBC_9P_GETATTR_SIZE);
 
   rc = p9_rpc(s, &w, ZBC_9P_RGETATTR, &reply, p9err);
   if (rc != ZBC_OK || *p9err != 0) {
@@ -315,11 +315,12 @@ static int p9_getattr_size(zbc_9p_state_t *s, uint32_t fid, uint32_t *size_out,
   }
 
   rd_skip(&reply, ZBC_9P_RGETATTR_SIZE_OFFSET);
-  *size_out = rd_u32(&reply); /* low word; 32-bit offsets by design */
-  rd_skip(&reply, 4);
+  lo = rd_u32(&reply);
+  hi = rd_u32(&reply);
   if (reply.truncated) {
     return ZBC_ERR_PARSE_ERROR;
   }
+  *size_out = (uint64_t)lo | ((uint64_t)hi << 32);
   return ZBC_OK;
 }
 
@@ -439,7 +440,7 @@ int zbc_9p_mount(zbc_9p_state_t *s) {
  *========================================================================*/
 
 static void p9_fill_response(zbc_response_t *response, int result,
-                          int error_code) {
+                             int error_code) {
   response->result = result;
   response->error_code = error_code;
   response->data = (const uint8_t *)0;
@@ -557,7 +558,7 @@ static int do_open(zbc_9p_state_t *s, zbc_response_t *response,
   /* Append modes start at end-of-file, like fopen("a"). */
   s->files[slot].offset = 0;
   if (flags & ZBC_9P_O_APPEND) {
-    uint32_t size = 0;
+    uint64_t size = 0;
 
     rc = p9_getattr_size(s, fid, &size, &p9err);
     if (rc != ZBC_OK || p9err != 0) {
@@ -630,7 +631,7 @@ static int do_read(zbc_9p_state_t *s, zbc_response_t *response, int fd,
 
     wr_begin(&w, s, ZBC_9P_TREAD, P9_TAG);
     wr_u32(&w, P9_FID_FILE(slot));
-    wr_u64_32(&w, s->files[slot].offset);
+    wr_u64(&w, s->files[slot].offset);
     wr_u32(&w, n);
     rc = p9_rpc(s, &w, ZBC_9P_RREAD, &reply, &p9err);
     if (rc != ZBC_OK) {
@@ -694,7 +695,7 @@ static int do_write(zbc_9p_state_t *s, zbc_response_t *response, int fd,
 
     wr_begin(&w, s, ZBC_9P_TWRITE, P9_TAG);
     wr_u32(&w, P9_FID_FILE(slot));
-    wr_u64_32(&w, s->files[slot].offset);
+    wr_u64(&w, s->files[slot].offset);
     wr_u32(&w, n);
     wr_bytes(&w, src + written, n);
     rc = p9_rpc(s, &w, ZBC_9P_RWRITE, &reply, &p9err);
@@ -724,7 +725,7 @@ static int do_write(zbc_9p_state_t *s, zbc_response_t *response, int fd,
 
 static int do_flen(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
   int slot = fd_slot(s, fd);
-  uint32_t size = 0;
+  uint64_t size = 0;
   int p9err;
   int rc;
 
@@ -741,6 +742,9 @@ static int do_flen(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
     fail_errno(s, response, p9err);
     return ZBC_OK;
   }
+  /* ABI boundary: the RETN result field is the guest's natural int by
+   * spec. The narrowing happens here and only here, exactly as it does
+   * for the RIFF transport's RETN. */
   p9_fill_response(response, (int)size, 0);
   return ZBC_OK;
 }
@@ -905,7 +909,7 @@ static int p9_transport_call(zbc_response_t *response,
     if (slot < 0) {
       fail_errno(s, response, ZBC_ERRNO_EBADF);
     } else {
-      s->files[slot].offset = (uint32_t)args[1];
+      s->files[slot].offset = (uint64_t)args[1];
       p9_fill_response(response, 0, 0);
     }
     return ZBC_OK;

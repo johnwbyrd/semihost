@@ -190,12 +190,12 @@ static uint32_t c_u32(cur_t *c) {
   return v;
 }
 
-/* 64-bit field, low word only (the transport never exceeds 32 bits). */
-static uint32_t c_u64_32(cur_t *c) {
+/* 64-bit field at full wire width, read as two LE words. */
+static uint64_t c_u64(cur_t *c) {
   uint32_t lo = c_u32(c);
+  uint32_t hi = c_u32(c);
 
-  (void)c_u32(c);
-  return lo;
+  return (uint64_t)lo | ((uint64_t)hi << 32);
 }
 
 /* 9p string into a NUL-terminated stack buffer (truncating). */
@@ -246,9 +246,9 @@ static void r_u32(rep_t *r, uint32_t v) {
   r->pos += 4;
 }
 
-static void r_u64_32(rep_t *r, uint32_t lo) {
-  r_u32(r, lo);
-  r_u32(r, 0);
+static void r_u64(rep_t *r, uint64_t v) {
+  r_u32(r, (uint32_t)v);
+  r_u32(r, (uint32_t)(v >> 32));
 }
 
 static void r_bytes(rep_t *r, const void *data, size_t len) {
@@ -260,8 +260,8 @@ static void r_bytes(rep_t *r, const void *data, size_t len) {
 
 static void r_qid(rep_t *r, int dir) {
   r_u8(r, dir ? ZBC_9P_QTDIR : 0);
-  r_u32(r, 0);    /* version */
-  r_u64_32(r, 0); /* path */
+  r_u32(r, 0); /* version */
+  r_u64(r, 0); /* path */
 }
 
 static void r_begin(rep_t *r, uint8_t *buf, size_t cap, int type,
@@ -460,7 +460,7 @@ int mock9p_service(void *ctx, int queue_index, const uint8_t *out,
 
   case ZBC_9P_TREAD: {
     uint32_t fid = c_u32(&c);
-    uint32_t offset = c_u64_32(&c);
+    uint64_t offset = c_u64(&c);
     uint32_t count = c_u32(&c);
     mock9p_fid_t *f = fid_find(fs, fid);
     mock9p_file_t *file;
@@ -469,9 +469,10 @@ int mock9p_service(void *ctx, int queue_index, const uint8_t *out,
     if (!f || c.bad) {
       return r_error(in, in_len, tag, M9_EIO);
     }
+    fs->last_io_offset = offset;
     file = mock9p_find(fs, f->path);
     if (file && offset < file->size) {
-      n = file->size - offset;
+      n = (uint32_t)(file->size - offset);
       if (n > count) {
         n = count;
       }
@@ -486,7 +487,7 @@ int mock9p_service(void *ctx, int queue_index, const uint8_t *out,
 
   case ZBC_9P_TWRITE: {
     uint32_t fid = c_u32(&c);
-    uint32_t offset = c_u64_32(&c);
+    uint64_t offset = c_u64(&c);
     uint32_t count = c_u32(&c);
     mock9p_fid_t *f = fid_find(fs, fid);
     mock9p_file_t *file;
@@ -495,18 +496,19 @@ int mock9p_service(void *ctx, int queue_index, const uint8_t *out,
     if (!f || c.bad || c.pos + count > c.len) {
       return r_error(in, in_len, tag, M9_EIO);
     }
+    fs->last_io_offset = offset;
     file = mock9p_find(fs, f->path);
     if (!file) {
       return r_error(in, in_len, tag, M9_ENOENT);
     }
     if (offset < MOCK9P_FILE_CAP) {
-      n = MOCK9P_FILE_CAP - offset; /* short write at capacity */
+      n = (uint32_t)(MOCK9P_FILE_CAP - offset); /* short write at capacity */
       if (n > count) {
         n = count;
       }
       memcpy(file->data + offset, c.buf + c.pos, n);
-      if (offset + n > file->size) {
-        file->size = offset + n;
+      if ((uint32_t)offset + n > file->size) {
+        file->size = (uint32_t)offset + n;
       }
     }
     r_begin(&r, in, in_len, ZBC_9P_RWRITE, tag);
@@ -557,14 +559,14 @@ int mock9p_service(void *ctx, int queue_index, const uint8_t *out,
     }
 
     r_begin(&r, in, in_len, ZBC_9P_RGETATTR, tag);
-    r_u64_32(&r, (uint32_t)ZBC_9P_GETATTR_SIZE); /* valid */
+    r_u64(&r, (uint64_t)ZBC_9P_GETATTR_SIZE); /* valid */
     r_qid(&r, dir);
     r_u32(&r, dir ? 040755UL : 0644UL); /* mode */
     r_u32(&r, 0);                       /* uid */
     r_u32(&r, 0);                       /* gid */
-    r_u64_32(&r, 1);                    /* nlink */
-    r_u64_32(&r, 0);                    /* rdev */
-    r_u64_32(&r, fsize);                /* size */
+    r_u64(&r, 1);                       /* nlink */
+    r_u64(&r, 0);                       /* rdev */
+    r_u64(&r, fsize);                   /* size */
     /* blksize..data_version: zero-fill the remainder of the payload */
     for (i = r.pos; i < ZBC_9P_HDR_SIZE + ZBC_9P_RGETATTR_PAYLOAD_LEN; i += 4) {
       r_u32(&r, 0);

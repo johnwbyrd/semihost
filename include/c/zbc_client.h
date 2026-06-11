@@ -140,6 +140,7 @@ const zbc_transport_t *zbc_transport_null(void);
 #define ZBC_ERRNO_EBADF 9   /**< Bad file descriptor */
 #define ZBC_ERRNO_EINVAL 22 /**< Invalid argument */
 #define ZBC_ERRNO_EMFILE 24 /**< Too many open files */
+#define ZBC_ERRNO_ENAMETOOLONG 36 /**< File name too long */
 #define ZBC_ERRNO_ENOSYS 38 /**< Function not implemented */
 
 /*========================================================================
