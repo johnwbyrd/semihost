@@ -16,7 +16,11 @@ help:
 
 # Run Doxygen to emit XML for Breathe to ingest. The XML lands in
 # build/doxygen/xml, which conf.py points breathe_projects at.
+# mkdir is needed because Doxygen will only create the leaf of
+# OUTPUT_DIRECTORY, not its parents -- so on a clean checkout where
+# build/ does not exist yet, Doxygen fails to create build/doxygen/.
 doxygen:
+	mkdir -p build/doxygen
 	doxygen Doxyfile
 
 # Explicit html target so Doxygen runs before Sphinx. Other targets
