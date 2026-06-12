@@ -34,14 +34,34 @@ static void arm_exit(uintptr_t exit_code)
                                  : ARM_PSCI_SYSTEM_RESET);
 }
 
-static const zbc_qemu_platform_cfg_t g_arm_cfg = {
+/* ARMv7-A Generic Timer (cortex-a15 has it).
+ * CNTVCT (64-bit virtual count): MRRC p15, 1, lo, hi, c14.
+ * CNTFRQ (32-bit frequency):     MRC  p15, 0, r, c14, c0, 0. */
+static uint64_t arm_read_ticks(void)
+{
+    uint32_t lo, hi;
+    __asm__ volatile ("mrrc p15, 1, %0, %1, c14" : "=r"(lo), "=r"(hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
+static uint32_t arm_read_freq(void)
+{
+    uint32_t freq;
+    __asm__ volatile ("mrc p15, 0, %0, c14, c0, 0" : "=r"(freq));
+    return freq;
+}
+
+static zbc_qemu_platform_cfg_t g_arm_cfg = {
     ARM_VIRTIO_MMIO_BASE,
     ARM_VIRTIO_MMIO_STRIDE,
     ARM_VIRTIO_MMIO_SLOTS,
     arm_exit,
+    arm_read_ticks,
+    0, /* tick_hz filled in at init from CNTFRQ */
 };
 
 void zbc_platform_init_transport(zbc_client_state_t *state)
 {
+    g_arm_cfg.tick_hz = arm_read_freq();
     zbc_qemu_platform_install(state, &g_arm_cfg);
 }

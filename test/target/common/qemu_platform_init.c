@@ -33,6 +33,12 @@ static uint8_t g_qemu_platform_9p_msgbuf[QEMU_PLATFORM_9P_MSGBUF_SIZE];
  * along inside it. */
 static const zbc_qemu_platform_cfg_t *g_qemu_platform_cfg;
 
+/* Tick count captured at install. SH_SYS_CLOCK and SH_SYS_ELAPSED
+ * report time relative to this anchor so the spec's "since program
+ * start" semantics line up with whatever moment the platform brought
+ * the transport up. */
+static uint64_t g_qemu_platform_boot_ticks;
+
 /*------------------------------------------------------------------------
  * Fallback transport (handles the opcodes vcon and 9p don't)
  *------------------------------------------------------------------------*/
@@ -69,11 +75,66 @@ static int qemu_platform_fallback_call(zbc_response_t *response,
         response->error_code = 0;
         return ZBC_OK;
     case SH_SYS_CLOCK:
-        /* No semihosting clock on virt-class boards; the harness only
-         * asserts "not -1", so a constant satisfies the assertion
-         * without lying about wall-clock time. */
-        response->result = 0;
-        response->error_code = 0;
+        /* Centiseconds since the moment zbc_qemu_platform_install
+         * captured the boot anchor. Falls back to -1 when no platform
+         * tick source is wired.
+         *
+         * The 64-bit delta is narrowed to 32 bits before the divide
+         * because 32-bit RISC-V / ARM / x86 don't have a 64/32-bit
+         * divide instruction (clang would otherwise emit a libgcc
+         * call to __udivdi3, which freestanding builds can't link).
+         * The narrow is safe in spirit: SYS_CLOCK returns an `int`,
+         * so the answer wraps in 2^31 centiseconds (~248 days)
+         * regardless; narrowing the dividend matches that wrap. */
+        if (g_qemu_platform_cfg && g_qemu_platform_cfg->ticks_fn
+            && g_qemu_platform_cfg->tick_hz != 0) {
+            uint64_t now = g_qemu_platform_cfg->ticks_fn();
+            uint32_t delta_lo = (uint32_t)(now - g_qemu_platform_boot_ticks);
+            uint32_t hz_per_centi = g_qemu_platform_cfg->tick_hz / 100u;
+            if (hz_per_centi == 0u) {
+                hz_per_centi = 1u;
+            }
+            response->result = (int)(delta_lo / hz_per_centi);
+            response->error_code = 0;
+        } else {
+            response->result = -1;
+            response->error_code = ZBC_ERRNO_ENOSYS;
+        }
+        return ZBC_OK;
+    case SH_SYS_ELAPSED:
+        /* 64-bit tick count since boot. The guest passes a pointer to
+         * a uint64_t in args[0]; we write the ticks straight in since
+         * the fallback runs in the guest's address space. */
+        if (g_qemu_platform_cfg && g_qemu_platform_cfg->ticks_fn
+            && args && args[0]) {
+            uint64_t now = g_qemu_platform_cfg->ticks_fn();
+            uint64_t delta = now - g_qemu_platform_boot_ticks;
+            uint64_t *dst = (uint64_t *)args[0];
+            *dst = delta;
+            response->result = 0;
+            response->error_code = 0;
+        } else {
+            response->result = -1;
+            response->error_code = ZBC_ERRNO_ENOSYS;
+        }
+        return ZBC_OK;
+    case SH_SYS_TICKFREQ:
+        if (g_qemu_platform_cfg && g_qemu_platform_cfg->tick_hz != 0) {
+            response->result = (int)g_qemu_platform_cfg->tick_hz;
+            response->error_code = 0;
+        } else {
+            response->result = -1;
+            response->error_code = ZBC_ERRNO_ENOSYS;
+        }
+        return ZBC_OK;
+    case SH_SYS_TIME:
+        /* Wall-clock seconds since epoch -- no RTC reachable from
+         * here. The 9p server's mtime would be close but isn't the
+         * guest's notion of "now"; report unsupported and let the
+         * guest (Linux's NTP, the harness's tolerant assertion, ...)
+         * decide what to do. */
+        response->result = -1;
+        response->error_code = ZBC_ERRNO_ENOSYS;
         return ZBC_OK;
     case SH_SYS_ISERROR:
         /* Convention: non-zero status is an error. The harness probes
@@ -102,6 +163,15 @@ void zbc_qemu_platform_install(zbc_client_state_t *state,
     volatile void *p9_slot;
 
     g_qemu_platform_cfg = cfg;
+
+    /* Anchor for SH_SYS_CLOCK / SH_SYS_ELAPSED. Read once, before any
+     * device init runs, so "since program start" reflects time from
+     * the earliest point the platform code can see. */
+    if (cfg && cfg->ticks_fn) {
+        g_qemu_platform_boot_ticks = cfg->ticks_fn();
+    } else {
+        g_qemu_platform_boot_ticks = 0;
+    }
 
     g_qemu_platform_composite.console = (const zbc_transport_t *)0;
     g_qemu_platform_composite.console_ctx = (void *)0;

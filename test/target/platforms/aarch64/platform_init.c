@@ -36,14 +36,34 @@ static void aarch64_exit(uintptr_t exit_code)
                                      : AARCH64_PSCI_SYSTEM_RESET);
 }
 
-static const zbc_qemu_platform_cfg_t g_aarch64_cfg = {
+/* ARMv8 Generic Timer: CNTVCT_EL0 is the 64-bit virtual count,
+ * CNTFRQ_EL0 is its frequency in Hz (programmed by firmware -- QEMU's
+ * virt machine sets it correctly without us touching it). */
+static uint64_t aarch64_read_ticks(void)
+{
+    uint64_t v;
+    __asm__ volatile ("mrs %0, cntvct_el0" : "=r"(v));
+    return v;
+}
+
+static uint32_t aarch64_read_freq(void)
+{
+    uint64_t v;
+    __asm__ volatile ("mrs %0, cntfrq_el0" : "=r"(v));
+    return (uint32_t)v;
+}
+
+static zbc_qemu_platform_cfg_t g_aarch64_cfg = {
     AARCH64_VIRTIO_MMIO_BASE,
     AARCH64_VIRTIO_MMIO_STRIDE,
     AARCH64_VIRTIO_MMIO_SLOTS,
     aarch64_exit,
+    aarch64_read_ticks,
+    0, /* tick_hz filled in at init from CNTFRQ_EL0 */
 };
 
 void zbc_platform_init_transport(zbc_client_state_t *state)
 {
+    g_aarch64_cfg.tick_hz = aarch64_read_freq();
     zbc_qemu_platform_install(state, &g_aarch64_cfg);
 }

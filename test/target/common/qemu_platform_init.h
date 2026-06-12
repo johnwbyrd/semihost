@@ -34,12 +34,21 @@ extern "C" {
  * is expected NOT to return; if it does, the fallback spins. The
  * argument is args[0] from the syscall (0 = success, non-zero = the
  * test reported failures).
+ *
+ * ticks_fn reads a monotonic 64-bit tick count from the platform's
+ * native timer hardware (CLINT mtime on RISC-V, CNTVCT on ARM
+ * Generic Timer, RDTSC on x86). Used to serve SH_SYS_CLOCK,
+ * SH_SYS_ELAPSED, and SH_SYS_TICKFREQ. If NULL, those opcodes fall
+ * back to -1 (not supported). When non-NULL, tick_hz must be set to
+ * the counter's frequency in Hz.
  */
 typedef struct {
     volatile void *mmio_base; /**< Base of the virtio-mmio window */
     size_t mmio_stride;       /**< Bytes between slots */
     int mmio_slots;           /**< Number of slots in the window */
     void (*exit_fn)(uintptr_t exit_code);
+    uint64_t (*ticks_fn)(void);
+    uint32_t tick_hz;
 } zbc_qemu_platform_cfg_t;
 
 /**

@@ -45,11 +45,25 @@ static void microvm_exit(uintptr_t exit_code)
     }
 }
 
+/* x86 TSC. QEMU's TCG presents a 1 GHz timestamp counter; that's not
+ * spec but it has been stable across QEMU releases and is what
+ * microvm guests have to live with absent CPUID-based calibration. */
+#define MICROVM_TICK_HZ 1000000000U
+
+static uint64_t microvm_read_ticks(void)
+{
+    uint32_t lo, hi;
+    __asm__ volatile ("rdtsc" : "=a"(lo), "=d"(hi));
+    return ((uint64_t)hi << 32) | lo;
+}
+
 static const zbc_qemu_platform_cfg_t g_microvm_cfg = {
     MICROVM_VIRTIO_MMIO_BASE,
     MICROVM_VIRTIO_MMIO_STRIDE,
     MICROVM_VIRTIO_MMIO_SLOTS,
     microvm_exit,
+    microvm_read_ticks,
+    MICROVM_TICK_HZ,
 };
 
 void zbc_platform_init_transport(zbc_client_state_t *state)

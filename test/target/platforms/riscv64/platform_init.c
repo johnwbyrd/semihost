@@ -22,6 +22,17 @@
 #define RISCV64_TEST_PASS     0x5555U
 #define RISCV64_TEST_FAIL     0x3333U
 
+/* QEMU virt's CLINT timer: 64-bit mtime at 0x0200_BFF8, runs at a
+ * fixed 10 MHz. On rv64 the rdtime CSR is a single 64-bit read. */
+#define RISCV64_TICK_HZ 10000000U
+
+static uint64_t riscv64_read_ticks(void)
+{
+    uint64_t v;
+    __asm__ volatile ("rdtime %0" : "=r"(v));
+    return v;
+}
+
 static void riscv64_exit(uintptr_t exit_code)
 {
     *RISCV64_TEST_FINISHER = (exit_code == 0) ? RISCV64_TEST_PASS
@@ -33,6 +44,8 @@ static const zbc_qemu_platform_cfg_t g_riscv64_cfg = {
     RISCV64_VIRTIO_MMIO_STRIDE,
     RISCV64_VIRTIO_MMIO_SLOTS,
     riscv64_exit,
+    riscv64_read_ticks,
+    RISCV64_TICK_HZ,
 };
 
 void zbc_platform_init_transport(zbc_client_state_t *state)
