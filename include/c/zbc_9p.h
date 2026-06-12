@@ -5,7 +5,7 @@
  * Serves the file semihosting opcodes over a virtio-9p device (virtio
  * device ID 9) on a stock emulator -- QEMU's built-in 9p export, no
  * external daemon. The opcode-to-9P mapping is specified normatively in
- * docs/source/qemu-transports-proposal.rst.
+ * docs/source/qemu-transports.rst.
  *
  * Opcodes served: SYS_OPEN, SYS_CLOSE, SYS_READ, SYS_WRITE, SYS_SEEK,
  * SYS_FLEN, SYS_REMOVE, SYS_RENAME, SYS_TMPNAM, SYS_ISTTY, SYS_ISERROR,

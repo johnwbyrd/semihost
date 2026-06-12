@@ -11,7 +11,7 @@
  * binary boots unmodified on a stock QEMU "virt" board -- which defaults
  * to legacy v1 -- as well as on a force-modern emulator or future
  * silicon. virtio-pci stays out of scope; see
- * docs/source/qemu-transports-proposal.rst.
+ * docs/source/qemu-transports.rst.
  *
  * Wire-byte layout of the descriptor / available / used rings is
  * identical between the two versions; only the device-window register

@@ -357,7 +357,7 @@ device transport (RIFF buffer + RIFF_PTR + DOORBELL) described in this
 document. Assigning a different vtable to ``state->transport`` before
 the first call overrides it -- that is the entire selection mechanism.
 
-Available transports (see :doc:`qemu-transports-proposal` for design):
+Available transports (see :doc:`qemu-transports` for design):
 
 - ``zbc_transport_riff()`` -- the ZBC memory-mapped device (default).
 - ``zbc_transport_null()`` -- every operation fails immediately with

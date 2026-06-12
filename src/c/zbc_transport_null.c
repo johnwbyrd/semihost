@@ -6,7 +6,7 @@
  * result -1 with errno ZBC_ERRNO_ENOSYS in the response. No hardware is
  * touched and nothing ever hangs.
  *
- * See docs/source/qemu-transports-proposal.rst ("Design Decisions").
+ * See docs/source/qemu-transports.rst ("Design Decisions").
  */
 
 #include "zbc_semihost.h"

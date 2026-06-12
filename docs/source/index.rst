@@ -21,8 +21,8 @@ Documentation
    building
    testing
    examples
-   linux-extensions-proposal
-   qemu-transports-proposal
+   linux-extensions
+   qemu-transports
    documentation-sources
 
 .. toctree::

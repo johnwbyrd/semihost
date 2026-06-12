@@ -5,7 +5,7 @@
  * A deliberately small guest-side virtio driver: modern (version 2)
  * virtio-mmio only, one polled split virtqueue engine, no interrupts, no
  * heap. The virtio-console and virtio-9p transports are built on top of
- * this core; see docs/source/qemu-transports-proposal.rst.
+ * this core; see docs/source/qemu-transports.rst.
  *
  * Constraints inherited from the ZBC client library:
  * - C90, freestanding-friendly, zero heap allocation (caller provides all

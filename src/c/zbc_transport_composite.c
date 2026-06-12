@@ -47,7 +47,7 @@ static void composite_fill_enosys(zbc_response_t *response) {
  *     per-platform fallback transport from qemu_platform_init.c
  *
  * Don't forget the host-side dispatch and backend vtable too; see
- * docs/source/linux-extensions-proposal.rst for the full per-opcode
+ * docs/source/linux-extensions.rst for the full per-opcode
  * checklist.
  */
 static int composite_select(int opcode, const zbc_composite_state_t *cc,

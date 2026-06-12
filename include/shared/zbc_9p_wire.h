@@ -4,7 +4,7 @@
  *
  * Single shared definition of the protocol subset the file transport
  * speaks (same anti-drift principle as zbc_protocol.h). The normative
- * opcode-to-9P mapping lives in docs/source/qemu-transports-proposal.rst.
+ * opcode-to-9P mapping lives in docs/source/qemu-transports.rst.
  *
  * Message framing (all fields little-endian):
  *   size[4] type[1] tag[2] payload...

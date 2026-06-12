@@ -1,142 +1,37 @@
-Linux Extensions Proposal
-=========================
+================
+Linux Extensions
+================
 
-.. warning::
+This document describes the Linux-extension opcodes that ZBC adds to
+the ARM-semihosting syscall set. These opcodes let a Linux VFS driver
+expose host files directly to a guest Linux kernel, support block
+device access via disk image files, and back a TTY driver with
+non-blocking console input.
 
-   This document describes a **proposal for future expansion** of the ZBC
-   semihosting protocol. **None of these syscalls are currently implemented.**
-
-   The purpose of this document is to analyze what additional syscalls would
-   be required to support Linux kernel drivers using ZBC semihosting, making
-   Linux bringup easier on emulated platforms.
+The opcodes are defined in :doc:`api/protocol` (header
+``zbc_protocol.h``), dispatched in the C host
+(:doc:`api/host`), and implemented in the ANSI backends
+(:doc:`api/backend`).
 
 .. contents:: Table of Contents
    :local:
    :depth: 2
 
-Overview
---------
+Background
+----------
 
-Motivation
-^^^^^^^^^^
+The ARM-compatible syscalls (opcodes 0x01-0x32) provide basic file
+I/O, console, and timekeeping services -- sufficient for bare-metal
+applications and simple embedded systems. To support a Linux
+``semihostfs`` VFS driver, additional operations are required.
 
-The current ZBC semihosting protocol implements ARM-compatible syscalls
-(0x01-0x31) which provide basic file I/O, console, and timekeeping services.
-These are sufficient for bare-metal applications and simple embedded systems.
-
-However, to support a **Linux VFS filesystem driver** that exposes host files
-directly to a guest Linux kernel, additional syscalls are needed. A Linux
-driver would register a filesystem type (e.g., ``semihostfs``) and translate
-VFS operations directly to semihosting syscalls---no block device layer, no
-disk images, just direct file access to the host filesystem.
-
-This proposal also covers requirements for:
-
-- **Block device access** via disk image files (using existing file syscalls)
-- **TTY driver** support (requires non-blocking console input)
-- **All ZBC architectures** (8-bit through 128-bit, including 6502)
+The extension opcodes start at **0x80** to avoid collision with the
+ARM range. Each one wraps a POSIX function directly on the host side.
 
 Networking is explicitly out of scope for ZBC semihosting.
 
-Current Syscall Coverage
-^^^^^^^^^^^^^^^^^^^^^^^^
-
-The existing ARM-compatible syscalls map to Linux VFS operations as follows:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 10 20 25 15
-
-   * - Opcode
-     - Syscall
-     - Linux VFS Equivalent
-     - Status
-   * - 0x01
-     - SYS_OPEN
-     - ``open()``
-     - Implemented
-   * - 0x02
-     - SYS_CLOSE
-     - ``close()``
-     - Implemented
-   * - 0x05
-     - SYS_WRITE
-     - ``write()``
-     - Implemented
-   * - 0x06
-     - SYS_READ
-     - ``read()``
-     - Implemented
-   * - 0x0A
-     - SYS_SEEK
-     - ``lseek()``
-     - Implemented
-   * - 0x0C
-     - SYS_FLEN
-     - ``fstat()`` (size only)
-     - Partial
-   * - 0x0E
-     - SYS_REMOVE
-     - ``unlink()``
-     - Implemented
-   * - 0x0F
-     - SYS_RENAME
-     - ``rename()``
-     - Implemented
-   * - 0x0D
-     - SYS_TMPNAM
-     - ``mktemp()``
-     - Implemented
-
-Missing Operations
-^^^^^^^^^^^^^^^^^^
-
-The following Linux VFS operations have no corresponding semihosting syscall:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 25 15
-
-   * - Linux VFS Operation
-     - Required Syscall
-     - Status
-   * - ``readdir()``
-     - SYS_OPENDIR/READDIR/CLOSEDIR
-     - Missing
-   * - ``stat()`` / ``lstat()``
-     - SYS_STAT / SYS_LSTAT
-     - Missing
-   * - ``fstat()``
-     - SYS_FSTAT
-     - Missing (SYS_FLEN only gives size)
-   * - ``mkdir()``
-     - SYS_MKDIR
-     - Missing
-   * - ``rmdir()``
-     - SYS_RMDIR
-     - Missing
-   * - ``ftruncate()``
-     - SYS_FTRUNCATE
-     - Missing
-   * - ``fsync()``
-     - SYS_FSYNC
-     - Missing
-   * - ``link()``
-     - SYS_LINK
-     - Missing (optional)
-   * - ``symlink()``
-     - SYS_SYMLINK
-     - Missing (optional)
-   * - ``readlink()``
-     - SYS_READLINK
-     - Missing (optional)
-
-Proposed Syscalls
------------------
-
-All proposed syscalls start at opcode **0x80** to avoid collision with the
-ARM semihosting range (0x01-0x31). Each syscall wraps a POSIX function
-directly on the host side.
+Syscalls
+--------
 
 Directory Operations
 ^^^^^^^^^^^^^^^^^^^^
@@ -284,12 +179,14 @@ Get file metadata by path.
    ctime[8] - Change time (seconds since epoch)
 
 **Host implementation:** Wraps POSIX ``stat()``. Returns real host
-permissions (guest needs accurate permission info for VFS driver).
+permissions (the guest needs accurate permission info for the VFS
+driver).
 
-**Why 48 bytes:** Contains all fields required by Linux VFS ``struct kstat``:
-inode, nlink, mode, size, and timestamps. Per the `Linux VFS documentation
-<https://www.kernel.org/doc/html/next/filesystems/vfs.html>`_, ``getattr``
-must populate these fields.
+**Why 48 bytes:** The buffer contains all fields required by Linux VFS
+``struct kstat`` (inode, nlink, mode, size, timestamps). Per the
+`Linux VFS documentation
+<https://www.kernel.org/doc/html/next/filesystems/vfs.html>`_,
+``getattr`` must populate these fields.
 
 SYS_FSTAT (0x84)
 """"""""""""""""
@@ -320,8 +217,14 @@ Get file metadata by descriptor.
 - ``0``: Success
 - ``-1``: Error
 
-**Host implementation:** Wraps POSIX ``fstat()``. Same output format as
-SYS_STAT.
+**Host implementation:** Wraps POSIX ``fstat()``. Same output format
+as SYS_STAT.
+
+SYS_LSTAT (0x8D)
+""""""""""""""""
+
+``stat()`` that does not follow symbolic links. Same arguments and
+output format as SYS_STAT. Wraps POSIX ``lstat()``.
 
 File Operations
 ^^^^^^^^^^^^^^^
@@ -414,9 +317,9 @@ Truncate an open file to a specified length.
 - ``0``: Success
 - ``-1``: Error
 
-**Host implementation:** Wraps POSIX ``ftruncate()``. Length is sent as an
-8-byte little-endian value in a DATA chunk to handle 64-bit file sizes on
-all guest architectures.
+**Host implementation:** Wraps POSIX ``ftruncate()``. Length is sent
+as an 8-byte little-endian value in a DATA chunk to handle 64-bit
+file sizes on all guest architectures.
 
 SYS_FSYNC (0x88)
 """"""""""""""""
@@ -451,9 +354,9 @@ SYS_READC_POLL (0x89)
 
 Non-blocking console character read.
 
-**Problem:** The existing SYS_READC (0x07) blocks forever waiting for input.
-A Linux TTY driver cannot block the kernel; it needs to poll for input
-availability.
+**Problem:** The existing SYS_READC (0x07) blocks forever waiting for
+input. A Linux TTY driver cannot block the kernel; it needs to poll
+for input availability.
 
 **Arguments:** None.
 
@@ -462,13 +365,14 @@ availability.
 - ``0-255``: Character read
 - ``-1``: No character available (not an error, just empty)
 
-**Host implementation:** Use ``select()`` or ``poll()`` on stdin with zero
-timeout, then ``read()`` if data is available.
+**Host implementation:** Uses ``select()`` or ``poll()`` on stdin with
+zero timeout, then ``read()`` if data is available.
 
-Symlink Operations (Optional)
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Symlink Operations
+^^^^^^^^^^^^^^^^^^
 
-These syscalls are lower priority but useful for complete filesystem support.
+These are lower priority than the core directory and metadata
+operations but are required for complete filesystem support.
 
 .. list-table::
    :header-rows: 1
@@ -490,15 +394,11 @@ These syscalls are lower priority but useful for complete filesystem support.
      - SYS_READLINK
      - ``readlink()``
      - Read symbolic link target
-   * - 0x8D
-     - SYS_LSTAT
-     - ``lstat()``
-     - Stat without following symlinks
 
-Summary of Proposed Syscalls
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Opcode Summary
+^^^^^^^^^^^^^^
 
-**Directory Operations (3 syscalls):**
+**Directory Operations (3):**
 
 .. list-table::
    :header-rows: 1
@@ -517,7 +417,7 @@ Summary of Proposed Syscalls
      - SYS_CLOSEDIR
      - ``closedir()``
 
-**File Metadata (2 syscalls):**
+**File Metadata (3):**
 
 .. list-table::
    :header-rows: 1
@@ -532,8 +432,11 @@ Summary of Proposed Syscalls
    * - 0x84
      - SYS_FSTAT
      - ``fstat()``
+   * - 0x8D
+     - SYS_LSTAT
+     - ``lstat()``
 
-**File Operations (4 syscalls):**
+**File Operations (4):**
 
 .. list-table::
    :header-rows: 1
@@ -555,7 +458,7 @@ Summary of Proposed Syscalls
      - SYS_FSYNC
      - ``fsync()``
 
-**Console (1 syscall):**
+**Console (1):**
 
 .. list-table::
    :header-rows: 1
@@ -568,8 +471,26 @@ Summary of Proposed Syscalls
      - SYS_READC_POLL
      - ``select()`` + ``read()``
 
-**Total: 10 new syscalls starting at 0x80** (plus 4 optional symlink syscalls
-at 0x8A-0x8D).
+**Symlinks (3):**
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 25 30
+
+   * - Opcode
+     - Syscall
+     - POSIX Wrapper
+   * - 0x8A
+     - SYS_LINK
+     - ``link()``
+   * - 0x8B
+     - SYS_SYMLINK
+     - ``symlink()``
+   * - 0x8C
+     - SYS_READLINK
+     - ``readlink()``
+
+**Total: 14 opcodes in the 0x80-0x8D range.**
 
 Linux Driver Architecture
 -------------------------
@@ -577,7 +498,8 @@ Linux Driver Architecture
 Filesystem Driver (semihostfs)
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-A Linux VFS driver would implement these operations:
+A Linux VFS driver implements these operations against the extension
+opcodes:
 
 .. code-block:: c
 
@@ -624,21 +546,22 @@ A Linux VFS driver would implement these operations:
 Block Device Access
 ^^^^^^^^^^^^^^^^^^^
 
-A Linux block driver can use disk image files on the host via existing file
-syscalls. No additional block-specific syscalls are needed:
+A Linux block driver can use disk image files on the host via the
+existing ARM-compatible syscalls. No block-specific opcodes are
+needed:
 
 - **SYS_OPEN**: Open disk image file
-- **SYS_READ/SYS_WRITE**: Read/write sectors
+- **SYS_READ / SYS_WRITE**: Read/write sectors
 - **SYS_SEEK**: Seek to sector offset
 - **SYS_FSYNC**: Flush writes to storage
 - **SYS_FSTAT**: Get image size
 
-Synchronous operation is acceptable for initial implementation.
+Synchronous operation is acceptable for an initial implementation.
 
 TTY Driver
 ^^^^^^^^^^
 
-A Linux TTY driver can use existing console syscalls plus the new
+A Linux TTY driver uses the existing console syscalls plus
 SYS_READC_POLL:
 
 .. list-table::
@@ -664,29 +587,30 @@ SYS_READC_POLL:
      - SYS_ISTTY
      - Check if fd is a TTY
 
-The blocking SYS_READC is usable for simple console input; SYS_READC_POLL
-enables proper TTY driver ``poll()`` implementation.
+The blocking SYS_READC is usable for simple console input;
+SYS_READC_POLL enables proper TTY driver ``poll()`` implementation.
 
-Other Existing Syscalls for Linux
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Other Existing Syscalls Useful from Linux
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-**Heap/Memory Info (SYS_HEAPINFO, 0x16):**
+**Heap / Memory Info (SYS_HEAPINFO, 0x16):**
 
-- Early boot: Kernel can discover available RAM
-- Platform driver: Export memory layout to ``/sys/firmware/``
-- Stack guard: Inform kernel of stack boundaries
+- Early boot: kernel can discover available RAM
+- Platform driver: export memory layout to ``/sys/firmware/``
+- Stack guard: inform kernel of stack boundaries
 
 **Time Services:**
 
-- SYS_CLOCK (0x10): Monotonic clock (centiseconds since start)
-- SYS_TIME (0x11): RTC/wall clock (seconds since epoch)
-- SYS_ELAPSED (0x30): High-resolution timer (64-bit tick count)
-- SYS_TICKFREQ (0x31): Timer frequency (ticks per second)
+- SYS_CLOCK (0x10): monotonic clock (centiseconds since start)
+- SYS_TIME (0x11): RTC / wall clock (seconds since epoch)
+- SYS_ELAPSED (0x30): high-resolution timer (64-bit tick count)
+- SYS_TICKFREQ (0x31): timer frequency (ticks per second)
 
 **System Services:**
 
-- SYS_GET_CMDLINE (0x15): Pass kernel boot parameters from host
-- SYS_EXIT (0x18) / SYS_EXIT_EXTENDED (0x20): Implement ``reboot()``/``halt()``
+- SYS_GET_CMDLINE (0x15): pass kernel boot parameters from host
+- SYS_EXIT (0x18) / SYS_EXIT_EXTENDED (0x20): implement ``reboot()``
+  / ``halt()``
 
 Implementation Notes
 --------------------
@@ -694,29 +618,30 @@ Implementation Notes
 Guest-Side Allocation Model
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The ZBC protocol requires the **guest to allocate everything**; the host
-only fills in pre-allocated space. This applies to all new syscalls:
+The ZBC protocol requires the **guest to allocate everything**; the
+host only fills in pre-allocated space. This applies to all the
+extension opcodes:
 
-1. Guest builds complete RIFF buffer with:
+1. Guest builds the complete RIFF buffer with:
 
-   - RIFF header ("RIFF" + size + "SEMI")
+   - RIFF header (``RIFF`` + size + ``SEMI``)
    - CNFG chunk (on first request only)
    - CALL chunk with sub-chunks (opcode, PARM, DATA)
-   - **Pre-allocated RETN chunk** (sized for expected response)
+   - **Pre-allocated RETN chunk** (sized for the expected response)
    - **Pre-allocated ERRO chunk** (typically 64 bytes)
 
-2. Guest writes buffer address to RIFF_PTR register
-3. Host reads buffer, executes syscall, writes response into RETN
-4. Guest reads response from same buffer
+2. Guest writes buffer address to RIFF_PTR register.
+3. Host reads buffer, executes syscall, writes response into RETN.
+4. Guest reads response from same buffer.
 
-For syscalls returning variable-length data (SYS_READDIR, SYS_STAT), the
-guest must pre-allocate sufficient RETN space based on maximum expected
-response size.
+For opcodes returning variable-length data (SYS_READDIR, SYS_STAT),
+the guest must pre-allocate sufficient RETN space based on the
+maximum expected response size.
 
 Opcode Table Entries
 ^^^^^^^^^^^^^^^^^^^^
 
-Each new syscall requires an entry in the opcode table. Example for
+Each extension opcode has an entry in the opcode table. Example for
 SYS_STAT:
 
 .. code-block:: c
@@ -730,10 +655,11 @@ SYS_STAT:
 
    /* Guest call: args = {path_ptr, path_len, stat_buf_ptr, 48} */
 
-Backend Vtable Additions
-^^^^^^^^^^^^^^^^^^^^^^^^
+Backend Vtable
+^^^^^^^^^^^^^^
 
-The host backend vtable would need these new function pointers:
+The host ``zbc_backend_t`` vtable carries one function pointer per
+extension opcode:
 
 .. code-block:: c
 
@@ -742,9 +668,10 @@ The host backend vtable would need these new function pointers:
    int (*readdir)(void *ctx, int dirfd, void *buf, size_t buf_size);
    int (*closedir)(void *ctx, int dirfd);
 
-   /* File metadata - wrap POSIX stat/fstat */
+   /* File metadata - wrap POSIX stat/fstat/lstat */
    int (*stat)(void *ctx, const char *path, size_t path_len, void *stat_buf);
    int (*fstat)(void *ctx, int fd, void *stat_buf);
+   int (*lstat)(void *ctx, const char *path, size_t path_len, void *stat_buf);
 
    /* File operations - wrap POSIX directly */
    int (*mkdir)(void *ctx, const char *path, size_t path_len, int mode);
@@ -755,46 +682,18 @@ The host backend vtable would need these new function pointers:
    /* Console */
    int (*readc_poll)(void *ctx);
 
-Files to Modify
-^^^^^^^^^^^^^^^
-
-When implemented, these files would need changes:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 40 60
-
-   * - File
-     - Changes
-   * - ``include/zbc_protocol.h``
-     - Add opcode definitions 0x80-0x89
-   * - ``include/zbc_backend.h``
-     - Add 10 new function pointers to vtable
-   * - ``src/zbc_opcode_table.c``
-     - Add 10 new table entries
-   * - ``src/zbc_host.c``
-     - Add 10 new case handlers in switch
-   * - ``src/zbc_ansi_insecure.c``
-     - Implement using POSIX calls
-   * - ``src/zbc_ansi_secure.c``
-     - Implement with sandbox restrictions
+   /* Symlinks */
+   int (*link)(void *ctx, const char *src, size_t src_len,
+               const char *dst, size_t dst_len);
+   int (*symlink)(void *ctx, const char *target, size_t target_len,
+                  const char *linkpath, size_t link_len);
+   int (*readlink)(void *ctx, const char *path, size_t path_len,
+                   void *buf, size_t buf_size);
 
 Client Code Size Impact
 ^^^^^^^^^^^^^^^^^^^^^^^
 
-For constrained platforms like the 6502, adding 10 new syscalls to the
-client library would add approximately **200-600 bytes** of code, depending
-on how many of the new syscalls are actually used (unused syscalls can be
-dead-code eliminated by the linker).
-
-Revision History
-----------------
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 80
-
-   * - Date
-     - Changes
-   * - 2025-12
-     - Initial proposal documenting syscalls needed for Linux VFS driver
+For constrained platforms like the 6502, adding the 14 extension
+opcodes to the client library costs approximately **200-600 bytes**
+of code, depending on which subset is actually called. Unused
+opcodes are dead-code eliminated by the linker.

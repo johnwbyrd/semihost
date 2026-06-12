@@ -15,15 +15,16 @@ Zero Board Computer (ZBC) eliminates the chicken-and-egg by giving
 any CPU file input/output, console, and clock services through a
 32-byte memory-mapped device. The same firmware runs against your
 simulator, against a field-programmable gate array (FPGA)
-prototype, against the manufactured chip, and against a
-forty-year-old machine inside the Multiple Arcade Machine Emulator
-(MAME), because the contract is the same everywhere: read and
-write memory.
+prototype, against the manufactured chip, and against a QEMU or a
+MAME virtual machine, because the contract is the same everywhere:
+read and write memory.
 
 **Why this matters, who it's for, and how it works:**
 https://johnwbyrd.github.io/zbc/introduction.html
 
 **Full documentation and reference:** https://johnwbyrd.github.io/zbc/
+
+**Wiki and community:** https://www.zeroboardcomputer.com/
 
 What's In This Repo
 -------------------

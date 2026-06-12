@@ -10,7 +10,7 @@
  * Opcodes served: SYS_WRITEC, SYS_WRITE0, SYS_READC, SYS_WRITE and
  * SYS_READ on fds 0-2, SYS_ISTTY, SYS_ISERROR, SYS_ERRNO. Everything
  * else fails with -1 / ZBC_ERRNO_ENOSYS (file operations belong to the
- * 9p transport; see docs/source/qemu-transports-proposal.rst).
+ * 9p transport; see docs/source/qemu-transports.rst).
  */
 
 #ifndef ZBC_VCON_H

@@ -162,7 +162,7 @@ int zbc_api_tmpnam(zbc_api_t *api, char *dest, size_t maxlen, int id);
  * Decoded SYS_STAT response.
  *
  * Mirrors the 48-byte little-endian wire layout in
- * docs/source/linux-extensions-proposal.rst, but with native field
+ * docs/source/linux-extensions.rst, but with native field
  * widths so callers don't have to repack. zbc_api_stat() fills this
  * from the response buffer; the host backend / 9p transport writes
  * the wire bytes.
