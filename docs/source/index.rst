@@ -13,6 +13,7 @@ Documentation
    :maxdepth: 2
    :caption: User Guides
 
+   introduction
    client-library
    emulator-integration
    security
