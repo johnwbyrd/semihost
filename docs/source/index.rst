@@ -3,7 +3,7 @@ Zero Board Computer Reference
 =============================
 
 .. include:: ../../README.rst
-   :start-after: Zero Board Computer
+   :start-after: ===================
    :end-before: Quick Start
 
 Documentation
