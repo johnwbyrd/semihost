@@ -152,6 +152,14 @@ static int c_timer(void *, unsigned Hz) {
   tracef("timer(%u)", Hz);
   return 0;
 }
+static int c_stat(void *, const char *P, size_t L, void *Buf) {
+  tracef("stat(%s)", canon(P, L).c_str());
+  /* Fill 48 bytes with a recognisable pattern so the cross-language
+   * round-trip on this opcode would show up if it ever ran. */
+  for (size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+    ((uint8_t *)Buf)[I] = (uint8_t)(0xA0 + I);
+  return 0;
+}
 }
 
 static const zbc_backend_t ScriptedC = {
@@ -160,7 +168,7 @@ static const zbc_backend_t ScriptedC = {
     c_writec, c_write0, c_readc,   nullptr,    c_istty, /* iserror unused */
     c_clock,  c_time,   c_elapsed, c_tickfreq, nullptr,    nullptr, /* system, cmdline */
     nullptr, /* heapinfo */
-    c_exit,   c_get_errno, c_timer};
+    c_exit,   c_get_errno, c_timer, c_stat};
 
 // --- C++ side ---------------------------------------------------------------
 

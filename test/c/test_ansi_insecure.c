@@ -152,6 +152,83 @@ static int test_file_length(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: stat (Linux extension)
+ *------------------------------------------------------------------------*/
+
+static uint32_t le_unpack_u32(const uint8_t *p)
+{
+    return ((uint32_t)p[0])
+         | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16)
+         | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t le_unpack_u64(const uint8_t *p)
+{
+    uint64_t lo = le_unpack_u32(p);
+    uint64_t hi = le_unpack_u32(p + 4);
+    return lo | (hi << 32);
+}
+
+static int test_stat_metadata(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char filename[512];
+    size_t filename_len;
+    const char *test_data = "abcdefghijklmno"; /* 15 bytes */
+    int fd;
+    int result;
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    uint64_t size_field;
+
+    make_temp_path(filename, sizeof(filename), "zbc_test_stat.txt");
+    filename_len = strlen(filename);
+
+    fd = be->open(ctx, filename, filename_len, 4); /* SH_OPEN_W */
+    TEST_ASSERT(fd >= 0, "open for write failed");
+    result = be->write(ctx, fd, test_data, 15);
+    TEST_ASSERT(result == 0, "write failed");
+    be->close(ctx, fd);
+
+    /* Wire up the new stat slot directly. */
+    TEST_ASSERT(be->stat != NULL, "stat slot must be populated");
+    result = be->stat(ctx, filename, filename_len, stat_buf);
+    TEST_ASSERT(result == 0, "stat should succeed on existing file");
+
+    /* size field lives at offset 16 in the wire layout. */
+    size_field = le_unpack_u64(stat_buf + 16);
+    TEST_ASSERT(size_field == 15, "stat size should equal file size");
+
+    /* nlink (offset 12) should be at least 1 for a regular file. */
+    TEST_ASSERT(le_unpack_u32(stat_buf + 12) >= 1, "nlink should be >= 1");
+
+    /* mode (offset 8) low bits should be non-zero (some perms set). */
+    TEST_ASSERT(le_unpack_u32(stat_buf + 8) != 0, "mode should be non-zero");
+
+    be->remove(ctx, filename, filename_len);
+    return 1;
+}
+
+static int test_stat_missing(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char filename[512];
+    size_t filename_len;
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    int result;
+
+    make_temp_path(filename, sizeof(filename),
+                   "zbc_test_stat_definitely_does_not_exist.tmp");
+    filename_len = strlen(filename);
+
+    result = be->stat(ctx, filename, filename_len, stat_buf);
+    TEST_ASSERT(result == -1, "stat on missing file should return -1");
+    return 1;
+}
+
+/*------------------------------------------------------------------------
  * Test: Seek
  *------------------------------------------------------------------------*/
 
@@ -725,6 +802,8 @@ void run_ansi_insecure_tests(void)
 
     RUN_TEST(write_read_file);
     RUN_TEST(file_length);
+    RUN_TEST(stat_metadata);
+    RUN_TEST(stat_missing);
     RUN_TEST(seek);
     RUN_TEST(console_write);
     RUN_TEST(time_functions);

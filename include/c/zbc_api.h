@@ -158,6 +158,36 @@ int zbc_api_rename(zbc_api_t *api, const char *old_path, const char *new_path);
  */
 int zbc_api_tmpnam(zbc_api_t *api, char *dest, size_t maxlen, int id);
 
+/**
+ * Decoded SYS_STAT response.
+ *
+ * Mirrors the 48-byte little-endian wire layout in
+ * docs/source/linux-extensions-proposal.rst, but with native field
+ * widths so callers don't have to repack. zbc_api_stat() fills this
+ * from the response buffer; the host backend / 9p transport writes
+ * the wire bytes.
+ */
+typedef struct {
+    uint64_t ino;     /**< Inode number (filesystem-unique) */
+    uint32_t mode;    /**< File type + permissions (S_IFREG, S_IFDIR, ...) */
+    uint32_t nlink;   /**< Hard-link count */
+    uint64_t size;    /**< File size in bytes */
+    int64_t mtime;    /**< Modification time, seconds since epoch */
+    int64_t atime;    /**< Access time, seconds since epoch */
+    int64_t ctime;    /**< Change time, seconds since epoch */
+} zbc_stat_t;
+
+/**
+ * Stat a file by path (Linux extension; see linux-extensions-proposal.rst).
+ *
+ * @param api   API state
+ * @param path  File path (null-terminated)
+ * @param out   Destination for the decoded stat record
+ * @return 0 on success (errno cleared); -1 on error (errno set, e.g.
+ *         ENOENT for missing path, EACCES for sandbox denial)
+ */
+int zbc_api_stat(zbc_api_t *api, const char *path, zbc_stat_t *out);
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

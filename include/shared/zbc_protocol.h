@@ -79,6 +79,18 @@ typedef uint32_t uintptr_t;
 #define SH_SYS_TIMER_CONFIG   0x32  /* Configure periodic timer interrupt */
 
 /*========================================================================
+ * Linux-extension opcodes (0x80+, avoids ARM semihosting collisions)
+ *
+ * Defined in docs/source/linux-extensions-proposal.rst. Implemented
+ * incrementally as Linux passthrough gates demand them.
+ *========================================================================*/
+
+#define SH_SYS_STAT           0x83  /* Get file metadata by path */
+
+/** Wire size of the fixed SYS_STAT response buffer (always 48 bytes). */
+#define SH_STAT_BUF_SIZE      48
+
+/*========================================================================
  * Open mode flags (ARM semihosting compatible)
  *========================================================================*/
 

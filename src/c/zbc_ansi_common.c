@@ -11,6 +11,8 @@
 
 #include "zbc_ansi_internal.h"
 #include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
 #include <time.h>
 
 /*========================================================================
@@ -215,5 +217,48 @@ int zbc_ansi_heapinfo(uintptr_t *heap_base, uintptr_t *heap_limit,
   *heap_limit = 0;
   *stack_base = 0;
   *stack_limit = 0;
+  return 0;
+}
+
+/*========================================================================
+ * Linux extensions
+ *========================================================================*/
+
+/* Little-endian writers for the fixed 48-byte stat layout. We do this
+ * by hand instead of casting through the host's `struct stat` because
+ * stat's layout is host-defined while the wire layout is platform-
+ * agnostic (and the C library on the *guest* may not even have
+ * sys/stat.h). */
+static void le_pack_u32(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)v;
+  p[1] = (uint8_t)(v >> 8);
+  p[2] = (uint8_t)(v >> 16);
+  p[3] = (uint8_t)(v >> 24);
+}
+
+static void le_pack_u64(uint8_t *p, uint64_t v) {
+  le_pack_u32(p, (uint32_t)v);
+  le_pack_u32(p + 4, (uint32_t)((v >> 16) >> 16));
+}
+
+int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf) {
+  struct stat st;
+  uint8_t *out = (uint8_t *)stat_buf;
+
+  if (stat(resolved_path, &st) != 0) {
+    return -1;
+  }
+
+  /* Per docs/source/linux-extensions-proposal.rst:
+   *   ino[8] mode[4] nlink[4] size[8] mtime[8] atime[8] ctime[8]
+   * all little-endian. The host's struct stat field widths may differ
+   * by platform; cast to fixed widths before packing. */
+  le_pack_u64(out + 0, (uint64_t)st.st_ino);
+  le_pack_u32(out + 8, (uint32_t)st.st_mode);
+  le_pack_u32(out + 12, (uint32_t)st.st_nlink);
+  le_pack_u64(out + 16, (uint64_t)st.st_size);
+  le_pack_u64(out + 24, (uint64_t)st.st_mtime);
+  le_pack_u64(out + 32, (uint64_t)st.st_atime);
+  le_pack_u64(out + 40, (uint64_t)st.st_ctime);
   return 0;
 }

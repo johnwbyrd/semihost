@@ -124,6 +124,18 @@ static uint16_t rd_u16(p9_rd_t *r) {
   return v;
 }
 
+static uint8_t rd_u8(p9_rd_t *r) {
+  uint8_t v;
+
+  if (r->pos + 1 > r->len) {
+    r->truncated = 1;
+    return 0;
+  }
+  v = r->buf[r->pos];
+  r->pos += 1;
+  return v;
+}
+
 static uint32_t rd_u32(p9_rd_t *r) {
   uint32_t v;
 
@@ -134,6 +146,14 @@ static uint32_t rd_u32(p9_rd_t *r) {
   v = ZBC_READ_U32_LE(r->buf + r->pos);
   r->pos += 4;
   return v;
+}
+
+static uint64_t rd_u64(p9_rd_t *r) {
+  uint32_t lo, hi;
+
+  lo = rd_u32(r);
+  hi = rd_u32(r);
+  return (uint64_t)lo | ((uint64_t)hi << 32);
 }
 
 static const uint8_t *rd_bytes(p9_rd_t *r, size_t len) {
@@ -295,6 +315,20 @@ static int p9_walk(zbc_9p_state_t *s, uint32_t base_fid, uint32_t newfid,
     *p9err = ZBC_ERRNO_ENOENT;
   }
   return ZBC_OK;
+}
+
+/* Little-endian writers for the 48-byte SYS_STAT response. The wire
+ * layout is fixed (docs/source/linux-extensions-proposal.rst) so we
+ * pack by hand rather than rely on host struct layout. */
+static void stat_pack_u32(uint8_t *p, uint32_t v) {
+  p[0] = (uint8_t)v;
+  p[1] = (uint8_t)(v >> 8);
+  p[2] = (uint8_t)(v >> 16);
+  p[3] = (uint8_t)(v >> 24);
+}
+static void stat_pack_u64(uint8_t *p, uint64_t v) {
+  stat_pack_u32(p, (uint32_t)v);
+  stat_pack_u32(p + 4, (uint32_t)((v >> 16) >> 16));
 }
 
 /* Fetch the file size via Tgetattr, at full 64-bit wire width. */
@@ -749,6 +783,106 @@ static int do_flen(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
   return ZBC_OK;
 }
 
+/* Pack a 9p Rgetattr reply into the 48-byte SYS_STAT response layout.
+ * Wire format of Rgetattr payload (after the 7-byte header):
+ *   valid[8] qid{type[1] version[4] path[8]} mode[4] uid[4] gid[4]
+ *   nlink[8] rdev[8] size[8] blksize[8] blocks[8]
+ *   atime{sec[8] nsec[8]} mtime{sec[8] nsec[8]} ctime{sec[8] nsec[8]}
+ *   btime{...} gen[8] data_version[8]
+ *
+ * Output:
+ *   ino[8] mode[4] nlink[4] size[8] mtime[8] atime[8] ctime[8]
+ * (timestamps are seconds only; we drop the nsec halves.) */
+static int do_stat(zbc_9p_state_t *s, zbc_response_t *response,
+                   const char *path, size_t path_len, uint8_t *out_buf) {
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+  uint64_t ino, nlink_u64, size_u64;
+  uint32_t mode;
+  uint32_t uid, gid;
+  uint64_t rdev, blksize, blocks;
+  uint64_t atime_sec, mtime_sec, ctime_sec;
+  uint64_t atime_nsec, mtime_nsec, ctime_nsec;
+  uint64_t valid;
+  uint32_t qid_version;
+  uint8_t qid_type;
+
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, path, path_len, 0,
+               (const char **)0, (size_t *)0, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  wr_begin(&w, s, ZBC_9P_TGETATTR, P9_TAG);
+  wr_u32(&w, P9_FID_SCRATCH_A);
+  wr_u64(&w, (uint64_t)ZBC_9P_GETATTR_BASIC);
+  rc = p9_rpc(s, &w, ZBC_9P_RGETATTR, &reply, &p9err);
+
+  /* Clunk the scratch fid regardless of whether the RPC succeeded. */
+  p9_clunk(s, P9_FID_SCRATCH_A);
+
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Parse the 153-byte payload in declaration order. */
+  valid = rd_u64(&reply);
+  (void)valid;
+  qid_type = rd_u8(&reply);
+  (void)qid_type;
+  qid_version = rd_u32(&reply);
+  (void)qid_version;
+  ino = rd_u64(&reply);              /* qid.path */
+  mode = rd_u32(&reply);
+  uid = rd_u32(&reply);
+  (void)uid;
+  gid = rd_u32(&reply);
+  (void)gid;
+  nlink_u64 = rd_u64(&reply);
+  rdev = rd_u64(&reply);
+  (void)rdev;
+  size_u64 = rd_u64(&reply);
+  blksize = rd_u64(&reply);
+  (void)blksize;
+  blocks = rd_u64(&reply);
+  (void)blocks;
+  atime_sec = rd_u64(&reply);
+  atime_nsec = rd_u64(&reply);
+  (void)atime_nsec;
+  mtime_sec = rd_u64(&reply);
+  mtime_nsec = rd_u64(&reply);
+  (void)mtime_nsec;
+  ctime_sec = rd_u64(&reply);
+  ctime_nsec = rd_u64(&reply);
+  (void)ctime_nsec;
+  if (reply.truncated) {
+    return ZBC_ERR_PARSE_ERROR;
+  }
+
+  stat_pack_u64(out_buf + 0, ino);
+  stat_pack_u32(out_buf + 8, mode);
+  stat_pack_u32(out_buf + 12, (uint32_t)nlink_u64);
+  stat_pack_u64(out_buf + 16, size_u64);
+  stat_pack_u64(out_buf + 24, mtime_sec);
+  stat_pack_u64(out_buf + 32, atime_sec);
+  stat_pack_u64(out_buf + 40, ctime_sec);
+
+  p9_fill_response(response, 0, 0);
+  response->data = out_buf;
+  response->data_size = SH_STAT_BUF_SIZE;
+  return ZBC_OK;
+}
+
 static int do_remove(zbc_9p_state_t *s, zbc_response_t *response,
                      const char *path, size_t path_len) {
   p9_wr_t w;
@@ -944,6 +1078,10 @@ static int p9_transport_call(zbc_response_t *response,
   case SH_SYS_ERRNO:
     p9_fill_response(response, s->last_errno, 0);
     return ZBC_OK;
+
+  case SH_SYS_STAT:
+    return do_stat(s, response, (const char *)args[0], (size_t)args[1],
+                   (uint8_t *)args[2]);
 
   default:
     /* Console opcodes route to the console transport in a composite;

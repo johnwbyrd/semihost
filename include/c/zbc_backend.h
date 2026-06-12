@@ -89,6 +89,21 @@ typedef struct zbc_backend_s {
     int (*get_errno)(void *ctx);
     /** Configure periodic timer. rate_hz=0 disables. Returns 0 on success. */
     int (*timer_config)(void *ctx, unsigned int rate_hz);
+
+    /*
+     * Linux-extension operations (docs/source/linux-extensions-proposal.rst).
+     * Implemented incrementally as the passthrough story needs them; the
+     * vtable slots are added here once the opcode is defined and the
+     * dummy backend stubs them out so existing tests stay green.
+     */
+
+    /**
+     * Stat a path. Writes the SH_STAT_BUF_SIZE-byte response struct
+     * (ino[8] mode[4] nlink[4] size[8] mtime[8] atime[8] ctime[8],
+     * all little-endian) into stat_buf. Returns 0 on success, -1 on
+     * error.
+     */
+    int (*stat)(void *ctx, const char *path, size_t path_len, void *stat_buf);
 } zbc_backend_t;
 
 /*========================================================================

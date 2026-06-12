@@ -440,6 +440,25 @@ static const zbc_opcode_entry_t zbc_opcode_table[] = {
      0,
      0},
 
+    /*
+     * SH_SYS_STAT (0x83) -- Linux extension
+     * Guest args: {path_ptr, path_len, stat_buf_ptr, 48}
+     * Request: DATA(path, len=args[1]), PARM(path_len)
+     * Response: int (0 or -1), 48-byte stat struct in DATA, copied to
+     * args[2] with max len from args[3] (must be SH_STAT_BUF_SIZE=48).
+     */
+    {
+        SH_SYS_STAT,
+        4,
+        {{ZBC_CHUNK_DATA_PTR, 0, 1},  /* DATA: ptr=args[0], len=args[1] */
+         {ZBC_CHUNK_PARM_UINT, 1, 0}, /* PARM: path_len */
+         {ZBC_CHUNK_NONE, 0, 0},
+         {ZBC_CHUNK_NONE, 0, 0}},
+        ZBC_RESP_DATA,
+        2, /* copy DATA to args[2] (stat buffer) */
+        3  /* max len from args[3], must equal SH_STAT_BUF_SIZE */
+    },
+
     /* End marker */
     {0, 0, {{ZBC_CHUNK_NONE, 0, 0}}, ZBC_RESP_INT, 0, 0}};
 

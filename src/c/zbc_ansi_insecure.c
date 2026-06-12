@@ -460,6 +460,28 @@ static int ansi_insecure_timer_config(void *ctx, unsigned int rate_hz) {
   return 0;
 }
 
+static int ansi_insecure_stat(void *ctx, const char *path, size_t path_len,
+                              void *stat_buf) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+
+  rc = zbc_ansi_stat_path(state->path_buf, stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -476,7 +498,8 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_elapsed,     ansi_insecure_tickfreq,
     ansi_insecure_do_system,   ansi_insecure_get_cmdline,
     ansi_insecure_heapinfo,    ansi_insecure_do_exit,
-    ansi_insecure_get_errno,   ansi_insecure_timer_config};
+    ansi_insecure_get_errno,   ansi_insecure_timer_config,
+    ansi_insecure_stat};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;

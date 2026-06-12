@@ -101,4 +101,17 @@ int zbc_ansi_get_cmdline(char *buf, size_t buf_size);
 int zbc_ansi_heapinfo(uintptr_t *heap_base, uintptr_t *heap_limit,
                       uintptr_t *stack_base, uintptr_t *stack_limit);
 
+/*========================================================================
+ * Linux extensions
+ *========================================================================*/
+
+/*
+ * Stat the null-terminated path and pack its metadata into the
+ * caller-provided 48-byte buffer (layout per docs/source/linux-
+ * extensions-proposal.rst). Returns 0 on success, -1 on POSIX
+ * stat() failure; errno is preserved for the caller's last_errno
+ * accumulator.
+ */
+int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf);
+
 #endif /* ZBC_ANSI_INTERNAL_H */

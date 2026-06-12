@@ -348,6 +348,7 @@ typedef int (*fn_path_t)(void *, const char *, size_t);
 typedef int (*fn_path_mode_t)(void *, const char *, size_t, int);
 typedef int (*fn_path_path_t)(void *, const char *, size_t, const char *, size_t);
 typedef int (*fn_tmpnam_t)(void *, char *, size_t, int);
+typedef int (*fn_path_buf_t)(void *, const char *, size_t, void *);
 typedef void (*fn_writec_t)(void *, char);
 typedef void (*fn_write0_t)(void *, const char *);
 typedef int (*fn_uint_t)(void *, unsigned int);
@@ -370,6 +371,7 @@ typedef union {
   fn_path_mode_t path_mode;
   fn_path_path_t path_path;
   fn_tmpnam_t tmpnam;
+  fn_path_buf_t path_buf;
   fn_writec_t writec;
   fn_write0_t write0;
   fn_uint_t uint;
@@ -483,6 +485,24 @@ static call_result_t call_path_path(void *fn, void *ctx, const zbc_parsed_t *p,
   u.ptr = fn;
   r.result = u.path_path(ctx, (const char *)p->data[0].ptr, p->data[0].size,
                          (const char *)p->data[1].ptr, p->data[1].size);
+  return r;
+}
+
+/* int fn(void *ctx, const char *path, size_t len, void *out_buf) - stat */
+static call_result_t call_path_buf(void *fn, void *ctx, const zbc_parsed_t *p,
+                                   uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  if (buf_size < SH_STAT_BUF_SIZE) {
+    r.result = -1;
+    return r;
+  }
+  u.ptr = fn;
+  r.result = u.path_buf(ctx, (const char *)p->data[0].ptr, p->data[0].size, buf);
+  if (r.result == 0) {
+    r.data = buf;
+    r.data_len = SH_STAT_BUF_SIZE;
+  }
   return r;
 }
 
@@ -671,6 +691,9 @@ static const dispatch_entry_t dispatch_table[] = {
     {SH_SYS_EXIT_EXTENDED, OFF(do_exit), 0, call_exit},
     {SH_SYS_ELAPSED, OFF(elapsed), 0, call_elapsed},
     {SH_SYS_TIMER_CONFIG, OFF(timer_config), 1, call_uint},
+
+    /* Linux extensions */
+    {SH_SYS_STAT, OFF(stat), 1, call_path_buf},
 
     {0, 0, 0, NULL} /* end marker */
 };

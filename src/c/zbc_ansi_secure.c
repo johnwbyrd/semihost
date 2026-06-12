@@ -785,6 +785,30 @@ static int ansi_timer_config(void *ctx, unsigned int rate_hz) {
   return 0;
 }
 
+static int ansi_stat(void *ctx, const char *path, size_t path_len,
+                     void *stat_buf) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+
+  /* Stat is a read-only operation; reuses the same path-validation
+   * gate the other read ops go through (no write rule needed). */
+  if (ansi_validate_path(state, path, path_len, 0, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+
+  rc = zbc_ansi_stat_path(state->path_buf, stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -795,7 +819,8 @@ static const zbc_backend_t ansi_secure_backend = {
     ansi_tmpnam_func, ansi_writec,      ansi_write0,      ansi_readc,
     ansi_iserror,     ansi_istty,       ansi_clock_func,  ansi_time_func,
     ansi_elapsed,     ansi_tickfreq,    ansi_do_system,   ansi_get_cmdline,
-    ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config};
+    ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config,
+    ansi_stat};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 

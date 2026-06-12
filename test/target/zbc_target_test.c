@@ -250,6 +250,112 @@ static void test_file_io(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: Linux Extensions
+ *
+ * SYS_STAT (0x83): get file metadata over either RIFF (MAME, via ANSI
+ * backend's POSIX stat) or composite (QEMU, via 9p Tgetattr). Both
+ * paths pack the same 48-byte little-endian layout (ino[8] mode[4]
+ * nlink[4] size[8] mtime[8] atime[8] ctime[8]).
+ *------------------------------------------------------------------------*/
+
+/* Paths are relative to the 9p mount root on QEMU targets, and to the
+ * MAME shared directory on RIFF targets; both honour bare filenames. */
+static const char stat_test_filename[] = "zbc_stat_test.tmp";
+static const char stat_test_missing[]  = "zbc_stat_does_not_exist.tmp";
+
+/* Read a little-endian uint64 from a possibly-unaligned address; works
+ * the same on every ZBC target word width. */
+static uint64_t target_le64(const uint8_t *p)
+{
+    uint64_t v = 0;
+    int i;
+    for (i = 7; i >= 0; i--) {
+        v = (v << 8) | (uint64_t)p[i];
+    }
+    return v;
+}
+
+static uint32_t target_le32(const uint8_t *p)
+{
+    uint32_t v = 0;
+    int i;
+    for (i = 3; i >= 0; i--) {
+        v = (v << 8) | (uint32_t)p[i];
+    }
+    return v;
+}
+
+static void test_stat(void)
+{
+    uintptr_t args[4];
+    uintptr_t fd;
+    uintptr_t result;
+    uint8_t stat_buf[48];
+    const char *payload = "stat_test_payload"; /* 17 bytes */
+    int i;
+
+    /* Set up a known file. */
+    args[0] = (uintptr_t)stat_test_filename;
+    args[1] = SH_OPEN_W;
+    args[2] = zbc_strlen(stat_test_filename);
+    fd = zbc_semihost(&g_target_client, g_target_riff_buf,
+                      sizeof(g_target_riff_buf), SH_SYS_OPEN, (uintptr_t)args);
+    if (fd == (uintptr_t)-1) {
+        TARGET_BEGIN_TEST("sys_stat");
+        TARGET_SKIP("could not create test file");
+        return;
+    }
+    args[0] = fd;
+    args[1] = (uintptr_t)payload;
+    args[2] = zbc_strlen(payload);
+    zbc_semihost(&g_target_client, g_target_riff_buf, sizeof(g_target_riff_buf),
+                 SH_SYS_WRITE, (uintptr_t)args);
+    args[0] = fd;
+    zbc_semihost(&g_target_client, g_target_riff_buf, sizeof(g_target_riff_buf),
+                 SH_SYS_CLOSE, (uintptr_t)args);
+
+    /* SYS_STAT on the just-created file: size field should match. */
+    TARGET_BEGIN_TEST("sys_stat");
+    for (i = 0; i < 48; i++) {
+        stat_buf[i] = 0xAA; /* sentinel so we notice if nothing wrote */
+    }
+    args[0] = (uintptr_t)stat_test_filename;
+    args[1] = zbc_strlen(stat_test_filename);
+    args[2] = (uintptr_t)stat_buf;
+    args[3] = 48;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_STAT,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    /* size field at wire offset 16 should equal strlen(payload). */
+    TARGET_ASSERT_EQ((uintptr_t)target_le64(stat_buf + 16),
+                     (uintptr_t)zbc_strlen(payload));
+    /* nlink at offset 12 should be >= 1 for a regular file. */
+    TARGET_ASSERT(target_le32(stat_buf + 12) >= 1);
+    /* mode at offset 8 should be non-zero (some permissions set). */
+    TARGET_ASSERT(target_le32(stat_buf + 8) != 0);
+    TARGET_END_TEST();
+
+    /* SYS_STAT on a missing path: result should be -1. */
+    TARGET_BEGIN_TEST("sys_stat_missing");
+    args[0] = (uintptr_t)stat_test_missing;
+    args[1] = zbc_strlen(stat_test_missing);
+    args[2] = (uintptr_t)stat_buf;
+    args[3] = 48;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_STAT,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, (uintptr_t)-1);
+    TARGET_END_TEST();
+
+    /* Cleanup. */
+    args[0] = (uintptr_t)stat_test_filename;
+    args[1] = zbc_strlen(stat_test_filename);
+    zbc_semihost(&g_target_client, g_target_riff_buf, sizeof(g_target_riff_buf),
+                 SH_SYS_REMOVE, (uintptr_t)args);
+}
+
+/*------------------------------------------------------------------------
  * Test: File System (REMOVE, RENAME, TMPNAM)
  *------------------------------------------------------------------------*/
 
@@ -485,6 +591,9 @@ void _start(void)
 
     TARGET_PRINT("\nFile System:\n");
     test_filesystem();
+
+    TARGET_PRINT("\nLinux Extensions:\n");
+    test_stat();
 
     TARGET_PRINT("\nTime:\n");
     test_time();

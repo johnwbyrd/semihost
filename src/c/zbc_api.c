@@ -169,6 +169,51 @@ int zbc_api_tmpnam(zbc_api_t *api, char *dest, size_t maxlen, int id) {
     return (rc == ZBC_OK) ? response.result : -1;
 }
 
+/* Little-endian decoders for the 48-byte wire layout. */
+static uint32_t stat_unpack_u32(const uint8_t *p) {
+    return ((uint32_t)p[0])
+         | ((uint32_t)p[1] << 8)
+         | ((uint32_t)p[2] << 16)
+         | ((uint32_t)p[3] << 24);
+}
+
+static uint64_t stat_unpack_u64(const uint8_t *p) {
+    uint64_t lo = stat_unpack_u32(p);
+    uint64_t hi = stat_unpack_u32(p + 4);
+    return lo | (hi << 32);
+}
+
+int zbc_api_stat(zbc_api_t *api, const char *path, zbc_stat_t *out) {
+    zbc_response_t response;
+    uintptr_t args[4];
+    uint8_t raw[SH_STAT_BUF_SIZE];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+    args[2] = (uintptr_t)raw;
+    args[3] = (uintptr_t)SH_STAT_BUF_SIZE;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_STAT, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    if (rc != ZBC_OK || response.result != 0) {
+        return -1;
+    }
+
+    if (out) {
+        out->ino   = stat_unpack_u64(raw + 0);
+        out->mode  = stat_unpack_u32(raw + 8);
+        out->nlink = stat_unpack_u32(raw + 12);
+        out->size  = stat_unpack_u64(raw + 16);
+        out->mtime = (int64_t)stat_unpack_u64(raw + 24);
+        out->atime = (int64_t)stat_unpack_u64(raw + 32);
+        out->ctime = (int64_t)stat_unpack_u64(raw + 40);
+    }
+    return 0;
+}
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

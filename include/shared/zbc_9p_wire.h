@@ -58,8 +58,11 @@
 #define ZBC_9P_QID_SIZE      13
 #define ZBC_9P_QTDIR         0x80
 
-/* Tgetattr request mask bits (subset) */
-#define ZBC_9P_GETATTR_SIZE  0x00000200UL
+/* Tgetattr request mask bits (subset). BASIC selects mode, nlink,
+ * uid, gid, rdev, atime, mtime, ctime, ino, size, blocks -- everything
+ * the SYS_STAT 48-byte response layout needs. */
+#define ZBC_9P_GETATTR_SIZE   0x00000200UL
+#define ZBC_9P_GETATTR_BASIC  0x000007FFUL
 
 /*
  * Rgetattr payload layout (after the 7-byte header):
