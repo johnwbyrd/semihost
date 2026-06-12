@@ -412,6 +412,86 @@ static int test_fstat_ftruncate_fsync(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: link / symlink / readlink / lstat (POSIX-only host coverage --
+ * the Windows ANSI helpers stub link/symlink/readlink to ENOSYS).
+ *------------------------------------------------------------------------*/
+
+#ifndef _WIN32
+static int test_symlink_ops(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char target_path[512];
+    char link_path[512];
+    char hardlink_path[512];
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    char readback[256];
+    int fd;
+    int rc;
+
+    make_temp_path(target_path, sizeof(target_path),
+                   "zbc_test_symlink_target.txt");
+    make_temp_path(link_path, sizeof(link_path),
+                   "zbc_test_symlink_link");
+    make_temp_path(hardlink_path, sizeof(hardlink_path),
+                   "zbc_test_hardlink");
+
+    /* Best-effort pre-clean. */
+    be->remove(ctx, link_path, strlen(link_path));
+    be->remove(ctx, hardlink_path, strlen(hardlink_path));
+    be->remove(ctx, target_path, strlen(target_path));
+
+    /* Create the target file with one byte of content. */
+    fd = be->open(ctx, target_path, strlen(target_path), 4); /* SH_OPEN_W */
+    TEST_ASSERT(fd >= 0, "open target file should succeed");
+    be->write(ctx, fd, "x", 1);
+    be->close(ctx, fd);
+
+    TEST_ASSERT(be->link != NULL, "link slot must be populated");
+    TEST_ASSERT(be->symlink != NULL, "symlink slot must be populated");
+    TEST_ASSERT(be->readlink != NULL, "readlink slot must be populated");
+    TEST_ASSERT(be->lstat != NULL, "lstat slot must be populated");
+
+    /* symlink target_path -> link_path. */
+    rc = be->symlink(ctx, target_path, strlen(target_path),
+                     link_path, strlen(link_path));
+    TEST_ASSERT(rc == 0, "symlink should succeed");
+
+    /* readlink should return the original target string verbatim. */
+    rc = be->readlink(ctx, link_path, strlen(link_path),
+                      readback, sizeof(readback));
+    TEST_ASSERT(rc == (int)strlen(target_path),
+                "readlink should return the target length");
+    TEST_ASSERT(memcmp(readback, target_path, rc) == 0,
+                "readlink should return the verbatim target string");
+
+    /* lstat on the symlink should report a symlink (S_IFLNK = 0120000). */
+    rc = be->lstat(ctx, link_path, strlen(link_path), stat_buf);
+    TEST_ASSERT(rc == 0, "lstat on symlink should succeed");
+    {
+        uint32_t mode = ((uint32_t)stat_buf[8]) |
+                        ((uint32_t)stat_buf[9] << 8) |
+                        ((uint32_t)stat_buf[10] << 16) |
+                        ((uint32_t)stat_buf[11] << 24);
+        TEST_ASSERT((mode & 0170000) == 0120000,
+                    "lstat mode should mark the file as a symlink");
+    }
+
+    /* hard link of target_path -> hardlink_path. The hard link should
+     * report the same inode as the target. */
+    rc = be->link(ctx, target_path, strlen(target_path),
+                  hardlink_path, strlen(hardlink_path));
+    TEST_ASSERT(rc == 0, "link (hard) should succeed");
+
+    /* Cleanup. */
+    be->remove(ctx, hardlink_path, strlen(hardlink_path));
+    be->remove(ctx, link_path, strlen(link_path));
+    be->remove(ctx, target_path, strlen(target_path));
+    return 1;
+}
+#endif /* !_WIN32 */
+
+/*------------------------------------------------------------------------
  * Test: Seek
  *------------------------------------------------------------------------*/
 
@@ -995,6 +1075,10 @@ void run_ansi_insecure_tests(void)
     RUN_TEST(dir_missing);
     RUN_TEST(mkdir_rmdir);
     RUN_TEST(fstat_ftruncate_fsync);
+#ifndef _WIN32
+    /* link/symlink/readlink/lstat are POSIX-only in the ANSI helpers. */
+    RUN_TEST(symlink_ops);
+#endif
     RUN_TEST(seek);
     RUN_TEST(console_write);
     RUN_TEST(time_functions);

@@ -17,6 +17,11 @@
  *   SYS_RMDIR     -> Twalk + Tremove (same flow as SYS_REMOVE)
  *   SYS_FTRUNCATE -> Tsetattr (SIZE mask only)
  *   SYS_FSYNC     -> Tfsync
+ *   SYS_LINK      -> Twalk + Twalk-to-parent + Tlink
+ *   SYS_SYMLINK   -> Twalk-to-parent + Tsymlink
+ *   SYS_READLINK  -> Twalk + Treadlink
+ *   SYS_LSTAT     -> Twalk + Tgetattr (Twalk doesn't follow terminal
+ *                    symlink in 9P2000.L, so identical flow to SYS_STAT)
  *
  * Errors arrive as Rlerror carrying a Linux errno, which flows into
  * response->error_code unchanged.
@@ -1033,6 +1038,162 @@ static int do_fsync(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
   return ZBC_OK;
 }
 
+static int do_link(zbc_9p_state_t *s, zbc_response_t *response,
+                   const char *old_path, size_t old_len, const char *new_path,
+                   size_t new_len) {
+  const char *new_leaf = (const char *)0;
+  size_t new_leaf_len = 0;
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  /* SCRATCH_A: existing file fid (the target of the hard link). */
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, old_path, old_len, 0,
+               (const char **)0, (size_t *)0, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* SCRATCH_B: parent dir of the new name. */
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_B, new_path, new_len, 1,
+               &new_leaf, &new_leaf_len, &p9err);
+  if (rc != ZBC_OK) {
+    p9_clunk(s, P9_FID_SCRATCH_A);
+    return rc;
+  }
+  if (p9err != 0) {
+    p9_clunk(s, P9_FID_SCRATCH_A);
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Tlink: dfid[4] fid[4] name[s]. Rlink has no payload. */
+  wr_begin(&w, s, ZBC_9P_TLINK, P9_TAG);
+  wr_u32(&w, P9_FID_SCRATCH_B); /* parent of new name */
+  wr_u32(&w, P9_FID_SCRATCH_A); /* existing file */
+  wr_str(&w, new_leaf, new_leaf_len);
+  rc = p9_rpc(s, &w, ZBC_9P_RLINK, &reply, &p9err);
+
+  p9_clunk(s, P9_FID_SCRATCH_A);
+  p9_clunk(s, P9_FID_SCRATCH_B);
+
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+  p9_fill_response(response, 0, 0);
+  return ZBC_OK;
+}
+
+static int do_symlink(zbc_9p_state_t *s, zbc_response_t *response,
+                      const char *target, size_t target_len,
+                      const char *linkpath, size_t linkpath_len) {
+  const char *link_leaf = (const char *)0;
+  size_t link_leaf_len = 0;
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  /* Walk to the parent of the link being created. */
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, linkpath, linkpath_len, 1,
+               &link_leaf, &link_leaf_len, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Tsymlink: fid[4] name[s] symtgt[s] gid[4].
+   * Rsymlink: qid[13] -- discarded; symlink doesn't establish a fid. */
+  wr_begin(&w, s, ZBC_9P_TSYMLINK, P9_TAG);
+  wr_u32(&w, P9_FID_SCRATCH_A);
+  wr_str(&w, link_leaf, link_leaf_len);
+  wr_str(&w, target, target_len);
+  wr_u32(&w, 0); /* gid */
+  rc = p9_rpc(s, &w, ZBC_9P_RSYMLINK, &reply, &p9err);
+
+  p9_clunk(s, P9_FID_SCRATCH_A);
+
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+  p9_fill_response(response, 0, 0);
+  return ZBC_OK;
+}
+
+static int do_readlink(zbc_9p_state_t *s, zbc_response_t *response,
+                       const char *path, size_t path_len, uint8_t *out_buf,
+                       size_t out_size) {
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+  uint16_t tgt_len;
+  const uint8_t *tgt_bytes;
+  size_t copied;
+
+  /* Walk to the symlink. 9P2000.L's Twalk does not traverse a terminal
+   * symlink, which is exactly what readlink needs. */
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, path, path_len, 0,
+               (const char **)0, (size_t *)0, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Treadlink: fid[4]. Rreadlink: target[s] (uint16 len + bytes). */
+  wr_begin(&w, s, ZBC_9P_TREADLINK, P9_TAG);
+  wr_u32(&w, P9_FID_SCRATCH_A);
+  rc = p9_rpc(s, &w, ZBC_9P_RREADLINK, &reply, &p9err);
+
+  p9_clunk(s, P9_FID_SCRATCH_A);
+
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  tgt_len = rd_u16(&reply);
+  tgt_bytes = rd_bytes(&reply, tgt_len);
+  if (reply.truncated || !tgt_bytes) {
+    return ZBC_ERR_PARSE_ERROR;
+  }
+
+  copied = (tgt_len < out_size) ? tgt_len : out_size;
+  if (copied > 0) {
+    size_t i;
+    for (i = 0; i < copied; i++) {
+      out_buf[i] = tgt_bytes[i];
+    }
+  }
+  /* readlink(2) returns bytes written without a NUL. */
+  p9_fill_response(response, (int)copied, 0);
+  response->data = out_buf;
+  response->data_size = copied;
+  return ZBC_OK;
+}
+
 /* Map a guest-side dir handle (256+slot) to the internal slot, or -1. */
 static int dir_slot(const zbc_9p_state_t *s, int handle) {
   int slot = handle - ZBC_9P_FIRST_DIR_HANDLE;
@@ -1441,6 +1602,25 @@ static int p9_transport_call(zbc_response_t *response,
 
   case SH_SYS_FSYNC:
     return do_fsync(s, response, (int)args[0]);
+
+  case SH_SYS_LINK:
+    return do_link(s, response, (const char *)args[0], (size_t)args[1],
+                   (const char *)args[2], (size_t)args[3]);
+
+  case SH_SYS_SYMLINK:
+    return do_symlink(s, response, (const char *)args[0], (size_t)args[1],
+                      (const char *)args[2], (size_t)args[3]);
+
+  case SH_SYS_READLINK:
+    return do_readlink(s, response, (const char *)args[0], (size_t)args[1],
+                       (uint8_t *)args[2], (size_t)args[3]);
+
+  case SH_SYS_LSTAT:
+    /* 9P2000.L's Twalk does not traverse a terminal symlink, so the
+     * existing do_stat sequence (Twalk + Tgetattr) is already lstat
+     * semantics for our purposes. */
+    return do_stat(s, response, (const char *)args[0], (size_t)args[1],
+                   (uint8_t *)args[2]);
 
   default:
     /* Console opcodes route to the console transport in a composite;

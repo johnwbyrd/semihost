@@ -199,6 +199,29 @@ static int c_fsync(void *, int FD) {
   tracef("fsync(%d)", FD);
   return 0;
 }
+static int c_link(void *, const char *O, size_t OL, const char *N, size_t NL) {
+  tracef("link(%s,%s)", canon(O, OL).c_str(), canon(N, NL).c_str());
+  return 0;
+}
+static int c_symlink(void *, const char *T, size_t TL, const char *L,
+                     size_t LL) {
+  tracef("symlink(%s,%s)", canon(T, TL).c_str(), canon(L, LL).c_str());
+  return 0;
+}
+static int c_readlink(void *, const char *P, size_t L, void *Buf, size_t N) {
+  static const char fake[] = "target";
+  size_t n = sizeof(fake) - 1;
+  tracef("readlink(%s,%zu)", canon(P, L).c_str(), N);
+  if (n > N) n = N;
+  memcpy(Buf, fake, n);
+  return (int)n;
+}
+static int c_lstat(void *, const char *P, size_t L, void *Buf) {
+  tracef("lstat(%s)", canon(P, L).c_str());
+  for (size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+    ((uint8_t *)Buf)[I] = (uint8_t)(0xC0 + I);
+  return 0;
+}
 }
 
 static const zbc_backend_t ScriptedC = {
@@ -209,7 +232,8 @@ static const zbc_backend_t ScriptedC = {
     nullptr, /* heapinfo */
     c_exit,   c_get_errno, c_timer, c_stat,
     c_opendir, c_readdir, c_closedir, c_readc_poll,
-    c_fstat,  c_mkdir,    c_rmdir,    c_ftruncate, c_fsync};
+    c_fstat,  c_mkdir,    c_rmdir,    c_ftruncate, c_fsync,
+    c_link,   c_symlink,  c_readlink, c_lstat};
 
 // --- C++ side ---------------------------------------------------------------
 

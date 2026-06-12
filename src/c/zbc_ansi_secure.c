@@ -1026,6 +1026,116 @@ static int ansi_fsync(void *ctx, int fd) {
   return rc;
 }
 
+static int ansi_link(void *ctx, const char *old_path, size_t old_len,
+                     const char *new_path, size_t new_len) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  char old_resolved[ZBC_ANSI_PATH_BUF_MAX];
+  size_t old_resolved_len;
+  size_t new_resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  /* Both endpoints must stay inside the sandbox. */
+  if (ansi_validate_path(state, old_path, old_len, 1, &old_resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  memcpy(old_resolved, state->path_buf, old_resolved_len + 1);
+  if (ansi_validate_path(state, new_path, new_len, 1, &new_resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_link_paths(old_resolved, state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_symlink(void *ctx, const char *target, size_t target_len,
+                        const char *linkpath, size_t linkpath_len) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  char target_copy[ZBC_ANSI_PATH_BUF_MAX];
+  size_t linkpath_resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  /* target is the *content* of the symlink; it is not dereferenced
+   * by symlink(2) so we don't sandbox-validate it -- it may even point
+   * to a non-existent or absolute host path. But cap its length so
+   * symlink(2) gets a NUL-terminated input. */
+  if (target_len >= sizeof(target_copy)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(target_copy, target, target_len);
+  target_copy[target_len] = '\0';
+
+  /* linkpath is the on-disk name being created; sandbox it. */
+  if (ansi_validate_path(state, linkpath, linkpath_len, 1,
+                         &linkpath_resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_symlink_paths(target_copy, state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_readlink(void *ctx, const char *path, size_t path_len,
+                         void *buf, size_t buf_size) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (ansi_validate_path(state, path, path_len, 0, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_readlink_path(state->path_buf, buf, buf_size);
+  if (rc < 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_lstat(void *ctx, const char *path, size_t path_len,
+                      void *stat_buf) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (ansi_validate_path(state, path, path_len, 0, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_lstat_path(state->path_buf, stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -1039,7 +1149,8 @@ static const zbc_backend_t ansi_secure_backend = {
     ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config,
     ansi_stat,        ansi_opendir,     ansi_readdir,     ansi_closedir,
     ansi_readc_poll,  ansi_fstat,       ansi_mkdir,       ansi_rmdir,
-    ansi_ftruncate,   ansi_fsync};
+    ansi_ftruncate,   ansi_fsync,       ansi_link,        ansi_symlink,
+    ansi_readlink,    ansi_lstat};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 

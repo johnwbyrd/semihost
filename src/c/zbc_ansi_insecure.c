@@ -695,6 +695,99 @@ static int ansi_insecure_fsync(void *ctx, int fd) {
   return rc;
 }
 
+static int ansi_insecure_link(void *ctx, const char *old_path, size_t old_len,
+                              const char *new_path, size_t new_len) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  /* Stage the new path in path_buf, and the old path in a local copy. */
+  char old_copy[ZBC_ANSI_PATH_BUF_MAX];
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (old_len >= sizeof(old_copy) || new_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(old_copy, old_path, old_len);
+  old_copy[old_len] = '\0';
+  memcpy(state->path_buf, new_path, new_len);
+  state->path_buf[new_len] = '\0';
+  rc = zbc_ansi_link_paths(old_copy, state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_symlink(void *ctx, const char *target,
+                                 size_t target_len, const char *linkpath,
+                                 size_t linkpath_len) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  char target_copy[ZBC_ANSI_PATH_BUF_MAX];
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (target_len >= sizeof(target_copy) ||
+      linkpath_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(target_copy, target, target_len);
+  target_copy[target_len] = '\0';
+  memcpy(state->path_buf, linkpath, linkpath_len);
+  state->path_buf[linkpath_len] = '\0';
+  rc = zbc_ansi_symlink_paths(target_copy, state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_readlink(void *ctx, const char *path, size_t path_len,
+                                  void *buf, size_t buf_size) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+  rc = zbc_ansi_readlink_path(state->path_buf, buf, buf_size);
+  if (rc < 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_lstat(void *ctx, const char *path, size_t path_len,
+                               void *stat_buf) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+  rc = zbc_ansi_lstat_path(state->path_buf, stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -716,7 +809,9 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_readdir,     ansi_insecure_closedir,
     ansi_insecure_readc_poll,  ansi_insecure_fstat,
     ansi_insecure_mkdir,       ansi_insecure_rmdir,
-    ansi_insecure_ftruncate,   ansi_insecure_fsync};
+    ansi_insecure_ftruncate,   ansi_insecure_fsync,
+    ansi_insecure_link,        ansi_insecure_symlink,
+    ansi_insecure_readlink,    ansi_insecure_lstat};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;

@@ -614,6 +614,80 @@ static const zbc_opcode_entry_t zbc_opcode_table[] = {
      0,
      0},
 
+    /*
+     * SH_SYS_LINK (0x8A) -- Linux extension (optional)
+     * Guest args: {old_ptr, old_len, new_ptr, new_len}
+     * Request: DATA(old), PARM(old_len), DATA(new), PARM(new_len)
+     * Response: int (0 or -1). Same wire shape as SH_SYS_RENAME.
+     */
+    {SH_SYS_LINK,
+     4,
+     {{ZBC_CHUNK_DATA_PTR, 0, 1},
+      {ZBC_CHUNK_PARM_UINT, 1, 0},
+      {ZBC_CHUNK_DATA_PTR, 2, 3},
+      {ZBC_CHUNK_PARM_UINT, 3, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
+    /*
+     * SH_SYS_SYMLINK (0x8B) -- Linux extension (optional)
+     * Guest args: {target_ptr, target_len, linkpath_ptr, linkpath_len}
+     * Request: DATA(target), PARM(target_len), DATA(linkpath), PARM(linkpath_len)
+     * Response: int (0 or -1).
+     */
+    {SH_SYS_SYMLINK,
+     4,
+     {{ZBC_CHUNK_DATA_PTR, 0, 1},
+      {ZBC_CHUNK_PARM_UINT, 1, 0},
+      {ZBC_CHUNK_DATA_PTR, 2, 3},
+      {ZBC_CHUNK_PARM_UINT, 3, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
+    /*
+     * SH_SYS_READLINK (0x8C) -- Linux extension (optional)
+     * Guest args: {path_ptr, path_len, buf_ptr, buf_size}
+     * Request: DATA(path), PARM(path_len), PARM(buf_size)
+     * Response: int (bytes written to target buf; -1 on error). The
+     * symlink target bytes are returned as DATA and copied to args[2]
+     * with max length args[3]. The bytes are NOT NUL-terminated; the
+     * caller relies on the int result for the length, matching POSIX
+     * readlink(2).
+     */
+    {SH_SYS_READLINK,
+     4,
+     {{ZBC_CHUNK_DATA_PTR, 0, 1},
+      {ZBC_CHUNK_PARM_UINT, 1, 0},
+      {ZBC_CHUNK_PARM_UINT, 3, 0},
+      {ZBC_CHUNK_NONE, 0, 0}},
+     ZBC_RESP_DATA,
+     2, /* copy DATA to args[2] */
+     3  /* max len from args[3] */
+    },
+
+    /*
+     * SH_SYS_LSTAT (0x8D) -- Linux extension (optional)
+     * Guest args: {path_ptr, path_len, stat_buf_ptr, 48}
+     * Request: DATA(path), PARM(path_len)
+     * Response: int (0 or -1), 48-byte stat struct in DATA copied to
+     * args[2]. Wire-identical to SH_SYS_STAT; the difference is that
+     * lstat() does not traverse a terminal symlink and reports the
+     * link's own metadata.
+     */
+    {
+        SH_SYS_LSTAT,
+        4,
+        {{ZBC_CHUNK_DATA_PTR, 0, 1},
+         {ZBC_CHUNK_PARM_UINT, 1, 0},
+         {ZBC_CHUNK_NONE, 0, 0},
+         {ZBC_CHUNK_NONE, 0, 0}},
+        ZBC_RESP_DATA,
+        2,
+        3
+    },
+
     /* End marker */
     {0, 0, {{ZBC_CHUNK_NONE, 0, 0}}, ZBC_RESP_INT, 0, 0}};
 

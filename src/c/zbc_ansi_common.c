@@ -345,6 +345,61 @@ int zbc_ansi_fsync_fd(int fd) {
 #endif
 }
 
+int zbc_ansi_link_paths(const char *old_path, const char *new_path) {
+#ifdef _WIN32
+  (void)old_path;
+  (void)new_path;
+  errno = ENOSYS;
+  return -1;
+#else
+  return link(old_path, new_path);
+#endif
+}
+
+int zbc_ansi_symlink_paths(const char *target, const char *linkpath) {
+#ifdef _WIN32
+  (void)target;
+  (void)linkpath;
+  errno = ENOSYS;
+  return -1;
+#else
+  return symlink(target, linkpath);
+#endif
+}
+
+int zbc_ansi_readlink_path(const char *path, void *buf, size_t buf_size) {
+#ifdef _WIN32
+  (void)path;
+  (void)buf;
+  (void)buf_size;
+  errno = ENOSYS;
+  return -1;
+#else
+  ssize_t n = readlink(path, (char *)buf, buf_size);
+  if (n < 0) {
+    return -1;
+  }
+  return (int)n;
+#endif
+}
+
+int zbc_ansi_lstat_path(const char *resolved_path, void *stat_buf) {
+  struct stat st;
+#ifdef _WIN32
+  /* Windows has no lstat(); regular stat() is the closest approximation
+   * and is correct for files that aren't NTFS reparse points. */
+  if (stat(resolved_path, &st) != 0) {
+    return -1;
+  }
+#else
+  if (lstat(resolved_path, &st) != 0) {
+    return -1;
+  }
+#endif
+  zbc_ansi_pack_stat(&st, stat_buf);
+  return 0;
+}
+
 int zbc_ansi_readdir_one(void *dir_ptr, void *buf, size_t buf_size) {
 #ifdef _WIN32
   (void)dir_ptr;

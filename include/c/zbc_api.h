@@ -283,6 +283,53 @@ int zbc_api_ftruncate(zbc_api_t *api, int fd, uint64_t length);
  */
 int zbc_api_fsync(zbc_api_t *api, int fd);
 
+/**
+ * Create a hard link at new_path pointing to old_path.
+ *
+ * @param api       API state
+ * @param old_path  Existing file (null-terminated)
+ * @param new_path  Hard link to create (null-terminated)
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_link(zbc_api_t *api, const char *old_path, const char *new_path);
+
+/**
+ * Create a symbolic link at linkpath whose target is the string
+ * `target`. target is recorded verbatim and is not required to
+ * resolve to an existing path on the host.
+ *
+ * @param api       API state
+ * @param target    Symlink target string (null-terminated)
+ * @param linkpath  Symlink to create (null-terminated)
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_symlink(zbc_api_t *api, const char *target, const char *linkpath);
+
+/**
+ * Read the target of a symlink. Writes up to buf_size bytes (NOT
+ * NUL-terminated) and returns the byte count, matching POSIX
+ * readlink(2).
+ *
+ * @param api       API state
+ * @param path      Symlink path (null-terminated)
+ * @param buf       Destination buffer
+ * @param buf_size  Buffer capacity
+ * @return Bytes written on success, -1 on error
+ */
+int zbc_api_readlink(zbc_api_t *api, const char *path, void *buf,
+                     size_t buf_size);
+
+/**
+ * Stat a path without following its terminal symlink. Fills @p out
+ * with the link's own metadata.
+ *
+ * @param api   API state
+ * @param path  Path (null-terminated)
+ * @param out   Destination for the decoded stat record
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_lstat(zbc_api_t *api, const char *path, zbc_stat_t *out);
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

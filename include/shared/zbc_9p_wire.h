@@ -25,6 +25,10 @@
 #define ZBC_9P_RLOPEN     13
 #define ZBC_9P_TLCREATE   14
 #define ZBC_9P_RLCREATE   15
+#define ZBC_9P_TSYMLINK   16
+#define ZBC_9P_RSYMLINK   17
+#define ZBC_9P_TREADLINK  22
+#define ZBC_9P_RREADLINK  23
 #define ZBC_9P_TGETATTR   24
 #define ZBC_9P_RGETATTR   25
 #define ZBC_9P_TSETATTR   26
@@ -33,6 +37,8 @@
 #define ZBC_9P_RREADDIR   41
 #define ZBC_9P_TFSYNC     50
 #define ZBC_9P_RFSYNC     51
+#define ZBC_9P_TLINK      70
+#define ZBC_9P_RLINK      71
 #define ZBC_9P_TMKDIR     72
 #define ZBC_9P_RMKDIR     73
 #define ZBC_9P_TRENAMEAT  74

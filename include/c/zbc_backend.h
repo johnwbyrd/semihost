@@ -165,6 +165,37 @@ typedef struct zbc_backend_s {
      * success, -1 on error.
      */
     int (*fsync)(void *ctx, int fd);
+
+    /**
+     * Create a hard link new_path -> old_path. Returns 0 on success,
+     * -1 on error.
+     */
+    int (*link)(void *ctx, const char *old_path, size_t old_len,
+                const char *new_path, size_t new_len);
+
+    /**
+     * Create a symbolic link at linkpath that points to target.
+     * Returns 0 on success, -1 on error.
+     */
+    int (*symlink)(void *ctx, const char *target, size_t target_len,
+                   const char *linkpath, size_t linkpath_len);
+
+    /**
+     * Read the target of a symbolic link at path. Writes up to
+     * buf_size bytes (NOT NUL-terminated). Returns the number of
+     * bytes written on success, -1 on error (matches POSIX
+     * readlink(2)).
+     */
+    int (*readlink)(void *ctx, const char *path, size_t path_len,
+                    void *buf, size_t buf_size);
+
+    /**
+     * Stat a path without following the terminal symlink. Same
+     * 48-byte response layout as stat(). Returns 0 on success, -1 on
+     * error.
+     */
+    int (*lstat)(void *ctx, const char *path, size_t path_len,
+                 void *stat_buf);
 } zbc_backend_t;
 
 /*========================================================================

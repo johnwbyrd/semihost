@@ -610,6 +610,112 @@ static void test_fstat_ftruncate_fsync(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: LINK / SYMLINK / READLINK / LSTAT
+ *
+ * Round-trip the optional symlink ops on the 9p file class. The
+ * fallback / RIFF transports on MAME platforms don't currently
+ * implement these; the target test fails closed on those and ctest
+ * still passes since MAME exits 0.
+ *------------------------------------------------------------------------*/
+
+static void test_symlink_ops(void)
+{
+    static const char tgt_name[] = "zbc_target_symlink_tgt.txt";
+    static const char lnk_name[] = "zbc_target_symlink_lnk";
+    static const char hardlink_name[] = "zbc_target_hardlink";
+    uintptr_t args[4];
+    uintptr_t fd;
+    uintptr_t result;
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    uint8_t readback[64];
+    uint32_t mode;
+
+    /* Best-effort pre-clean of any leftovers. */
+    args[0] = (uintptr_t)hardlink_name; args[1] = zbc_strlen(hardlink_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+    args[0] = (uintptr_t)lnk_name; args[1] = zbc_strlen(lnk_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+    args[0] = (uintptr_t)tgt_name; args[1] = zbc_strlen(tgt_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+
+    /* Create the symlink target so subsequent ops have something to point at. */
+    args[0] = (uintptr_t)tgt_name;
+    args[1] = SH_OPEN_W;
+    args[2] = zbc_strlen(tgt_name);
+    fd = zbc_semihost(&g_target_client, g_target_riff_buf,
+                      sizeof(g_target_riff_buf), SH_SYS_OPEN, (uintptr_t)args);
+    if (fd == (uintptr_t)-1) {
+        TARGET_PRINT("  (skipping symlink tests; could not create target)\n");
+        return;
+    }
+    args[0] = fd; args[1] = (uintptr_t)"x"; args[2] = 1;
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_WRITE, (uintptr_t)args);
+    args[0] = fd;
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_CLOSE, (uintptr_t)args);
+
+    /* SYMLINK. */
+    TARGET_BEGIN_TEST("sys_symlink");
+    args[0] = (uintptr_t)tgt_name; args[1] = zbc_strlen(tgt_name);
+    args[2] = (uintptr_t)lnk_name; args[3] = zbc_strlen(lnk_name);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_SYMLINK,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    /* READLINK -- should return target string verbatim. */
+    TARGET_BEGIN_TEST("sys_readlink");
+    args[0] = (uintptr_t)lnk_name; args[1] = zbc_strlen(lnk_name);
+    args[2] = (uintptr_t)readback; args[3] = sizeof(readback);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_READLINK,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, zbc_strlen(tgt_name));
+    TARGET_END_TEST();
+
+    /* LSTAT should mark the file as a symlink (S_IFLNK = 0120000). */
+    TARGET_BEGIN_TEST("sys_lstat");
+    args[0] = (uintptr_t)lnk_name; args[1] = zbc_strlen(lnk_name);
+    args[2] = (uintptr_t)stat_buf; args[3] = SH_STAT_BUF_SIZE;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_LSTAT,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    mode = ((uint32_t)stat_buf[8]) |
+           ((uint32_t)stat_buf[9] << 8) |
+           ((uint32_t)stat_buf[10] << 16) |
+           ((uint32_t)stat_buf[11] << 24);
+    TARGET_ASSERT_EQ(mode & 0170000, 0120000);
+    TARGET_END_TEST();
+
+    /* LINK (hard link). */
+    TARGET_BEGIN_TEST("sys_link");
+    args[0] = (uintptr_t)tgt_name; args[1] = zbc_strlen(tgt_name);
+    args[2] = (uintptr_t)hardlink_name; args[3] = zbc_strlen(hardlink_name);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_LINK,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    /* Cleanup. */
+    args[0] = (uintptr_t)hardlink_name; args[1] = zbc_strlen(hardlink_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+    args[0] = (uintptr_t)lnk_name; args[1] = zbc_strlen(lnk_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+    args[0] = (uintptr_t)tgt_name; args[1] = zbc_strlen(tgt_name);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+}
+
+/*------------------------------------------------------------------------
  * Test: File System (REMOVE, RENAME, TMPNAM)
  *------------------------------------------------------------------------*/
 
@@ -852,6 +958,7 @@ void _start(void)
     test_readc_poll();
     test_mkdir_rmdir();
     test_fstat_ftruncate_fsync();
+    test_symlink_ops();
 
     TARGET_PRINT("\nTime:\n");
     test_time();

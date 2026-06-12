@@ -377,6 +377,91 @@ int zbc_api_fsync(zbc_api_t *api, int fd) {
     return (rc == ZBC_OK) ? response.result : -1;
 }
 
+int zbc_api_link(zbc_api_t *api, const char *old_path, const char *new_path) {
+    zbc_response_t response;
+    uintptr_t args[4];
+    int rc;
+    size_t old_len = zbc_strlen(old_path);
+    size_t new_len = zbc_strlen(new_path);
+
+    args[0] = (uintptr_t)old_path;
+    args[1] = (uintptr_t)old_len;
+    args[2] = (uintptr_t)new_path;
+    args[3] = (uintptr_t)new_len;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_LINK, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_symlink(zbc_api_t *api, const char *target, const char *linkpath) {
+    zbc_response_t response;
+    uintptr_t args[4];
+    int rc;
+    size_t target_len = zbc_strlen(target);
+    size_t linkpath_len = zbc_strlen(linkpath);
+
+    args[0] = (uintptr_t)target;
+    args[1] = (uintptr_t)target_len;
+    args[2] = (uintptr_t)linkpath;
+    args[3] = (uintptr_t)linkpath_len;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_SYMLINK, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_readlink(zbc_api_t *api, const char *path, void *buf,
+                     size_t buf_size) {
+    zbc_response_t response;
+    uintptr_t args[4];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+    args[2] = (uintptr_t)buf;
+    args[3] = (uintptr_t)buf_size;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_READLINK, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_lstat(zbc_api_t *api, const char *path, zbc_stat_t *out) {
+    zbc_response_t response;
+    uintptr_t args[4];
+    uint8_t raw[SH_STAT_BUF_SIZE];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+    args[2] = (uintptr_t)raw;
+    args[3] = (uintptr_t)SH_STAT_BUF_SIZE;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_LSTAT, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    if (rc != ZBC_OK || response.result != 0) {
+        return -1;
+    }
+
+    if (out) {
+        out->ino   = stat_unpack_u64(raw + 0);
+        out->mode  = stat_unpack_u32(raw + 8);
+        out->nlink = stat_unpack_u32(raw + 12);
+        out->size  = stat_unpack_u64(raw + 16);
+        out->mtime = (int64_t)stat_unpack_u64(raw + 24);
+        out->atime = (int64_t)stat_unpack_u64(raw + 32);
+        out->ctime = (int64_t)stat_unpack_u64(raw + 40);
+    }
+    return 0;
+}
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

@@ -145,6 +145,32 @@ int zbc_ansi_ftruncate_fd(int fd, uint64_t length);
 int zbc_ansi_fsync_fd(int fd);
 
 /*
+ * Create a hard link at new_path pointing to old_path. Returns 0 on
+ * success, -1 on error. On Windows the helper stubs to -1/ENOSYS.
+ */
+int zbc_ansi_link_paths(const char *old_path, const char *new_path);
+
+/*
+ * Create a symbolic link at linkpath pointing to target. Returns 0 on
+ * success, -1 on error. Stubbed on Windows; non-elevated processes
+ * cannot create symlinks there without Developer Mode.
+ */
+int zbc_ansi_symlink_paths(const char *target, const char *linkpath);
+
+/*
+ * Read up to buf_size bytes of a symlink's target into buf (NOT
+ * NUL-terminated; the caller uses the return value as the length).
+ * Returns bytes written on success, -1 on error. Stubbed on Windows.
+ */
+int zbc_ansi_readlink_path(const char *path, void *buf, size_t buf_size);
+
+/*
+ * Like zbc_ansi_stat_path but reports the symlink's own metadata
+ * rather than the target's. On Windows this falls back to stat().
+ */
+int zbc_ansi_lstat_path(const char *resolved_path, void *stat_buf);
+
+/*
  * Pack one POSIX readdir() result into the SYS_READDIR wire layout
  * (d_ino[8] d_type[1] d_namlen[1] d_name[d_namlen+1]). Returns the
  * number of bytes written on success, -1 if the entry won't fit in

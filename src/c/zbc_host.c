@@ -352,6 +352,7 @@ typedef int (*fn_path_buf_t)(void *, const char *, size_t, void *);
 typedef int (*fn_fd_buf_sz_t)(void *, int, void *, size_t);
 typedef int (*fn_fd_stat_t)(void *, int, void *);
 typedef int (*fn_fd_len64_t)(void *, int, uint64_t);
+typedef int (*fn_path_buf_sz_t)(void *, const char *, size_t, void *, size_t);
 typedef void (*fn_writec_t)(void *, char);
 typedef void (*fn_write0_t)(void *, const char *);
 typedef int (*fn_uint_t)(void *, unsigned int);
@@ -378,6 +379,7 @@ typedef union {
   fn_fd_buf_sz_t fd_buf_sz;
   fn_fd_stat_t fd_stat;
   fn_fd_len64_t fd_len64;
+  fn_path_buf_sz_t path_buf_sz;
   fn_writec_t writec;
   fn_write0_t write0;
   fn_uint_t uint;
@@ -572,6 +574,28 @@ static call_result_t call_fd_len64(void *fn, void *ctx, const zbc_parsed_t *p,
   }
   u.ptr = fn;
   r.result = u.fd_len64(ctx, (int)p->parms[0], length);
+  return r;
+}
+
+/* int fn(void *ctx, const char *path, size_t len, void *out_buf,
+ *        size_t max) - readlink. Returns bytes written (>= 0) or -1.
+ * The caller's destination buffer size is parms[1]; we cap it at our
+ * own scratch buffer so the host can't be asked to overrun. */
+static call_result_t call_path_buf_sz(void *fn, void *ctx, const zbc_parsed_t *p,
+                                      uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  size_t cap = (size_t)p->parms[1];
+  if (cap > buf_size) {
+    cap = buf_size;
+  }
+  u.ptr = fn;
+  r.result = u.path_buf_sz(ctx, (const char *)p->data[0].ptr, p->data[0].size,
+                           buf, cap);
+  if (r.result > 0) {
+    r.data = buf;
+    r.data_len = (size_t)r.result;
+  }
   return r;
 }
 
@@ -772,6 +796,10 @@ static const dispatch_entry_t dispatch_table[] = {
     {SH_SYS_FTRUNCATE, OFF(ftruncate), 1, call_fd_len64},
     {SH_SYS_FSYNC, OFF(fsync), 1, call_fd},
     {SH_SYS_READC_POLL, OFF(readc_poll), 0, call_ctx},
+    {SH_SYS_LINK, OFF(link), 1, call_path_path},
+    {SH_SYS_SYMLINK, OFF(symlink), 1, call_path_path},
+    {SH_SYS_READLINK, OFF(readlink), 1, call_path_buf_sz},
+    {SH_SYS_LSTAT, OFF(lstat), 1, call_path_buf},
 
     {0, 0, 0, NULL} /* end marker */
 };

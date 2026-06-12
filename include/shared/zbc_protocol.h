@@ -92,6 +92,10 @@ typedef uint32_t uintptr_t;
 #define SH_SYS_FTRUNCATE      0x87  /* Truncate an open file to length */
 #define SH_SYS_FSYNC          0x88  /* Flush file data to storage */
 #define SH_SYS_READC_POLL     0x89  /* Non-blocking console char read */
+#define SH_SYS_LINK           0x8A  /* Create a hard link */
+#define SH_SYS_SYMLINK        0x8B  /* Create a symbolic link */
+#define SH_SYS_READLINK       0x8C  /* Read a symlink's target */
+#define SH_SYS_LSTAT          0x8D  /* stat() that does not follow symlinks */
 
 /** Wire size of the fixed SYS_STAT response buffer (always 48 bytes). */
 #define SH_STAT_BUF_SIZE      48
