@@ -27,7 +27,7 @@ extensions = [
 
 # -- Options for sphinx-c-autodoc --------------------------------------------
 
-c_autodoc_roots = ['../../include']
+c_autodoc_roots = ['../../include/c', '../../include/shared']
 
 templates_path = ['_templates']
 exclude_patterns = []
