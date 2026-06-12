@@ -16,6 +16,10 @@
 #include <sys/stat.h>
 #include <time.h>
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h> /* HANDLE, GetStdHandle, PeekConsoleInputW, etc. */
 #include <direct.h>  /* _mkdir, _rmdir */
 #include <io.h>      /* _chsize_s, _commit, _fileno */
 #else
@@ -181,10 +185,70 @@ int zbc_ansi_readc(void) {
 
 int zbc_ansi_readc_poll(void) {
 #ifdef _WIN32
-  /* Windows console I/O has no select() equivalent. Always report
-   * "no character"; the guest can fall back to SYS_READC if it needs
-   * blocking input. */
-  return -1;
+  /* Windows has no select() over arbitrary handles, so we branch on the
+   * concrete kind of stdin and use the matching non-blocking probe:
+   *
+   *   FILE_TYPE_CHAR   -> PeekConsoleInputW / ReadConsoleInputW
+   *   FILE_TYPE_PIPE   -> PeekNamedPipe, then ReadFile if data is queued
+   *   FILE_TYPE_DISK   -> ReadFile directly (returns 0 at EOF)
+   *
+   * The console path tolerates non-keystroke events (mouse, focus,
+   * window-resize): they get consumed so they don't permanently mask
+   * a subsequent keystroke in the input queue.
+   *
+   * All three paths bypass stdio, so a polled byte will not race the
+   * line-buffered queue that getchar() draws from. A guest that mixes
+   * SYS_READC and SYS_READC_POLL on the same Windows host must accept
+   * that those two opcodes draw from different buffers; raw mode on
+   * the host console is the only configuration that gives both
+   * opcodes single-character granularity. */
+  HANDLE h;
+  DWORD ft;
+  unsigned char c;
+  DWORD got;
+
+  h = GetStdHandle(STD_INPUT_HANDLE);
+  if (h == INVALID_HANDLE_VALUE || h == NULL) {
+    return -1;
+  }
+  ft = GetFileType(h);
+
+  if (ft == FILE_TYPE_CHAR) {
+    INPUT_RECORD ir;
+    DWORD avail = 0;
+    DWORD n = 0;
+    while (PeekConsoleInputW(h, &ir, 1, &avail) && avail > 0) {
+      if (ir.EventType == KEY_EVENT && ir.Event.KeyEvent.bKeyDown &&
+          ir.Event.KeyEvent.uChar.AsciiChar != 0) {
+        if (!ReadConsoleInputW(h, &ir, 1, &n) || n != 1) {
+          return -1;
+        }
+        return (int)(unsigned char)ir.Event.KeyEvent.uChar.AsciiChar;
+      }
+      /* Drain one uninteresting event and loop. */
+      if (!ReadConsoleInputW(h, &ir, 1, &n) || n != 1) {
+        return -1;
+      }
+    }
+    return -1;
+  }
+
+  if (ft == FILE_TYPE_PIPE) {
+    DWORD avail = 0;
+    if (!PeekNamedPipe(h, NULL, 0, NULL, &avail, NULL) || avail == 0) {
+      return -1;
+    }
+    /* avail > 0 means ReadFile will return immediately. */
+  } else if (ft != FILE_TYPE_DISK) {
+    /* Sockets, unknown -- be conservative and report no data. */
+    return -1;
+  }
+
+  got = 0;
+  if (!ReadFile(h, &c, 1, &got, NULL) || got != 1) {
+    return -1;
+  }
+  return (int)c;
 #else
   fd_set rfds;
   struct timeval tv;

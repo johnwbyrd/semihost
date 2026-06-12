@@ -13,6 +13,13 @@
 #include <sys/stat.h>
 
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h> // GetStdHandle, PeekConsoleInputW, PeekNamedPipe, etc.
 #include <direct.h>  // _mkdir, _rmdir
 #include <io.h>      // _chsize_s, _commit, _fileno
 #else
@@ -74,8 +81,52 @@ int ConsoleBackend::readChar() { return std::getchar(); }
 
 int ConsoleBackend::readCharPoll() {
 #ifdef _WIN32
-  // Windows console I/O has no select() equivalent; report "no character".
-  return -1;
+  // Windows has no select() over arbitrary handles, so branch on the
+  // concrete kind of stdin (see the matching C implementation in
+  // zbc_ansi_common.c for the rationale):
+  //   FILE_TYPE_CHAR  -> PeekConsoleInputW / ReadConsoleInputW
+  //   FILE_TYPE_PIPE  -> PeekNamedPipe + ReadFile when data is queued
+  //   FILE_TYPE_DISK  -> ReadFile directly (returns 0 at EOF)
+  // All three bypass stdio so the polled byte does not race a
+  // line-buffered getchar() buffer.
+  HANDLE H = GetStdHandle(STD_INPUT_HANDLE);
+  if (H == INVALID_HANDLE_VALUE || H == nullptr)
+    return -1;
+  DWORD FT = GetFileType(H);
+
+  if (FT == FILE_TYPE_CHAR) {
+    INPUT_RECORD IR;
+    DWORD Avail = 0;
+    DWORD N = 0;
+    while (PeekConsoleInputW(H, &IR, 1, &Avail) && Avail > 0) {
+      if (IR.EventType == KEY_EVENT && IR.Event.KeyEvent.bKeyDown &&
+          IR.Event.KeyEvent.uChar.AsciiChar != 0) {
+        if (!ReadConsoleInputW(H, &IR, 1, &N) || N != 1)
+          return -1;
+        return (int)(unsigned char)IR.Event.KeyEvent.uChar.AsciiChar;
+      }
+      // Drain one uninteresting event (mouse / focus / resize) and loop.
+      if (!ReadConsoleInputW(H, &IR, 1, &N) || N != 1)
+        return -1;
+    }
+    return -1;
+  }
+
+  if (FT == FILE_TYPE_PIPE) {
+    DWORD Avail = 0;
+    if (!PeekNamedPipe(H, nullptr, 0, nullptr, &Avail, nullptr) || Avail == 0)
+      return -1;
+    // Fall through to ReadFile: avail > 0 means it returns immediately.
+  } else if (FT != FILE_TYPE_DISK) {
+    // Socket / unknown -- be conservative.
+    return -1;
+  }
+
+  unsigned char C;
+  DWORD Got = 0;
+  if (!ReadFile(H, &C, 1, &Got, nullptr) || Got != 1)
+    return -1;
+  return (int)C;
 #else
   fd_set RFDs;
   struct timeval TV;
