@@ -13,6 +13,9 @@
 cmake_minimum_required(VERSION 3.10)
 project(zbc C CXX)
 
+# Emit compile_commands.json so clangd/IDE tooling sees real include paths.
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Set the default build type to Release.
 # Users can override this with -DCMAKE_BUILD_TYPE=Debug or similar.
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
