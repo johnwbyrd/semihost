@@ -54,6 +54,18 @@ static inline volatile uint8_t *target_get_semihost_base(void)
 }
 
 /*------------------------------------------------------------------------
+ * Platform-specific transport hook
+ *
+ * Called by TARGET_INIT() after zbc_client_init(). The default RIFF
+ * transport is already installed; QEMU-style platforms override it here
+ * by probing virtio-mmio and assigning state->transport (typically the
+ * composite transport with vcon + 9p children). MAME platforms link an
+ * empty implementation and keep the RIFF default.
+ *------------------------------------------------------------------------*/
+
+void zbc_platform_init_transport(zbc_client_state_t *state);
+
+/*------------------------------------------------------------------------
  * Helper: Print hex value (no libc printf)
  *------------------------------------------------------------------------*/
 
@@ -140,6 +152,7 @@ static void target_print_int(int val)
 #define TARGET_INIT() \
     do { \
         zbc_client_init(&g_target_client, target_get_semihost_base()); \
+        zbc_platform_init_transport(&g_target_client); \
         g_target_tests_run = 0; \
         g_target_tests_passed = 0; \
         g_target_tests_failed = 0; \

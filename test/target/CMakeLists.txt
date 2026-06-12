@@ -92,6 +92,7 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
     set(LDFLAGS ${ZBC_PLATFORM_${platform}_LDFLAGS})
     set(CRT ${ZBC_PLATFORM_${platform}_CRT})
     set(LD ${ZBC_PLATFORM_${platform}_LD})
+    set(PLATFORM_SOURCES ${ZBC_PLATFORM_${platform}_PLATFORM_SOURCES})
     set(PLATFORM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/platforms/${platform})
 
     # Build command
@@ -109,10 +110,12 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
             -o ${ELF_OUTPUT}
             ${ZBC_TARGET_TEST_SOURCE}
             ${ZBC_CLIENT_SOURCES}
+            ${PLATFORM_SOURCES}
             ${CRT}
         DEPENDS
             ${ZBC_TARGET_TEST_SOURCE}
             ${ZBC_CLIENT_SOURCES}
+            ${PLATFORM_SOURCES}
             ${CRT}
             ${LD}
             ${CMAKE_CURRENT_SOURCE_DIR}/zbc_target_harness.h

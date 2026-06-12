@@ -59,6 +59,11 @@ set(ZBC_PLATFORM_i386_CRT
     ${CMAKE_CURRENT_LIST_DIR}/crti386.S
 )
 
+# Platform-specific runtime helpers (e.g. zbc_platform_init_transport)
+set(ZBC_PLATFORM_i386_PLATFORM_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/platform_init.c
+)
+
 set(ZBC_PLATFORM_i386_LD
     ${CMAKE_CURRENT_LIST_DIR}/zbci386.ld
 )

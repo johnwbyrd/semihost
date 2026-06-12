@@ -49,6 +49,11 @@ set(ZBC_PLATFORM_m6502_CRT
     ${CMAKE_CURRENT_LIST_DIR}/runtime6502.c
 )
 
+# Platform-specific runtime helpers (e.g. zbc_platform_init_transport)
+set(ZBC_PLATFORM_m6502_PLATFORM_SOURCES
+    ${CMAKE_CURRENT_LIST_DIR}/platform_init.c
+)
+
 set(ZBC_PLATFORM_m6502_LD
     ${CMAKE_CURRENT_LIST_DIR}/zbc6502.ld
 )
