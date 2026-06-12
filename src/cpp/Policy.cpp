@@ -15,8 +15,9 @@ SandboxedPolicy::SandboxedPolicy(std::string_view SandboxDir) {
 }
 
 Result<std::string> SandboxedPolicy::resolvePath(std::string_view Path,
-                                                 bool ForWrite) {
-  return Validator->validate(Path, ForWrite);
+                                                 bool ForWrite,
+                                                 bool FollowLeafSymlink) {
+  return Validator->validate(Path, ForWrite, FollowLeafSymlink);
 }
 
 void SandboxedPolicy::addAllowedPath(std::string_view Prefix, bool AllowWrite) {

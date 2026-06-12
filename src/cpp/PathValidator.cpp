@@ -43,7 +43,8 @@ PathValidator::PathValidator(PathValidatorConfig Config)
 }
 
 Result<std::string> PathValidator::validate(std::string_view Path,
-                                            bool ForWrite) const {
+                                            bool ForWrite,
+                                            bool FollowLeafSymlink) const {
   if (Path.find('\0') != std::string_view::npos) {
     reportViolation(ViolationType::NullByte, Path);
     return Result<std::string>::error("path contains null byte");
@@ -61,7 +62,22 @@ Result<std::string> PathValidator::validate(std::string_view Path,
   else
     Combined = Requested;
 
-  std::string Resolved = resolveReal(Combined);
+  // For LSTAT / READLINK we must not resolve the final component (or
+  // weakly_canonical would silently leave us pointed at the symlink's
+  // target). Canonicalize the parent and rejoin the leaf -- that catches
+  // traversal through the parent while preserving the leaf-as-symlink
+  // semantics the opcode needs.
+  std::string Resolved;
+  if (!FollowLeafSymlink && Combined.has_parent_path() &&
+      Combined.has_filename()) {
+    std::error_code EC;
+    fs::path ParentResolved = fs::weakly_canonical(Combined.parent_path(), EC);
+    if (!EC)
+      Resolved = (ParentResolved / Combined.filename()).string();
+  } else {
+    Resolved = resolveReal(Combined);
+  }
+
   if (Resolved.empty()) {
     // SECURITY: an unresolvable path could hide a traversal/symlink escape.
     reportViolation(ViolationType::SandboxEscape, Path);

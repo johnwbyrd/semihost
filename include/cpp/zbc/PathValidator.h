@@ -48,7 +48,14 @@ public:
 
   /// Resolve and authorize Path. Returns the resolved absolute path or an
   /// error describing the denial.
-  Result<std::string> validate(std::string_view Path, bool ForWrite) const;
+  ///
+  /// FollowLeafSymlink defaults to true. Set false for LSTAT / READLINK
+  /// where the leaf must NOT be dereferenced: we still canonicalize the
+  /// parent (so a traversal through the parent is caught) but leave the
+  /// final component verbatim, so the backend's lstat / readlink sees
+  /// the symlink itself.
+  Result<std::string> validate(std::string_view Path, bool ForWrite,
+                               bool FollowLeafSymlink = true) const;
 
   void addAllowedPath(std::string_view Prefix, bool AllowWrite);
 

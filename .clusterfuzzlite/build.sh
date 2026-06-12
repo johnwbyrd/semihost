@@ -16,8 +16,12 @@ cmake --build build
 
 # Build fuzz targets manually with libFuzzer
 # (We can't use ENABLE_FUZZING because CFL provides its own fuzzing engine)
-$CC $CFLAGS -I include -c fuzz/fuzz_riff_parser.c -o fuzz_riff_parser.o
-$CC $CFLAGS $LIB_FUZZING_ENGINE fuzz_riff_parser.o build/libzbc_semi_host.a -o $OUT/fuzz_riff_parser
+# Mirror the tiered include layout the rest of the build uses (commit
+# 4fe68eea split include/ into include/c, include/cpp, include/shared).
+$CC $CFLAGS -I include/c -I include/shared -c fuzz/fuzz_riff_parser.c \
+    -o fuzz_riff_parser.o
+$CC $CFLAGS $LIB_FUZZING_ENGINE fuzz_riff_parser.o build/libzbc_semi_host.a \
+    -o $OUT/fuzz_riff_parser
 
 # Generate and copy seed corpus
 mkdir -p fuzz/corpus/riff_parser

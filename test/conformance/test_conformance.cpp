@@ -165,8 +165,9 @@ static int c_opendir(void *, const char *P, size_t L) {
   return 42;
 }
 static int c_readdir(void *, int H, void *Buf, size_t N) {
-  tracef("readdir(%d,%zu)", H, N);
+  tracef("readdir(%d)", H);
   (void)Buf;
+  (void)N;
   return 0; /* end of directory */
 }
 static int c_closedir(void *, int H) {
@@ -305,6 +306,88 @@ struct ScriptedCpp : zbc::Backend {
   zbc::OpResult timerConfig(unsigned Hz) override {
     tracef("timer(%u)", Hz);
     return zbc::OpResult::success(0);
+  }
+
+  // Linux extensions: mirror the ScriptedC tracef calls + return values
+  // exactly so the C / C++ traces and RAM images compare byte-for-byte.
+  int readCharPoll() override {
+    tracef("readc_poll()");
+    return -1;
+  }
+  zbc::OpResult stat(std::string_view P) override {
+    tracef("stat(%.*s)", (int)P.size(), P.data());
+    zbc::OpResult R;
+    R.Value = 0;
+    R.Data.resize(SH_STAT_BUF_SIZE);
+    for (std::size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+      R.Data[I] = (uint8_t)(0xA0 + I);
+    return R;
+  }
+  zbc::OpResult fstat(int FD) override {
+    tracef("fstat(%d)", FD);
+    zbc::OpResult R;
+    R.Value = 0;
+    R.Data.resize(SH_STAT_BUF_SIZE);
+    for (std::size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+      R.Data[I] = (uint8_t)(0xB0 + I);
+    return R;
+  }
+  zbc::OpResult lstat(std::string_view P) override {
+    tracef("lstat(%.*s)", (int)P.size(), P.data());
+    zbc::OpResult R;
+    R.Value = 0;
+    R.Data.resize(SH_STAT_BUF_SIZE);
+    for (std::size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+      R.Data[I] = (uint8_t)(0xC0 + I);
+    return R;
+  }
+  zbc::OpResult openDir(std::string_view P) override {
+    tracef("opendir(%.*s)", (int)P.size(), P.data());
+    return zbc::OpResult::success(42);
+  }
+  zbc::OpResult readDir(int H) override {
+    tracef("readdir(%d)", H);
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult closeDir(int H) override {
+    tracef("closedir(%d)", H);
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult mkdir(std::string_view P, int M) override {
+    tracef("mkdir(%.*s,%d)", (int)P.size(), P.data(), M);
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult rmdir(std::string_view P) override {
+    tracef("rmdir(%.*s)", (int)P.size(), P.data());
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult ftruncate(int FD, uint64_t N) override {
+    tracef("ftruncate(%d,%llu)", FD, (unsigned long long)N);
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult fsync(int FD) override {
+    tracef("fsync(%d)", FD);
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult link(std::string_view O, std::string_view N) override {
+    tracef("link(%.*s,%.*s)", (int)O.size(), O.data(), (int)N.size(), N.data());
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult symlink(std::string_view T, std::string_view L) override {
+    tracef("symlink(%.*s,%.*s)", (int)T.size(), T.data(), (int)L.size(),
+           L.data());
+    return zbc::OpResult::success(0);
+  }
+  zbc::OpResult readLink(std::string_view P, std::size_t N) override {
+    static const char Fake[] = "target";
+    std::size_t Sz = sizeof(Fake) - 1;
+    tracef("readlink(%.*s,%zu)", (int)P.size(), P.data(), N);
+    if (Sz > N)
+      Sz = N;
+    zbc::OpResult R;
+    R.Value = (intmax_t)Sz;
+    R.Data.assign(Fake, Fake + Sz);
+    return R;
   }
 };
 
@@ -725,6 +808,184 @@ static void corpus() {
                    .parm(0x1234, GuestInt, ZBC_ENDIAN_BIG)
                    .endCall()
                    .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  //===========================================================================
+  // Linux extensions (0x80 - 0x8D)
+  //===========================================================================
+
+  compareHosts("opendir",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_OPENDIR)
+                   .str("some/path")
+                   .parm(9)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("readdir (end-of-dir)",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_READDIR)
+                   .parm(42)
+                   .parm(256)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("closedir",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_CLOSEDIR)
+                   .parm(42)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("stat (48-byte DATA back)",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_STAT)
+                   .str("path/x")
+                   .parm(6)
+                   .endCall()
+                   .retn(retnCap(SH_STAT_BUF_SIZE))
+                   .erro()
+                   .finish());
+
+  compareHosts("fstat (48-byte DATA back)",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_FSTAT)
+                   .parm(7)
+                   .endCall()
+                   .retn(retnCap(SH_STAT_BUF_SIZE))
+                   .erro()
+                   .finish());
+
+  compareHosts("lstat (48-byte DATA back)",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_LSTAT)
+                   .str("path/x")
+                   .parm(6)
+                   .endCall()
+                   .retn(retnCap(SH_STAT_BUF_SIZE))
+                   .erro()
+                   .finish());
+
+  compareHosts("mkdir",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_MKDIR)
+                   .str("newdir")
+                   .parm(6)
+                   .parm(0755)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("rmdir",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_RMDIR)
+                   .str("olddir")
+                   .parm(6)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  // ftruncate carries the 64-bit length as 8 LE bytes in DATA[0].
+  {
+    uint8_t LenBytes[8] = {0xEF, 0xCD, 0xAB, 0x00, 0x00, 0x00, 0x00, 0x00};
+    compareHosts("ftruncate (8-byte LE length)",
+                 Builder()
+                     .riffHeader()
+                     .cnfg()
+                     .beginCall(SH_SYS_FTRUNCATE)
+                     .parm(9)
+                     .data(LenBytes, 8, ZBC_DATA_TYPE_BINARY)
+                     .endCall()
+                     .retn(retnCap())
+                     .erro()
+                     .finish());
+  }
+
+  compareHosts("fsync",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_FSYNC)
+                   .parm(10)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("readc_poll",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_READC_POLL)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("link",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_LINK)
+                   .str("oldname")
+                   .parm(7)
+                   .str("newname")
+                   .parm(7)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  compareHosts("symlink",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_SYMLINK)
+                   .str("targetfile")
+                   .parm(10)
+                   .str("linkname")
+                   .parm(8)
+                   .endCall()
+                   .retn(retnCap())
+                   .erro()
+                   .finish());
+
+  // readlink: ScriptedC and ScriptedCpp both return "target" (6 bytes).
+  compareHosts("readlink (6-byte DATA back)",
+               Builder()
+                   .riffHeader()
+                   .cnfg()
+                   .beginCall(SH_SYS_READLINK)
+                   .str("sympath")
+                   .parm(7)
+                   .parm(32) // cap large enough for the 6-byte target
+                   .endCall()
+                   .retn(retnCap(6))
                    .erro()
                    .finish());
 }

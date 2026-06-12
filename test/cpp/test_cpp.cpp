@@ -300,6 +300,294 @@ static void test_timer_tick_irq() {
   CHECK(H.Dev.read(ZBC_REG_STATUS) == ZBC_STATUS_NONE);
 }
 
+//===----------------------------------------------------------------------===//
+// Linux extensions (0x80 - 0x8D)
+//===----------------------------------------------------------------------===//
+
+// Read the 8-byte LE size field out of the 48-byte wire stat layout.
+static uint64_t unpackStatSize(const uint8_t *Raw) {
+  uint64_t Lo = 0, Hi = 0;
+  for (int I = 0; I < 4; ++I)
+    Lo |= ((uint64_t)Raw[16 + I]) << (I * 8);
+  for (int I = 0; I < 4; ++I)
+    Hi |= ((uint64_t)Raw[20 + I]) << (I * 8);
+  return Lo | (Hi << 32);
+}
+
+static void test_mkdir_rmdir_sandboxed() {
+  std::printf("test_mkdir_rmdir_sandboxed\n");
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp_mkrm");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
+    return;
+
+  Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
+
+  std::string Sub = (fs::path(Dir) / "newsub").string();
+  uint8_t Buf[512];
+  zbc_response_t Resp;
+
+  // mkdir(newsub, 0755)
+  uintptr_t MArgs[3] = {(uintptr_t)Sub.c_str(), (uintptr_t)Sub.size(),
+                        (uintptr_t)0755};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_MKDIR, MArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(fs::is_directory(Sub));
+
+  // rmdir(newsub) succeeds
+  uintptr_t RArgs[2] = {(uintptr_t)Sub.c_str(), (uintptr_t)Sub.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_RMDIR, RArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(!fs::exists(Sub));
+
+  // rmdir(newsub) on the missing dir now fails.
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_RMDIR, RArgs);
+  CHECK((int)Resp.result == -1);
+
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
+}
+
+static void test_fstat_ftruncate_fsync() {
+  std::printf("test_fstat_ftruncate_fsync\n");
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp_ftrunc");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
+    return;
+
+  Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
+
+  std::string Path = (fs::path(Dir) / "f.bin").string();
+  uint8_t Buf[512];
+  zbc_response_t Resp;
+
+  // open(W+)
+  uintptr_t OArgs[3] = {(uintptr_t)Path.c_str(), SH_OPEN_W_PLUS,
+                        (uintptr_t)Path.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_OPEN, OArgs);
+  CHECK((int)Resp.result >= 0);
+  int FD = (int)Resp.result;
+
+  // write 5 bytes
+  const char *Payload = "hello";
+  uintptr_t WArgs[3] = {(uintptr_t)FD, (uintptr_t)Payload, (uintptr_t)5};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_WRITE, WArgs);
+  CHECK((int)Resp.result == 0);
+
+  // fstat -> size == 5
+  uint8_t StatRaw[SH_STAT_BUF_SIZE];
+  uintptr_t FArgs[3] = {(uintptr_t)FD, (uintptr_t)StatRaw,
+                        (uintptr_t)SH_STAT_BUF_SIZE};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_FSTAT, FArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(unpackStatSize(StatRaw) == 5);
+
+  // ftruncate to 2
+  uint8_t LenBytes[8] = {2, 0, 0, 0, 0, 0, 0, 0};
+  uintptr_t TArgs[3] = {(uintptr_t)FD, (uintptr_t)LenBytes,
+                        (uintptr_t)sizeof(LenBytes)};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_FTRUNCATE, TArgs);
+  CHECK((int)Resp.result == 0);
+
+  // fstat -> size == 2  (this is the regression catcher: a stale stdio
+  // buffer or a missed fflush would leave size at 5)
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_FSTAT, FArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(unpackStatSize(StatRaw) == 2);
+
+  // fsync
+  uintptr_t SArgs[1] = {(uintptr_t)FD};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_FSYNC, SArgs);
+  CHECK((int)Resp.result == 0);
+
+  uintptr_t CArgs[1] = {(uintptr_t)FD};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_CLOSE, CArgs);
+
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
+}
+
+static void test_stat_path_metadata() {
+  std::printf("test_stat_path_metadata\n");
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp_stat");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
+    return;
+
+  Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
+
+  // Create a known-size file out-of-band.
+  std::string Path = (fs::path(Dir) / "known.bin").string();
+  {
+    std::FILE *FP = std::fopen(Path.c_str(), "wb");
+    CHECK(FP != nullptr);
+    const char *S = "abcdefghij"; // 10 bytes
+    std::fwrite(S, 1, 10, FP);
+    std::fclose(FP);
+  }
+
+  uint8_t Buf[512];
+  zbc_response_t Resp;
+
+  // stat -> size == 10
+  uint8_t StatRaw[SH_STAT_BUF_SIZE];
+  uintptr_t StArgs[4] = {(uintptr_t)Path.c_str(), (uintptr_t)Path.size(),
+                         (uintptr_t)StatRaw, (uintptr_t)SH_STAT_BUF_SIZE};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_STAT, StArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(unpackStatSize(StatRaw) == 10);
+
+  // stat on missing path -> -1
+  std::string Miss = (fs::path(Dir) / "absent").string();
+  uintptr_t MissArgs[4] = {(uintptr_t)Miss.c_str(), (uintptr_t)Miss.size(),
+                           (uintptr_t)StatRaw, (uintptr_t)SH_STAT_BUF_SIZE};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_STAT, MissArgs);
+  CHECK((int)Resp.result == -1);
+
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
+}
+
+#ifndef _WIN32
+static void test_opendir_readdir_closedir() {
+  std::printf("test_opendir_readdir_closedir\n");
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp_dir");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
+    return;
+
+  Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
+
+  // Two marker files.
+  for (const char *N : {"alpha", "beta"}) {
+    std::FILE *FP = std::fopen((fs::path(Dir) / N).string().c_str(), "wb");
+    CHECK(FP != nullptr);
+    std::fclose(FP);
+  }
+
+  uint8_t Buf[512];
+  zbc_response_t Resp;
+
+  // opendir(Dir)
+  uintptr_t OArgs[2] = {(uintptr_t)Dir.c_str(), (uintptr_t)Dir.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_OPENDIR, OArgs);
+  CHECK((int)Resp.result >= 0);
+  int Handle = (int)Resp.result;
+
+  // Drain entries until end-of-dir (result == 0). Look for our markers.
+  uint8_t EntryBuf[SH_DIRENT_HDR_SIZE + 256];
+  bool SawAlpha = false, SawBeta = false;
+  for (int Safety = 0; Safety < 1024; ++Safety) {
+    uintptr_t RArgs[3] = {(uintptr_t)Handle, (uintptr_t)EntryBuf,
+                          (uintptr_t)sizeof(EntryBuf)};
+    zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_READDIR, RArgs);
+    if ((intmax_t)Resp.result == 0)
+      break; // end of directory
+    CHECK((intmax_t)Resp.result > 0);
+    uint8_t NameLen = EntryBuf[9];
+    std::string Name((const char *)(EntryBuf + SH_DIRENT_HDR_SIZE), NameLen);
+    if (Name == "alpha")
+      SawAlpha = true;
+    if (Name == "beta")
+      SawBeta = true;
+  }
+  CHECK(SawAlpha);
+  CHECK(SawBeta);
+
+  // closedir
+  uintptr_t CArgs[1] = {(uintptr_t)Handle};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_CLOSEDIR, CArgs);
+  CHECK((int)Resp.result == 0);
+
+  // readdir on a stale handle now fails (-1, EBADF).
+  uintptr_t RArgs[3] = {(uintptr_t)Handle, (uintptr_t)EntryBuf,
+                        (uintptr_t)sizeof(EntryBuf)};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_READDIR, RArgs);
+  CHECK((int)Resp.result == -1);
+
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
+}
+
+static void test_symlink_readlink_lstat_link() {
+  std::printf("test_symlink_readlink_lstat_link\n");
+  namespace fs = std::filesystem;
+
+  std::string Dir = makeUniqueTempDir("zbccpp_lnk");
+  CHECK(!Dir.empty());
+  if (Dir.empty())
+    return;
+
+  Harness H(std::make_unique<zbc::FileBackend>(makeExit(), makeTimer()),
+            std::make_unique<zbc::SandboxedPolicy>(Dir));
+
+  // Create a target file with known content (16 bytes).
+  std::string Target = (fs::path(Dir) / "target.bin").string();
+  {
+    std::FILE *FP = std::fopen(Target.c_str(), "wb");
+    CHECK(FP != nullptr);
+    std::fwrite("0123456789ABCDEF", 1, 16, FP);
+    std::fclose(FP);
+  }
+
+  std::string SymPath = (fs::path(Dir) / "sym").string();
+  std::string HardPath = (fs::path(Dir) / "hard").string();
+
+  uint8_t Buf[512];
+  zbc_response_t Resp;
+
+  // symlink(target.bin, sym) -- linkpath is the one PathValidator
+  // resolves; target is opaque text.
+  uintptr_t SymArgs[4] = {(uintptr_t) "target.bin", (uintptr_t)10,
+                          (uintptr_t)SymPath.c_str(),
+                          (uintptr_t)SymPath.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_SYMLINK, SymArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(fs::is_symlink(SymPath));
+
+  // readlink(sym) -> "target.bin"
+  char LinkBuf[64];
+  std::memset(LinkBuf, 0, sizeof(LinkBuf));
+  uintptr_t RLArgs[4] = {(uintptr_t)SymPath.c_str(), (uintptr_t)SymPath.size(),
+                         (uintptr_t)LinkBuf, (uintptr_t)sizeof(LinkBuf)};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_READLINK, RLArgs);
+  CHECK((int)Resp.result == 10);
+  CHECK(std::memcmp(LinkBuf, "target.bin", 10) == 0);
+
+  // lstat(sym) -- size reflects the symlink target string length, not 16.
+  uint8_t StatRaw[SH_STAT_BUF_SIZE];
+  uintptr_t LSArgs[4] = {(uintptr_t)SymPath.c_str(), (uintptr_t)SymPath.size(),
+                         (uintptr_t)StatRaw, (uintptr_t)SH_STAT_BUF_SIZE};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_LSTAT, LSArgs);
+  CHECK((int)Resp.result == 0);
+  // The target string is "target.bin" (10 bytes), so lstat size should be 10.
+  CHECK(unpackStatSize(StatRaw) == 10);
+
+  // link(target.bin, hard) creates a hard link; stat shows nlink >= 2.
+  uintptr_t LArgs[4] = {(uintptr_t)Target.c_str(), (uintptr_t)Target.size(),
+                        (uintptr_t)HardPath.c_str(),
+                        (uintptr_t)HardPath.size()};
+  zbc_call(&Resp, &H.Client, Buf, sizeof(Buf), SH_SYS_LINK, LArgs);
+  CHECK((int)Resp.result == 0);
+  CHECK(fs::exists(HardPath));
+
+  std::error_code EC;
+  fs::remove_all(Dir, EC);
+}
+#endif // !_WIN32
+
 static void test_platform_config_no_cnfg() {
   std::printf("test_platform_config_no_cnfg\n");
   // Device has platform config; client omits CNFG -> still works.
@@ -324,6 +612,13 @@ int main() {
   test_timer_reject_einval();
   test_timer_tick_irq();
   test_platform_config_no_cnfg();
+  test_mkdir_rmdir_sandboxed();
+  test_fstat_ftruncate_fsync();
+  test_stat_path_metadata();
+#ifndef _WIN32
+  test_opendir_readdir_closedir();
+  test_symlink_readlink_lstat_link();
+#endif
 
   std::printf("\n%d checks, %d failures\n", g_checks, g_failures);
   if (g_failures == 0)

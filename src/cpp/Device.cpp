@@ -431,7 +431,8 @@ void Device::dispatch(ParsedRequest &Req) {
       Result = OpResult::error(EACCES);
       break;
     }
-    auto Resolved = P.resolvePath(Path, false);
+    // FollowLeafSymlink=false: lstat must see the symlink itself.
+    auto Resolved = P.resolvePath(Path, false, false);
     if (!Resolved) {
       Result = OpResult::error(EACCES);
       break;
@@ -594,7 +595,8 @@ void Device::dispatch(ParsedRequest &Req) {
       Result = OpResult::error(EACCES);
       break;
     }
-    auto Resolved = P.resolvePath(Path, false);
+    // FollowLeafSymlink=false: readlink must operate on the symlink itself.
+    auto Resolved = P.resolvePath(Path, false, false);
     if (!Resolved) {
       Result = OpResult::error(EACCES);
       break;

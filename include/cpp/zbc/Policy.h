@@ -70,7 +70,15 @@ public:
 
   /// Resolve/authorize a path for path-based operations (after the allow*
   /// check). May rewrite the path (e.g. into the sandbox) or reject it.
-  virtual Result<std::string> resolvePath(std::string_view Path, bool /*ForWrite*/) {
+  ///
+  /// FollowLeafSymlink defaults to true (POSIX stat / open / mkdir / ...
+  /// all follow symlinks on the final component). The two opcodes whose
+  /// semantics require operating on the symlink itself -- LSTAT and
+  /// READLINK -- pass false so the sandbox doesn't canonicalize through
+  /// the link and leave the backend pointed at the target.
+  virtual Result<std::string> resolvePath(std::string_view Path,
+                                          bool /*ForWrite*/,
+                                          bool /*FollowLeafSymlink*/ = true) {
     return std::string(Path);
   }
 
@@ -155,7 +163,8 @@ public:
   bool allowReadLink(std::string_view) override { return true; }
   bool allowLStat(std::string_view) override { return true; }
 
-  Result<std::string> resolvePath(std::string_view Path, bool ForWrite) override;
+  Result<std::string> resolvePath(std::string_view Path, bool ForWrite,
+                                  bool FollowLeafSymlink = true) override;
   void addAllowedPath(std::string_view Prefix, bool AllowWrite) override;
 
 private:

@@ -472,7 +472,8 @@ static call_result_t call_path(void *fn, void *ctx, const zbc_parsed_t *p,
   return r;
 }
 
-/* int fn(void *ctx, const char *path, size_t len, int mode) - open */
+/* int fn(void *ctx, const char *path, size_t len, int mode) - open.
+ * Wire order: DATA(path), PARM(mode), PARM(path_len). */
 static call_result_t call_path_mode(void *fn, void *ctx, const zbc_parsed_t *p,
                                     uint8_t *buf, size_t buf_size) {
   call_result_t r = {0, NULL, 0};
@@ -481,6 +482,25 @@ static call_result_t call_path_mode(void *fn, void *ctx, const zbc_parsed_t *p,
   u.ptr = fn;
   r.result = u.path_mode(ctx, (const char *)p->data[0].ptr, p->data[0].size,
                          (int)p->parms[0]);
+  return r;
+}
+
+/* int fn(void *ctx, const char *path, size_t len, int mode) - mkdir.
+ * Wire order: DATA(path), PARM(path_len), PARM(mode). The PARMs are in
+ * the opposite order from SH_SYS_OPEN, so mode is parms[1] here. The
+ * difference is per the spec (linux-extensions.rst, "SYS_MKDIR
+ * (0x85)"). Sharing call_path_mode would silently pass path_len in
+ * place of the mode -- mkdir(2) accepts any int and creates the dir
+ * anyway, so the bug only surfaced when the conformance suite started
+ * comparing the host-side backend trace. */
+static call_result_t call_mkdir(void *fn, void *ctx, const zbc_parsed_t *p,
+                                uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  (void)buf; (void)buf_size;
+  u.ptr = fn;
+  r.result = u.path_mode(ctx, (const char *)p->data[0].ptr, p->data[0].size,
+                         (int)p->parms[1]);
   return r;
 }
 
@@ -791,7 +811,7 @@ static const dispatch_entry_t dispatch_table[] = {
     {SH_SYS_CLOSEDIR, OFF(closedir), 1, call_fd},
     {SH_SYS_STAT, OFF(stat), 1, call_path_buf},
     {SH_SYS_FSTAT, OFF(fstat), 1, call_fd_stat},
-    {SH_SYS_MKDIR, OFF(mkdir), 1, call_path_mode},
+    {SH_SYS_MKDIR, OFF(mkdir), 1, call_mkdir},
     {SH_SYS_RMDIR, OFF(rmdir), 1, call_path},
     {SH_SYS_FTRUNCATE, OFF(ftruncate), 1, call_fd_len64},
     {SH_SYS_FSYNC, OFF(fsync), 1, call_fd},
