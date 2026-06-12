@@ -86,9 +86,18 @@ function(add_qemu_test name)
         add_test(NAME ${name} COMMAND ${qemu_cmd})
     endif()
 
+    # Grade by stdout: the harness always prints "RESULT: PASS" or
+    # "RESULT: FAIL" before SYS_EXIT, which is the canonical signal
+    # whether or not the platform's exit mechanism happens to encode
+    # the result in the process exit code. microvm's isa-debug-exit
+    # makes exit code 0 unreachable; sifive_test and PSCI happen to
+    # carry the result, but trusting stdout uniformly insulates the
+    # grade from any platform whose exit hook breaks silently.
     set_tests_properties(${name} PROPERTIES
         LABELS "target;qemu;${ARG_MACHINE}"
         TIMEOUT ${ARG_TIMEOUT}
+        PASS_REGULAR_EXPRESSION "RESULT: PASS"
+        FAIL_REGULAR_EXPRESSION "RESULT: FAIL"
     )
 
     message(STATUS "Registered QEMU test: ${name} (${ARG_MACHINE})")
