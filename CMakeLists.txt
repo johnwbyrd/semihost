@@ -40,13 +40,22 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Sanitizers (ASan + UBSan)
 include(${CMAKE_SOURCE_DIR}/cmake/Sanitizers.cmake)
 
-# Warning flags (portable)
+# Warning flags (portable). Warnings are errors everywhere -- a warning
+# in CI means the build fails. POSIX-standard function names that MSVC
+# flags as "deprecated" (e.g. fileno -> _fileno) are silenced via the
+# _CRT_NONSTDC_NO_WARNINGS define rather than rewritten at the call site,
+# because the POSIX names are what the code intends.
 if(MSVC)
-    add_compile_options(/W4)
-    # Suppress C4996 warnings for standard C functions (fopen, sprintf, etc.)
-    add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+    add_compile_options(/W4 /WX)
+    add_compile_definitions(
+        _CRT_SECURE_NO_WARNINGS    # quiets the strcpy -> strcpy_s pushes
+        _CRT_NONSTDC_NO_WARNINGS   # quiets the fileno -> _fileno pushes
+    )
 else()
-    add_compile_options(-Wall -Wextra -pedantic -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments)
+    add_compile_options(
+        -Wall -Wextra -pedantic -Werror
+        -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments
+    )
 endif()
 
 # Include directories (per-tier; sources keep existing #include directives)
