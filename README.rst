@@ -64,7 +64,7 @@ Three consequences:
   in this repo.
 
 - **No debugger required.**  ARM semihosting needs GDB or a hardware
-  probea, you to service the trap.  ZBC works in a stock software emulator
+  probe, and it needs you to service the trap.  ZBC works in a stock software emulator
   with zero debug infrastructure, and works on real silicon with no
   JTAG attached.
 
