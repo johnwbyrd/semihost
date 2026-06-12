@@ -51,8 +51,9 @@ function(add_qemu_test name)
     set(sandbox_dir ${CMAKE_CURRENT_BINARY_DIR}/qemu-sandbox/${name})
     file(MAKE_DIRECTORY ${sandbox_dir})
 
-    # virtio-mmio devices must be exposed as "modern" (version 2);
-    # QEMU defaults to legacy v1 on riscv32 virt without this.
+    # No -global virtio-mmio.force-legacy=false: the ZBC client now
+    # handles both legacy (v1, the QEMU virt default) and modern (v2)
+    # virtio-mmio, so a guest binary boots on stock QEMU as-is.
     set(qemu_cmd
         ${ARG_QEMU_BIN}
         -machine ${ARG_MACHINE}
@@ -61,7 +62,6 @@ function(add_qemu_test name)
         -display none
         -monitor none
         -serial none
-        -global virtio-mmio.force-legacy=false
         -kernel ${ARG_ELF}
         -fsdev local,id=fs0,path=${sandbox_dir},security_model=none
         -device virtio-9p-device,fsdev=fs0,mount_tag=zbc

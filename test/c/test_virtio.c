@@ -44,11 +44,13 @@ static void test_virtio_probe_ok(void) {
 }
 
 /*------------------------------------------------------------------------
- * Test: probe rejects bad magic and legacy version
+ * Test: probe rejects bad magic and unknown versions, accepts both
+ *       supported versions
  *------------------------------------------------------------------------*/
 
 static void test_virtio_probe_rejects(void) {
   mock_virtio_t dev;
+  uint32_t id;
 
   /* Wrong magic */
   mock_virtio_init(&dev, ZBC_VIRTIO_ID_9P, 8);
@@ -56,11 +58,18 @@ static void test_virtio_probe_rejects(void) {
   TEST_ASSERT_EQ(zbc_virtio_probe(dev.window.regs, (uint32_t *)0),
                  ZBC_ERR_DEVICE_ERROR);
 
-  /* Legacy version 1 */
+  /* Unknown version */
   mock_virtio_init(&dev, ZBC_VIRTIO_ID_9P, 8);
-  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_VERSION, 1);
+  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_VERSION, 3);
   TEST_ASSERT_EQ(zbc_virtio_probe(dev.window.regs, (uint32_t *)0),
                  ZBC_ERR_DEVICE_ERROR);
+
+  /* Legacy (version 1) is accepted; the device ID still comes back. */
+  mock_virtio_init(&dev, ZBC_VIRTIO_ID_9P, 8);
+  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_VERSION,
+                   ZBC_VIRTIO_VERSION_LEGACY);
+  TEST_ASSERT_EQ(zbc_virtio_probe(dev.window.regs, &id), ZBC_OK);
+  TEST_ASSERT_EQ((int)id, ZBC_VIRTIO_ID_9P);
 
   /* NULL base */
   TEST_ASSERT_EQ(zbc_virtio_probe((volatile void *)0, (uint32_t *)0),
@@ -375,6 +384,76 @@ static void test_virtq_single_outstanding(void) {
 }
 
 /*------------------------------------------------------------------------
+ * Test: legacy (version 1) init handshake -- no VIRTIO_F_VERSION_1
+ *       negotiation, no FEATURES_OK; instead GuestPageSize is written.
+ *------------------------------------------------------------------------*/
+
+static void test_virtio_init_legacy(void) {
+  mock_virtio_t dev;
+  uint32_t status;
+
+  mock_virtio_init(&dev, ZBC_VIRTIO_ID_CONSOLE, 8);
+  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_VERSION,
+                   ZBC_VIRTIO_VERSION_LEGACY);
+  /* Strip the feature bit the modern path would require so we can
+   * prove this path doesn't fail when it's missing. */
+  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_DEV_FEATURES, 0);
+
+  TEST_ASSERT_EQ(zbc_virtio_init(dev.window.regs), ZBC_OK);
+
+  /* Status reached DRIVER (post-reset) but never FEATURES_OK / FAILED. */
+  status = ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_STATUS);
+  TEST_ASSERT(status & ZBC_VIRTIO_STATUS_DRIVER);
+  TEST_ASSERT_EQ((int)(status & ZBC_VIRTIO_STATUS_FAILED), 0);
+  TEST_ASSERT_EQ((int)(status & ZBC_VIRTIO_STATUS_FEATURES_OK), 0);
+
+  /* The PFN page size the queue setup will divide ring addresses by
+   * was programmed. */
+  TEST_ASSERT_EQ(
+      (int)ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_GUEST_PAGE_SIZE),
+      ZBC_VIRTIO_LEGACY_PAGE_SIZE);
+}
+
+/*------------------------------------------------------------------------
+ * Test: legacy virtq setup writes QueueAlign + QueuePFN and lays the
+ *       descriptor table at a page-aligned address.
+ *------------------------------------------------------------------------*/
+
+static void test_virtq_init_legacy(void) {
+  static uint8_t arena[ZBC_VIRTQ_ARENA_SIZE];
+  mock_virtio_t dev;
+  zbc_virtq_t q;
+  uint32_t pfn;
+
+  mock_virtio_init(&dev, ZBC_VIRTIO_ID_CONSOLE, 256);
+  ZBC_WRITE_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_VERSION,
+                   ZBC_VIRTIO_VERSION_LEGACY);
+  TEST_ASSERT_EQ(zbc_virtio_init(dev.window.regs), ZBC_OK);
+  TEST_ASSERT_EQ(zbc_virtq_init(&q, dev.window.regs, 0, arena, sizeof(arena)),
+                 ZBC_OK);
+
+  /* Descriptor table starts at a page boundary; the PFN written to
+   * the device matches that base divided by the page size. */
+  TEST_ASSERT_EQ((int)((uintptr_t)q.desc % ZBC_VIRTIO_LEGACY_PAGE_SIZE), 0);
+  pfn = ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_QUEUE_PFN);
+  TEST_ASSERT_EQ((int)pfn,
+                 (int)((uintptr_t)q.desc / ZBC_VIRTIO_LEGACY_PAGE_SIZE));
+
+  /* The inter-ring alignment programmed to the device matches what we
+   * actually used between avail and used (one page). */
+  TEST_ASSERT_EQ(
+      (int)ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_QUEUE_ALIGN),
+      ZBC_VIRTIO_LEGACY_PAGE_SIZE);
+
+  /* Modern-only registers stay zero -- the legacy path never touches
+   * them. */
+  TEST_ASSERT_EQ(
+      (int)ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_QUEUE_DESC_LO), 0);
+  TEST_ASSERT_EQ(
+      (int)ZBC_READ_U32_LE(dev.window.regs + ZBC_VIRTIO_REG_QUEUE_READY), 0);
+}
+
+/*------------------------------------------------------------------------
  * Suite runner
  *------------------------------------------------------------------------*/
 
@@ -386,7 +465,9 @@ void run_virtio_tests(void) {
   RUN_TEST(virtio_scan);
   RUN_TEST(virtio_init_handshake);
   RUN_TEST(virtio_init_requires_version1);
+  RUN_TEST(virtio_init_legacy);
   RUN_TEST(virtq_init);
+  RUN_TEST(virtq_init_legacy);
   RUN_TEST(virtq_xfer_echo);
   RUN_TEST(virtq_xfer_oneway);
   RUN_TEST(virtq_wraparound);

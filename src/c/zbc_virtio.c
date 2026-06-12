@@ -1,10 +1,15 @@
 /*
  * ZBC Polled virtio-mmio Driver Core
  *
- * Modern (version 2) virtio-mmio with one polled split virtqueue engine.
- * No interrupts, no heap, strictly one outstanding chain per queue.
- * See zbc_virtio.h for the API contract and the QEMU guest transports
- * proposal for the design rationale.
+ * Handles both legacy (version 1) and modern (version 2) virtio-mmio
+ * with one polled split virtqueue engine. No interrupts, no heap,
+ * strictly one outstanding chain per queue. The vring data structures
+ * are identical across the two versions; only the device-window
+ * registers used to *register* the rings (and the feature-negotiation
+ * handshake) differ, so every path in this file dispatches off the
+ * version it reads from the live device at setup time. See
+ * zbc_virtio.h for the API contract and the QEMU guest transports
+ * proposal for design rationale.
  */
 
 #include "zbc_virtio.h"
@@ -47,6 +52,7 @@ static void reg_write32(volatile uint8_t *base, uint32_t off, uint32_t val) {
 
 int zbc_virtio_probe(volatile void *mmio, uint32_t *device_id) {
   volatile uint8_t *base = (volatile uint8_t *)mmio;
+  uint32_t version;
 
   if (!base) {
     return ZBC_ERR_NULL_ARG;
@@ -55,8 +61,9 @@ int zbc_virtio_probe(volatile void *mmio, uint32_t *device_id) {
   if (reg_read32(base, ZBC_VIRTIO_REG_MAGIC) != ZBC_VIRTIO_MMIO_MAGIC) {
     return ZBC_ERR_DEVICE_ERROR;
   }
-  if (reg_read32(base, ZBC_VIRTIO_REG_VERSION) != ZBC_VIRTIO_VERSION_MODERN) {
-    /* Legacy (version 1) devices are deliberately not supported. */
+  version = reg_read32(base, ZBC_VIRTIO_REG_VERSION);
+  if (version != ZBC_VIRTIO_VERSION_LEGACY
+      && version != ZBC_VIRTIO_VERSION_MODERN) {
     return ZBC_ERR_DEVICE_ERROR;
   }
 
@@ -99,6 +106,7 @@ static void set_failed(volatile uint8_t *base) {
 
 int zbc_virtio_init(volatile void *mmio) {
   volatile uint8_t *base = (volatile uint8_t *)mmio;
+  uint32_t version;
   uint32_t status;
   uint32_t features_hi;
   int rc;
@@ -108,39 +116,51 @@ int zbc_virtio_init(volatile void *mmio) {
     return rc;
   }
 
+  version = reg_read32(base, ZBC_VIRTIO_REG_VERSION);
+
   /* Reset, then acknowledge in two steps per the spec. */
   reg_write32(base, ZBC_VIRTIO_REG_STATUS, 0);
   reg_write32(base, ZBC_VIRTIO_REG_STATUS, ZBC_VIRTIO_STATUS_ACKNOWLEDGE);
   reg_write32(base, ZBC_VIRTIO_REG_STATUS,
               ZBC_VIRTIO_STATUS_ACKNOWLEDGE | ZBC_VIRTIO_STATUS_DRIVER);
 
-  /* The device must offer VIRTIO_F_VERSION_1 (feature word 1, bit 0). */
-  reg_write32(base, ZBC_VIRTIO_REG_DEV_FEATURES_SEL,
-              ZBC_VIRTIO_F_VERSION_1_WORD);
-  features_hi = reg_read32(base, ZBC_VIRTIO_REG_DEV_FEATURES);
-  if (!(features_hi & ZBC_VIRTIO_F_VERSION_1_MASK)) {
-    ZBC_LOG_ERROR_S("virtio: device does not offer VIRTIO_F_VERSION_1");
-    set_failed(base);
-    return ZBC_ERR_DEVICE_ERROR;
-  }
+  if (version == ZBC_VIRTIO_VERSION_MODERN) {
+    /* Modern path: the device must offer VIRTIO_F_VERSION_1 (feature
+     * word 1, bit 0) and we accept exactly that, then re-read STATUS
+     * to confirm the device kept FEATURES_OK set. */
+    reg_write32(base, ZBC_VIRTIO_REG_DEV_FEATURES_SEL,
+                ZBC_VIRTIO_F_VERSION_1_WORD);
+    features_hi = reg_read32(base, ZBC_VIRTIO_REG_DEV_FEATURES);
+    if (!(features_hi & ZBC_VIRTIO_F_VERSION_1_MASK)) {
+      ZBC_LOG_ERROR_S("virtio: device does not offer VIRTIO_F_VERSION_1");
+      set_failed(base);
+      return ZBC_ERR_DEVICE_ERROR;
+    }
 
-  /* Acknowledge exactly VERSION_1; no other feature is accepted. */
-  reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES_SEL, 0);
-  reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES, 0);
-  reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES_SEL,
-              ZBC_VIRTIO_F_VERSION_1_WORD);
-  reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES, ZBC_VIRTIO_F_VERSION_1_MASK);
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES_SEL, 0);
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES, 0);
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES_SEL,
+                ZBC_VIRTIO_F_VERSION_1_WORD);
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES, ZBC_VIRTIO_F_VERSION_1_MASK);
 
-  status = ZBC_VIRTIO_STATUS_ACKNOWLEDGE | ZBC_VIRTIO_STATUS_DRIVER |
-           ZBC_VIRTIO_STATUS_FEATURES_OK;
-  reg_write32(base, ZBC_VIRTIO_REG_STATUS, status);
+    status = ZBC_VIRTIO_STATUS_ACKNOWLEDGE | ZBC_VIRTIO_STATUS_DRIVER |
+             ZBC_VIRTIO_STATUS_FEATURES_OK;
+    reg_write32(base, ZBC_VIRTIO_REG_STATUS, status);
 
-  /* The device may reject the feature set by clearing FEATURES_OK. */
-  if (!(reg_read32(base, ZBC_VIRTIO_REG_STATUS) &
-        ZBC_VIRTIO_STATUS_FEATURES_OK)) {
-    ZBC_LOG_ERROR_S("virtio: device rejected feature negotiation");
-    set_failed(base);
-    return ZBC_ERR_DEVICE_ERROR;
+    if (!(reg_read32(base, ZBC_VIRTIO_REG_STATUS) &
+          ZBC_VIRTIO_STATUS_FEATURES_OK)) {
+      ZBC_LOG_ERROR_S("virtio: device rejected feature negotiation");
+      set_failed(base);
+      return ZBC_ERR_DEVICE_ERROR;
+    }
+  } else {
+    /* Legacy (version 1): no VIRTIO_F_VERSION_1 to negotiate, no
+     * FEATURES_OK handshake. Accept zero features, then program the
+     * page size the device will use to interpret the queue PFN. */
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES_SEL, 0);
+    reg_write32(base, ZBC_VIRTIO_REG_DRV_FEATURES, 0);
+    reg_write32(base, ZBC_VIRTIO_REG_GUEST_PAGE_SIZE,
+                (uint32_t)ZBC_VIRTIO_LEGACY_PAGE_SIZE);
   }
 
   return ZBC_OK;
@@ -180,7 +200,7 @@ int zbc_virtq_init(zbc_virtq_t *q, volatile void *mmio, int queue_index,
                    void *mem, size_t mem_size) {
   volatile uint8_t *base = (volatile uint8_t *)mmio;
   uintptr_t p, end;
-  uint32_t max;
+  uint32_t version, max;
   uint16_t size;
   size_t i;
 
@@ -188,13 +208,15 @@ int zbc_virtq_init(zbc_virtq_t *q, volatile void *mmio, int queue_index,
     return ZBC_ERR_NULL_ARG;
   }
 
+  version = reg_read32(base, ZBC_VIRTIO_REG_VERSION);
+
   reg_write32(base, ZBC_VIRTIO_REG_QUEUE_SEL, (uint32_t)queue_index);
 
   /*
-   * Note: the spec suggests verifying QueueReady == 0 here. We skip the
-   * readback: the device was just reset by zbc_virtio_init() (which
-   * zeroes every queue's ready flag), and per-queue register banking
-   * cannot be modelled by passive test doubles.
+   * Note: the spec suggests verifying QueueReady == 0 (modern) or that
+   * QueuePFN reads back to 0 (legacy) here. We skip the readback: the
+   * device was just reset by zbc_virtio_init() and per-queue register
+   * banking cannot be modelled by passive test doubles.
    */
 
   max = reg_read32(base, ZBC_VIRTIO_REG_QUEUE_NUM_MAX);
@@ -203,21 +225,39 @@ int zbc_virtq_init(zbc_virtq_t *q, volatile void *mmio, int queue_index,
   }
   size = (max < ZBC_VIRTQ_SIZE) ? (uint16_t)max : (uint16_t)ZBC_VIRTQ_SIZE;
 
-  /* Carve aligned rings out of the caller's arena. */
+  /* Carve rings out of the caller's arena. The wire format of every
+   * ring is identical between modern and legacy; the difference is the
+   * inter-ring alignment legacy imposes (the device-programmed
+   * QueueAlign, which we set equal to the legacy page size) and the
+   * fact that legacy expects the descriptor table to start at a
+   * page-aligned address (the address it derives from QueuePFN). */
   p = (uintptr_t)mem;
   end = p + mem_size;
 
-  p = align_up(p, ZBC_VIRTQ_DESC_ALIGN);
-  q->desc = (uint8_t *)p;
-  p += (uintptr_t)ZBC_VIRTQ_DESC_ENTRY_SIZE * size;
+  if (version == ZBC_VIRTIO_VERSION_LEGACY) {
+    p = align_up(p, ZBC_VIRTIO_LEGACY_PAGE_SIZE);
+    q->desc = (uint8_t *)p;
+    p += (uintptr_t)ZBC_VIRTQ_DESC_ENTRY_SIZE * size;
 
-  p = align_up(p, ZBC_VIRTQ_AVAIL_ALIGN);
-  q->avail = (uint8_t *)p;
-  p += ZBC_VIRTQ_AVAIL_HDR_SIZE + (uintptr_t)2 * size;
+    q->avail = (uint8_t *)p;
+    p += ZBC_VIRTQ_AVAIL_HDR_SIZE + (uintptr_t)2 * size;
 
-  p = align_up(p, ZBC_VIRTQ_USED_ALIGN);
-  q->used = (uint8_t *)p;
-  p += ZBC_VIRTQ_USED_HDR_SIZE + (uintptr_t)ZBC_VIRTQ_USED_ENTRY_SIZE * size;
+    p = align_up(p, ZBC_VIRTIO_LEGACY_PAGE_SIZE);
+    q->used = (uint8_t *)p;
+    p += ZBC_VIRTQ_USED_HDR_SIZE + (uintptr_t)ZBC_VIRTQ_USED_ENTRY_SIZE * size;
+  } else {
+    p = align_up(p, ZBC_VIRTQ_DESC_ALIGN);
+    q->desc = (uint8_t *)p;
+    p += (uintptr_t)ZBC_VIRTQ_DESC_ENTRY_SIZE * size;
+
+    p = align_up(p, ZBC_VIRTQ_AVAIL_ALIGN);
+    q->avail = (uint8_t *)p;
+    p += ZBC_VIRTQ_AVAIL_HDR_SIZE + (uintptr_t)2 * size;
+
+    p = align_up(p, ZBC_VIRTQ_USED_ALIGN);
+    q->used = (uint8_t *)p;
+    p += ZBC_VIRTQ_USED_HDR_SIZE + (uintptr_t)ZBC_VIRTQ_USED_ENTRY_SIZE * size;
+  }
 
   if (p > end) {
     ZBC_LOG_ERROR("virtq: arena too small (need %u, have %u)",
@@ -249,17 +289,29 @@ int zbc_virtq_init(zbc_virtq_t *q, volatile void *mmio, int queue_index,
   q->notify_ctx = (void *)0;
 
   reg_write32(base, ZBC_VIRTIO_REG_QUEUE_NUM, size);
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DESC_LO, addr_lo((uintptr_t)q->desc));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DESC_HI, addr_hi((uintptr_t)q->desc));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DRIVER_LO,
-              addr_lo((uintptr_t)q->avail));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DRIVER_HI,
-              addr_hi((uintptr_t)q->avail));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DEVICE_LO,
-              addr_lo((uintptr_t)q->used));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DEVICE_HI,
-              addr_hi((uintptr_t)q->used));
-  reg_write32(base, ZBC_VIRTIO_REG_QUEUE_READY, 1);
+
+  if (version == ZBC_VIRTIO_VERSION_LEGACY) {
+    /* Inter-ring alignment AND ring base must both be at a page
+     * boundary -- we used the same constant on both sides above. */
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_ALIGN,
+                (uint32_t)ZBC_VIRTIO_LEGACY_PAGE_SIZE);
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_PFN,
+                (uint32_t)((uintptr_t)q->desc / ZBC_VIRTIO_LEGACY_PAGE_SIZE));
+  } else {
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DESC_LO,
+                addr_lo((uintptr_t)q->desc));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DESC_HI,
+                addr_hi((uintptr_t)q->desc));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DRIVER_LO,
+                addr_lo((uintptr_t)q->avail));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DRIVER_HI,
+                addr_hi((uintptr_t)q->avail));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DEVICE_LO,
+                addr_lo((uintptr_t)q->used));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_DEVICE_HI,
+                addr_hi((uintptr_t)q->used));
+    reg_write32(base, ZBC_VIRTIO_REG_QUEUE_READY, 1);
+  }
 
   return ZBC_OK;
 }

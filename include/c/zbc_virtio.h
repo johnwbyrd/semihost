@@ -36,12 +36,19 @@ extern "C" {
 /**
  * Bytes of caller-provided memory one queue needs (rings + alignment
  * slack). Pass an arena at least this large to zbc_virtq_init().
+ *
+ * Sized for the *larger* of the two transport modes: legacy virtio-mmio
+ * v1 lays the rings out as one contiguous block aligned to
+ * ZBC_VIRTIO_LEGACY_PAGE_SIZE, with another page boundary padded
+ * between the available and used rings (the device-programmed
+ * QueueAlign). So the worst case is two page-sized blocks plus up to
+ * one page of headroom at the start of the caller's arena to round its
+ * address up. Modern v2 needs only ~240 bytes and wastes the rest, but
+ * the universal size keeps a guest binary portable across both
+ * versions without per-platform sizing.
  */
 #define ZBC_VIRTQ_ARENA_SIZE                                                   \
-  (ZBC_VIRTQ_DESC_ALIGN + ZBC_VIRTQ_DESC_ENTRY_SIZE * ZBC_VIRTQ_SIZE +         \
-   ZBC_VIRTQ_AVAIL_ALIGN + ZBC_VIRTQ_AVAIL_HDR_SIZE + 2 * ZBC_VIRTQ_SIZE +     \
-   ZBC_VIRTQ_USED_ALIGN + ZBC_VIRTQ_USED_HDR_SIZE +                            \
-   ZBC_VIRTQ_USED_ENTRY_SIZE * ZBC_VIRTQ_SIZE)
+  (3 * ZBC_VIRTIO_LEGACY_PAGE_SIZE)
 
 /*========================================================================
  * Types
