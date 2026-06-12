@@ -160,6 +160,19 @@ static int c_stat(void *, const char *P, size_t L, void *Buf) {
     ((uint8_t *)Buf)[I] = (uint8_t)(0xA0 + I);
   return 0;
 }
+static int c_opendir(void *, const char *P, size_t L) {
+  tracef("opendir(%s)", canon(P, L).c_str());
+  return 42;
+}
+static int c_readdir(void *, int H, void *Buf, size_t N) {
+  tracef("readdir(%d,%zu)", H, N);
+  (void)Buf;
+  return 0; /* end of directory */
+}
+static int c_closedir(void *, int H) {
+  tracef("closedir(%d)", H);
+  return 0;
+}
 }
 
 static const zbc_backend_t ScriptedC = {
@@ -168,7 +181,8 @@ static const zbc_backend_t ScriptedC = {
     c_writec, c_write0, c_readc,   nullptr,    c_istty, /* iserror unused */
     c_clock,  c_time,   c_elapsed, c_tickfreq, nullptr,    nullptr, /* system, cmdline */
     nullptr, /* heapinfo */
-    c_exit,   c_get_errno, c_timer, c_stat};
+    c_exit,   c_get_errno, c_timer, c_stat,
+    c_opendir, c_readdir, c_closedir};
 
 // --- C++ side ---------------------------------------------------------------
 

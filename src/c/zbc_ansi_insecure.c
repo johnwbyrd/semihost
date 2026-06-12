@@ -7,6 +7,7 @@
  */
 
 #include "zbc_ansi_internal.h"
+#include <dirent.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -482,6 +483,83 @@ static int ansi_insecure_stat(void *ctx, const char *path, size_t path_len,
   return rc;
 }
 
+static int ansi_insecure_opendir(void *ctx, const char *path, size_t path_len) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  DIR *d;
+  int slot;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+
+  for (slot = 0; slot < ZBC_ANSI_MAX_DIRS; slot++) {
+    if (state->dirs[slot] == NULL) {
+      break;
+    }
+  }
+  if (slot == ZBC_ANSI_MAX_DIRS) {
+    state->last_errno = EMFILE;
+    return -1;
+  }
+
+  d = opendir(state->path_buf);
+  if (!d) {
+    state->last_errno = errno;
+    return -1;
+  }
+  state->dirs[slot] = d;
+  return ZBC_ANSI_FIRST_DIR_HANDLE + slot;
+}
+
+static int ansi_insecure_readdir(void *ctx, int handle, void *buf,
+                                 size_t buf_size) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int slot = handle - ZBC_ANSI_FIRST_DIR_HANDLE;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (slot < 0 || slot >= ZBC_ANSI_MAX_DIRS || state->dirs[slot] == NULL) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+
+  rc = zbc_ansi_readdir_one(state->dirs[slot], buf, buf_size);
+  if (rc < 0) {
+    state->last_errno = errno != 0 ? errno : EINVAL;
+  }
+  return rc;
+}
+
+static int ansi_insecure_closedir(void *ctx, int handle) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int slot = handle - ZBC_ANSI_FIRST_DIR_HANDLE;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (slot < 0 || slot >= ZBC_ANSI_MAX_DIRS || state->dirs[slot] == NULL) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+
+  rc = closedir((DIR *)state->dirs[slot]);
+  state->dirs[slot] = NULL;
+  if (rc != 0) {
+    state->last_errno = errno;
+    return -1;
+  }
+  return 0;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -499,7 +577,8 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_do_system,   ansi_insecure_get_cmdline,
     ansi_insecure_heapinfo,    ansi_insecure_do_exit,
     ansi_insecure_get_errno,   ansi_insecure_timer_config,
-    ansi_insecure_stat};
+    ansi_insecure_stat,        ansi_insecure_opendir,
+    ansi_insecure_readdir,     ansi_insecure_closedir};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;
@@ -537,6 +616,13 @@ void zbc_ansi_insecure_cleanup(zbc_ansi_insecure_state_t *state) {
     if (state->files[i] != NULL) {
       fclose((FILE *)state->files[i]);
       state->files[i] = NULL;
+    }
+  }
+
+  for (i = 0; i < ZBC_ANSI_MAX_DIRS; i++) {
+    if (state->dirs[i] != NULL) {
+      closedir((DIR *)state->dirs[i]);
+      state->dirs[i] = NULL;
     }
   }
 

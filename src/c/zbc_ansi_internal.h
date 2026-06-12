@@ -114,4 +114,15 @@ int zbc_ansi_heapinfo(uintptr_t *heap_base, uintptr_t *heap_limit,
  */
 int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf);
 
+/*
+ * Pack one POSIX readdir() result into the SYS_READDIR wire layout
+ * (d_ino[8] d_type[1] d_namlen[1] d_name[d_namlen+1]). Returns the
+ * number of bytes written on success, -1 if the entry won't fit in
+ * buf_size. The caller passes the DIR* it owns; this helper does the
+ * readdir() call so the layout details live in one place.
+ *
+ * Returns 0 at end of directory (no entry written).
+ */
+int zbc_ansi_readdir_one(void *dir_ptr, void *buf, size_t buf_size);
+
 #endif /* ZBC_ANSI_INTERNAL_H */

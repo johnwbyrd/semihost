@@ -104,6 +104,27 @@ typedef struct zbc_backend_s {
      * error.
      */
     int (*stat)(void *ctx, const char *path, size_t path_len, void *stat_buf);
+
+    /**
+     * Open a directory for enumeration. Returns a non-negative dir
+     * handle on success, -1 on error. The handle is host-defined; the
+     * guest treats it as opaque and only passes it to readdir/closedir.
+     */
+    int (*opendir)(void *ctx, const char *path, size_t path_len);
+
+    /**
+     * Read one directory entry. Writes a single entry in SYS_READDIR
+     * wire layout (d_ino[8] d_type[1] d_namlen[1] d_name[d_namlen+1])
+     * into buf. Returns the number of bytes written (> 0), 0 at end
+     * of directory, or -1 on error.
+     */
+    int (*readdir)(void *ctx, int dir_handle, void *buf, size_t buf_size);
+
+    /**
+     * Release a dir handle from opendir. Returns 0 on success, -1 on
+     * error (e.g. handle was never opened or already closed).
+     */
+    int (*closedir)(void *ctx, int dir_handle);
 } zbc_backend_t;
 
 /*========================================================================

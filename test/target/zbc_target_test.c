@@ -356,6 +356,87 @@ static void test_stat(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: OPENDIR / READDIR / CLOSEDIR
+ *
+ * Enumerate the rootfs the host serves us. Both transports show "."
+ * as one of the entries, so we use that as the round-trip-success
+ * sentinel without having to know what else lives in the sandbox.
+ *------------------------------------------------------------------------*/
+
+static void test_dir_enum(void)
+{
+    uintptr_t args[3];
+    uintptr_t result;
+    uint8_t entry[64 + 256];
+    int saw_dot;
+    int safety;
+    static const char root_path[] = "."; /* always present in both sandboxes */
+
+    /* OPENDIR */
+    TARGET_BEGIN_TEST("sys_opendir");
+    args[0] = (uintptr_t)root_path;
+    args[1] = zbc_strlen(root_path);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_OPENDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_NEQ(result, (uintptr_t)-1);
+    TARGET_END_TEST();
+
+    if (result == (uintptr_t)-1) {
+        TARGET_PRINT("  (skipping remaining dir tests due to opendir failure)\n");
+        return;
+    }
+
+    /* READDIR -- loop, look for "." */
+    TARGET_BEGIN_TEST("sys_readdir");
+    saw_dot = 0;
+    for (safety = 0; safety < 1024; safety++) {
+        uintptr_t rargs[3];
+        uintptr_t rc;
+        uint8_t namelen;
+        rargs[0] = result;
+        rargs[1] = (uintptr_t)entry;
+        rargs[2] = (uintptr_t)sizeof(entry);
+        rc = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_READDIR,
+                          (uintptr_t)rargs);
+        if (rc == 0) {
+            break; /* end of directory */
+        }
+        TARGET_ASSERT_NEQ(rc, (uintptr_t)-1);
+        if (rc == (uintptr_t)-1) {
+            break;
+        }
+        namelen = entry[9];
+        if (namelen == 1 && entry[10] == '.') {
+            saw_dot = 1;
+        }
+    }
+    TARGET_ASSERT(saw_dot);
+    TARGET_END_TEST();
+
+    /* CLOSEDIR */
+    TARGET_BEGIN_TEST("sys_closedir");
+    args[0] = result;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_CLOSEDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    /* READDIR on a closed/invalid handle should fail. */
+    TARGET_BEGIN_TEST("sys_readdir_bad_handle");
+    args[0] = (uintptr_t)-1234;
+    args[1] = (uintptr_t)entry;
+    args[2] = (uintptr_t)sizeof(entry);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_READDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, (uintptr_t)-1);
+    TARGET_END_TEST();
+}
+
+/*------------------------------------------------------------------------
  * Test: File System (REMOVE, RENAME, TMPNAM)
  *------------------------------------------------------------------------*/
 
@@ -594,6 +675,7 @@ void _start(void)
 
     TARGET_PRINT("\nLinux Extensions:\n");
     test_stat();
+    test_dir_enum();
 
     TARGET_PRINT("\nTime:\n");
     test_time();

@@ -214,6 +214,76 @@ int zbc_api_stat(zbc_api_t *api, const char *path, zbc_stat_t *out) {
     return 0;
 }
 
+int zbc_api_opendir(zbc_api_t *api, const char *path) {
+    zbc_response_t response;
+    uintptr_t args[2];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_OPENDIR, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_readdir(zbc_api_t *api, int handle, zbc_dir_entry_t *out) {
+    zbc_response_t response;
+    uintptr_t args[3];
+    uint8_t raw[SH_DIRENT_HDR_SIZE + 256];
+    int rc;
+    size_t i;
+    uint8_t name_len;
+
+    args[0] = (uintptr_t)handle;
+    args[1] = (uintptr_t)raw;
+    args[2] = (uintptr_t)sizeof(raw);
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_READDIR, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    if (rc != ZBC_OK || response.result < 0) {
+        return -1;
+    }
+    if (response.result == 0) {
+        return 0; /* end of directory */
+    }
+
+    if (!out) {
+        return 1; /* caller didn't want the decoded entry */
+    }
+
+    /* Unpack the SH_SYS_READDIR wire layout into the native struct. */
+    out->d_ino = stat_unpack_u64(raw + 0);
+    out->d_type = raw[8];
+    name_len = raw[9];
+    out->d_namlen = name_len;
+    /* Defensive: clamp to fit; the wire bound is 255 + NUL. */
+    if (name_len >= sizeof(out->d_name)) {
+        name_len = (uint8_t)(sizeof(out->d_name) - 1);
+    }
+    for (i = 0; i < name_len; i++) {
+        out->d_name[i] = (char)raw[10 + i];
+    }
+    out->d_name[name_len] = '\0';
+    return 1;
+}
+
+int zbc_api_closedir(zbc_api_t *api, int handle) {
+    zbc_response_t response;
+    uintptr_t args[1];
+    int rc;
+
+    args[0] = (uintptr_t)handle;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_CLOSEDIR, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

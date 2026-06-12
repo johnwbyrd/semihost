@@ -9,6 +9,7 @@
  */
 
 #include "zbc_ansi_internal.h"
+#include <dirent.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -809,6 +810,81 @@ static int ansi_stat(void *ctx, const char *path, size_t path_len,
   return rc;
 }
 
+static int ansi_opendir(void *ctx, const char *path, size_t path_len) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  DIR *d;
+  int slot;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (ansi_validate_path(state, path, path_len, 0, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+
+  for (slot = 0; slot < ZBC_ANSI_MAX_DIRS; slot++) {
+    if (state->dirs[slot] == NULL) {
+      break;
+    }
+  }
+  if (slot == ZBC_ANSI_MAX_DIRS) {
+    state->last_errno = EMFILE;
+    return -1;
+  }
+
+  d = opendir(state->path_buf);
+  if (!d) {
+    state->last_errno = errno;
+    return -1;
+  }
+  state->dirs[slot] = d;
+  return ZBC_ANSI_FIRST_DIR_HANDLE + slot;
+}
+
+static int ansi_readdir(void *ctx, int handle, void *buf, size_t buf_size) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  int slot = handle - ZBC_ANSI_FIRST_DIR_HANDLE;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (slot < 0 || slot >= ZBC_ANSI_MAX_DIRS || state->dirs[slot] == NULL) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+
+  rc = zbc_ansi_readdir_one(state->dirs[slot], buf, buf_size);
+  if (rc < 0) {
+    state->last_errno = errno != 0 ? errno : EINVAL;
+  }
+  return rc;
+}
+
+static int ansi_closedir(void *ctx, int handle) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  int slot = handle - ZBC_ANSI_FIRST_DIR_HANDLE;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (slot < 0 || slot >= ZBC_ANSI_MAX_DIRS || state->dirs[slot] == NULL) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+
+  rc = closedir((DIR *)state->dirs[slot]);
+  state->dirs[slot] = NULL;
+  if (rc != 0) {
+    state->last_errno = errno;
+    return -1;
+  }
+  return 0;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -820,7 +896,7 @@ static const zbc_backend_t ansi_secure_backend = {
     ansi_iserror,     ansi_istty,       ansi_clock_func,  ansi_time_func,
     ansi_elapsed,     ansi_tickfreq,    ansi_do_system,   ansi_get_cmdline,
     ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config,
-    ansi_stat};
+    ansi_stat,        ansi_opendir,     ansi_readdir,     ansi_closedir};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 
@@ -921,6 +997,14 @@ void zbc_ansi_cleanup(zbc_ansi_state_t *state) {
     if (state->files[i] != NULL) {
       fclose((FILE *)state->files[i]);
       state->files[i] = NULL;
+    }
+  }
+
+  /* Close all open dirs */
+  for (i = 0; i < ZBC_ANSI_MAX_DIRS; i++) {
+    if (state->dirs[i] != NULL) {
+      closedir((DIR *)state->dirs[i]);
+      state->dirs[i] = NULL;
     }
   }
 

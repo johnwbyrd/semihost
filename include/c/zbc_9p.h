@@ -34,6 +34,9 @@ extern "C" {
 /** Open files at once. fds are slot index + 3 (0-2 are the console). */
 #define ZBC_9P_MAX_FILES 8
 
+/** Open dirs at once (separate from file handles; see SH_SYS_OPENDIR). */
+#define ZBC_9P_MAX_DIRS 4
+
 /** Ring arena size zbc_9p_setup() needs (one request/response queue). */
 #define ZBC_9P_ARENA_SIZE ZBC_VIRTQ_ARENA_SIZE
 
@@ -46,6 +49,12 @@ typedef struct {
   uint8_t in_use;
 } zbc_9p_file_t;
 
+/** One open directory: 9p fid plus the next-entry offset. */
+typedef struct {
+  uint64_t offset; /**< Treaddir cursor: offset to use for next call */
+  uint8_t in_use;
+} zbc_9p_dir_t;
+
 /**
  * 9p transport state. Place a pointer to an initialized instance in the
  * client state's transport_ctx.
@@ -56,6 +65,7 @@ typedef struct {
   uint8_t *rx;    /**< R-message receive buffer */
   uint32_t msize; /**< Negotiated maximum message size */
   zbc_9p_file_t files[ZBC_9P_MAX_FILES];
+  zbc_9p_dir_t dirs[ZBC_9P_MAX_DIRS];
   int last_errno;     /**< Sticky errno for SYS_ERRNO */
   int tmpnam_counter; /**< For SYS_TMPNAM name generation */
 } zbc_9p_state_t;

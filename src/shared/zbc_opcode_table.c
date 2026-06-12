@@ -441,6 +441,57 @@ static const zbc_opcode_entry_t zbc_opcode_table[] = {
      0},
 
     /*
+     * SH_SYS_OPENDIR (0x80) -- Linux extension
+     * Guest args: {path_ptr, path_len}
+     * Request: DATA(path, len=args[1]), PARM(path_len)
+     * Response: int (dir handle >= 0, or -1)
+     */
+    {SH_SYS_OPENDIR,
+     2,
+     {{ZBC_CHUNK_DATA_PTR, 0, 1},  /* DATA: ptr=args[0], len=args[1] */
+      {ZBC_CHUNK_PARM_UINT, 1, 0}, /* PARM: path_len */
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
+    /*
+     * SH_SYS_READDIR (0x81) -- Linux extension
+     * Guest args: {dir_handle, buf_ptr, buf_size}
+     * Request: PARM(dir_handle), PARM(buf_size)
+     * Response: int (bytes written, 0 = end of directory, -1 = error),
+     * DATA copied to args[1] with max len from args[2].
+     */
+    {
+        SH_SYS_READDIR,
+        3,
+        {{ZBC_CHUNK_PARM_INT, 0, 0},  /* dir_handle */
+         {ZBC_CHUNK_PARM_UINT, 2, 0}, /* buf_size hint */
+         {ZBC_CHUNK_NONE, 0, 0},
+         {ZBC_CHUNK_NONE, 0, 0}},
+        ZBC_RESP_DATA,
+        1, /* copy DATA to args[1] */
+        2  /* max len from args[2] */
+    },
+
+    /*
+     * SH_SYS_CLOSEDIR (0x82) -- Linux extension
+     * Guest args: {dir_handle}
+     * Request: PARM(dir_handle)
+     * Response: int (0 or -1)
+     */
+    {SH_SYS_CLOSEDIR,
+     1,
+     {{ZBC_CHUNK_PARM_INT, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
+    /*
      * SH_SYS_STAT (0x83) -- Linux extension
      * Guest args: {path_ptr, path_len, stat_buf_ptr, 48}
      * Request: DATA(path, len=args[1]), PARM(path_len)

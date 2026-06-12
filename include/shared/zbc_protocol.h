@@ -80,15 +80,37 @@ typedef uint32_t uintptr_t;
 
 /*========================================================================
  * Linux-extension opcodes (0x80+, avoids ARM semihosting collisions)
- *
- * Defined in docs/source/linux-extensions-proposal.rst. Implemented
- * incrementally as Linux passthrough gates demand them.
  *========================================================================*/
 
+#define SH_SYS_OPENDIR        0x80  /* Open a directory for enumeration */
+#define SH_SYS_READDIR        0x81  /* Read one directory entry */
+#define SH_SYS_CLOSEDIR       0x82  /* Close a directory handle */
 #define SH_SYS_STAT           0x83  /* Get file metadata by path */
 
 /** Wire size of the fixed SYS_STAT response buffer (always 48 bytes). */
 #define SH_STAT_BUF_SIZE      48
+
+/**
+ * Wire format of a single SYS_READDIR entry:
+ *   d_ino[8]    - inode number (little-endian)
+ *   d_type[1]   - file type (SH_DT_REG, SH_DT_DIR, ...)
+ *   d_namlen[1] - filename length (NOT including the NUL)
+ *   d_name[d_namlen + 1] - NUL-terminated filename
+ *
+ * Total bytes per entry = 10 + d_namlen + 1.
+ * Buffer the guest passes must accommodate this for any single entry.
+ */
+#define SH_DIRENT_HDR_SIZE    10
+
+/* d_type values matching POSIX dirent.h DT_* constants. */
+#define SH_DT_UNKNOWN  0
+#define SH_DT_FIFO     1
+#define SH_DT_CHR      2
+#define SH_DT_DIR      4
+#define SH_DT_BLK      6
+#define SH_DT_REG      8
+#define SH_DT_LNK      10
+#define SH_DT_SOCK     12
 
 /*========================================================================
  * Open mode flags (ARM semihosting compatible)

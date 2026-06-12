@@ -178,7 +178,8 @@ typedef struct {
 } zbc_stat_t;
 
 /**
- * Stat a file by path (Linux extension; see linux-extensions-proposal.rst).
+ * Stat a file by path. Fills @p out with the file's inode, mode,
+ * nlink, size, and timestamps.
  *
  * @param api   API state
  * @param path  File path (null-terminated)
@@ -187,6 +188,48 @@ typedef struct {
  *         ENOENT for missing path, EACCES for sandbox denial)
  */
 int zbc_api_stat(zbc_api_t *api, const char *path, zbc_stat_t *out);
+
+/**
+ * One decoded directory entry returned by zbc_api_readdir().
+ *
+ * d_namlen is the filename length excluding the trailing NUL; d_name
+ * is always NUL-terminated. d_type is one of the SH_DT_* file-type
+ * constants (SH_DT_UNKNOWN, SH_DT_REG, SH_DT_DIR, ...).
+ */
+typedef struct {
+    uint64_t d_ino;          /**< Inode number */
+    uint8_t  d_type;         /**< SH_DT_* file type */
+    uint8_t  d_namlen;       /**< Name length (not including NUL) */
+    char     d_name[256];    /**< NUL-terminated filename */
+} zbc_dir_entry_t;
+
+/**
+ * Open a directory for enumeration.
+ *
+ * @param api   API state
+ * @param path  Directory path (null-terminated)
+ * @return Non-negative dir handle on success; -1 on error
+ */
+int zbc_api_opendir(zbc_api_t *api, const char *path);
+
+/**
+ * Read the next directory entry.
+ *
+ * @param api    API state
+ * @param handle Handle from zbc_api_opendir()
+ * @param out    Destination for the decoded entry
+ * @return 1 if an entry was returned; 0 at end of directory; -1 on error
+ */
+int zbc_api_readdir(zbc_api_t *api, int handle, zbc_dir_entry_t *out);
+
+/**
+ * Close a directory handle.
+ *
+ * @param api    API state
+ * @param handle Handle from zbc_api_opendir()
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_closedir(zbc_api_t *api, int handle);
 
 /*========================================================================
  * Console Operations

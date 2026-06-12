@@ -27,6 +27,8 @@
 #define ZBC_9P_RLCREATE   15
 #define ZBC_9P_TGETATTR   24
 #define ZBC_9P_RGETATTR   25
+#define ZBC_9P_TREADDIR   40
+#define ZBC_9P_RREADDIR   41
 #define ZBC_9P_TRENAMEAT  74
 #define ZBC_9P_RRENAMEAT  75
 #define ZBC_9P_TVERSION   100

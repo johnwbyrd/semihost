@@ -19,10 +19,12 @@ extern "C" {
  *========================================================================*/
 
 #define ZBC_ANSI_MAX_FILES       64    /**< Maximum simultaneously open files */
+#define ZBC_ANSI_MAX_DIRS        8     /**< Maximum simultaneously open dirs */
 #define ZBC_ANSI_MAX_PATH_RULES  16    /**< Maximum additional path rules */
 #define ZBC_ANSI_SANDBOX_DIR_MAX 512   /**< Maximum sandbox directory path length */
 #define ZBC_ANSI_PATH_BUF_MAX    1024  /**< Maximum resolved path length */
 #define ZBC_ANSI_FIRST_FD        3     /**< First FD to allocate (0-2 are stdio) */
+#define ZBC_ANSI_FIRST_DIR_HANDLE 256  /**< First dir handle; well above max FD */
 
 /*========================================================================
  * Configuration flags
@@ -148,6 +150,9 @@ typedef struct zbc_ansi_state_s {
     zbc_ansi_fd_node_t *free_fd_list;
     int next_fd;
 
+    /*--- Internal: directory handle table (void* = DIR*) ---*/
+    void *dirs[ZBC_ANSI_MAX_DIRS];
+
     /*--- Internal: other state ---*/
     int last_errno;
     /* Clock accumulator using 64-bit time */
@@ -239,6 +244,9 @@ typedef struct zbc_ansi_insecure_state_s {
     zbc_ansi_fd_node_t fd_pool[ZBC_ANSI_MAX_FILES];
     zbc_ansi_fd_node_t *free_fd_list;
     int next_fd;
+
+    /*--- Internal: directory handle table (void* = DIR*) ---*/
+    void *dirs[ZBC_ANSI_MAX_DIRS];
 
     /*--- Internal: other state ---*/
     int last_errno;

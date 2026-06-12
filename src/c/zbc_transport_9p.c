@@ -23,6 +23,11 @@
 #define P9_FID_FILE(slot) ((uint32_t)(slot) + 1)
 #define P9_FID_SCRATCH_A 100
 #define P9_FID_SCRATCH_B 101
+#define P9_FID_DIR(slot) ((uint32_t)(slot) + 200)
+
+/* Guest-side dir handle range; mirrors ZBC_ANSI_FIRST_DIR_HANDLE so
+ * the same dir handle value works across both transport stacks. */
+#define ZBC_9P_FIRST_DIR_HANDLE 256
 
 /* Single outstanding RPC; a constant tag suffices. */
 #define P9_TAG 1
@@ -402,6 +407,10 @@ int zbc_9p_setup(zbc_9p_state_t *s, volatile void *mmio, void *queue_mem,
   for (i = 0; i < ZBC_9P_MAX_FILES; i++) {
     s->files[i].in_use = 0;
     s->files[i].offset = 0;
+  }
+  for (i = 0; i < ZBC_9P_MAX_DIRS; i++) {
+    s->dirs[i].in_use = 0;
+    s->dirs[i].offset = 0;
   }
   s->last_errno = 0;
   s->tmpnam_counter = 0;
@@ -883,6 +892,177 @@ static int do_stat(zbc_9p_state_t *s, zbc_response_t *response,
   return ZBC_OK;
 }
 
+/* Map a guest-side dir handle (256+slot) to the internal slot, or -1. */
+static int dir_slot(const zbc_9p_state_t *s, int handle) {
+  int slot = handle - ZBC_9P_FIRST_DIR_HANDLE;
+  if (slot < 0 || slot >= ZBC_9P_MAX_DIRS || !s->dirs[slot].in_use) {
+    return -1;
+  }
+  return slot;
+}
+
+static int do_opendir(zbc_9p_state_t *s, zbc_response_t *response,
+                      const char *path, size_t path_len) {
+  p9_wr_t w;
+  p9_rd_t reply;
+  uint32_t fid;
+  int p9err;
+  int rc;
+  int slot;
+
+  for (slot = 0; slot < ZBC_9P_MAX_DIRS; slot++) {
+    if (!s->dirs[slot].in_use) {
+      break;
+    }
+  }
+  if (slot == ZBC_9P_MAX_DIRS) {
+    fail_errno(s, response, ZBC_ERRNO_EMFILE);
+    return ZBC_OK;
+  }
+  fid = P9_FID_DIR(slot);
+
+  rc = p9_walk(s, P9_FID_ROOT, fid, path, path_len, 0, (const char **)0,
+               (size_t *)0, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Tlopen with O_RDONLY = 0; directory fids must be opened before
+   * Treaddir is legal on them. */
+  wr_begin(&w, s, ZBC_9P_TLOPEN, P9_TAG);
+  wr_u32(&w, fid);
+  wr_u32(&w, 0);
+  rc = p9_rpc(s, &w, ZBC_9P_RLOPEN, &reply, &p9err);
+  if (rc != ZBC_OK) {
+    p9_clunk(s, fid);
+    return rc;
+  }
+  if (p9err != 0) {
+    p9_clunk(s, fid);
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  s->dirs[slot].in_use = 1;
+  s->dirs[slot].offset = 0;
+  p9_fill_response(response, ZBC_9P_FIRST_DIR_HANDLE + slot, 0);
+  return ZBC_OK;
+}
+
+static int do_readdir(zbc_9p_state_t *s, zbc_response_t *response, int handle,
+                      uint8_t *out_buf, size_t out_size) {
+  int slot = dir_slot(s, handle);
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+  uint32_t count;
+  uint64_t entry_off;
+  uint16_t name_len;
+  const uint8_t *name_bytes;
+  uint64_t qid_path;
+  uint32_t need;
+
+  if (slot < 0) {
+    fail_errno(s, response, ZBC_ERRNO_EBADF);
+    return ZBC_OK;
+  }
+
+  /* Ask for just enough to fit one max-name entry: the 9p server packs
+   * as many as fit; we only ever consume the first and remember the
+   * server-supplied offset of the next one. */
+  wr_begin(&w, s, ZBC_9P_TREADDIR, P9_TAG);
+  wr_u32(&w, P9_FID_DIR(slot));
+  wr_u64(&w, s->dirs[slot].offset);
+  wr_u32(&w, 512);
+  rc = p9_rpc(s, &w, ZBC_9P_RREADDIR, &reply, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  count = rd_u32(&reply);
+  if (reply.truncated) {
+    return ZBC_ERR_PARSE_ERROR;
+  }
+  if (count == 0) {
+    /* End of directory: SYS_READDIR returns 0 with no DATA. */
+    p9_fill_response(response, 0, 0);
+    return ZBC_OK;
+  }
+
+  /* Per-entry wire format: qid[13] offset[8] type[1] namelen[2] name[namelen]. */
+  {
+    uint8_t entry_type;
+    (void)rd_u8(&reply);          /* qid.type (unused) */
+    (void)rd_u32(&reply);         /* qid.version (unused) */
+    qid_path = rd_u64(&reply);    /* qid.path == inode */
+    entry_off = rd_u64(&reply);
+    entry_type = rd_u8(&reply);
+    name_len = rd_u16(&reply);
+
+    if (reply.truncated) {
+      return ZBC_ERR_PARSE_ERROR;
+    }
+    if (name_len > 255) {
+      /* Names longer than uint8 don't fit the SH_SYS_READDIR wire layout. */
+      return ZBC_ERR_PARSE_ERROR;
+    }
+    name_bytes = rd_bytes(&reply, name_len);
+    if (reply.truncated || !name_bytes) {
+      return ZBC_ERR_PARSE_ERROR;
+    }
+
+    need = SH_DIRENT_HDR_SIZE + name_len + 1;
+    if (out_size < need) {
+      fail_errno(s, response, ZBC_ERRNO_EINVAL);
+      return ZBC_OK;
+    }
+
+    stat_pack_u64(out_buf + 0, qid_path);
+    /* 9p's per-entry type byte uses Linux DT_* values, the same ones
+     * SH_DT_* mirror, so pass it through unchanged. */
+    out_buf[8] = entry_type;
+    out_buf[9] = (uint8_t)name_len;
+    {
+      size_t i;
+      for (i = 0; i < name_len; i++) {
+        out_buf[10 + i] = name_bytes[i];
+      }
+      out_buf[10 + name_len] = '\0';
+    }
+  }
+
+  s->dirs[slot].offset = entry_off;
+
+  p9_fill_response(response, (int)need, 0);
+  response->data = out_buf;
+  response->data_size = need;
+  return ZBC_OK;
+}
+
+static int do_closedir(zbc_9p_state_t *s, zbc_response_t *response, int handle) {
+  int slot = dir_slot(s, handle);
+
+  if (slot < 0) {
+    fail_errno(s, response, ZBC_ERRNO_EBADF);
+    return ZBC_OK;
+  }
+
+  p9_clunk(s, P9_FID_DIR(slot));
+  s->dirs[slot].in_use = 0;
+  s->dirs[slot].offset = 0;
+  p9_fill_response(response, 0, 0);
+  return ZBC_OK;
+}
+
 static int do_remove(zbc_9p_state_t *s, zbc_response_t *response,
                      const char *path, size_t path_len) {
   p9_wr_t w;
@@ -1082,6 +1262,16 @@ static int p9_transport_call(zbc_response_t *response,
   case SH_SYS_STAT:
     return do_stat(s, response, (const char *)args[0], (size_t)args[1],
                    (uint8_t *)args[2]);
+
+  case SH_SYS_OPENDIR:
+    return do_opendir(s, response, (const char *)args[0], (size_t)args[1]);
+
+  case SH_SYS_READDIR:
+    return do_readdir(s, response, (int)args[0], (uint8_t *)args[1],
+                      (size_t)args[2]);
+
+  case SH_SYS_CLOSEDIR:
+    return do_closedir(s, response, (int)args[0]);
 
   default:
     /* Console opcodes route to the console transport in a composite;

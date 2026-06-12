@@ -10,6 +10,8 @@
  */
 
 #include "zbc_ansi_internal.h"
+#include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -261,4 +263,38 @@ int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf) {
   le_pack_u64(out + 32, (uint64_t)st.st_atime);
   le_pack_u64(out + 40, (uint64_t)st.st_ctime);
   return 0;
+}
+
+int zbc_ansi_readdir_one(void *dir_ptr, void *buf, size_t buf_size) {
+  DIR *dir = (DIR *)dir_ptr;
+  struct dirent *de;
+  uint8_t *out = (uint8_t *)buf;
+  size_t name_len;
+  size_t need;
+
+  if (!dir) {
+    return -1;
+  }
+
+  errno = 0;
+  de = readdir(dir);
+  if (!de) {
+    return errno == 0 ? 0 : -1; /* 0 = clean EOD; -1 = real error */
+  }
+
+  name_len = strlen(de->d_name);
+  if (name_len > 255) {
+    return -1; /* name field is uint8 in the wire layout */
+  }
+  need = SH_DIRENT_HDR_SIZE + name_len + 1;
+  if (buf_size < need) {
+    return -1;
+  }
+
+  le_pack_u64(out + 0, (uint64_t)de->d_ino);
+  out[8] = (uint8_t)de->d_type;
+  out[9] = (uint8_t)name_len;
+  memcpy(out + 10, de->d_name, name_len + 1);
+
+  return (int)need;
 }

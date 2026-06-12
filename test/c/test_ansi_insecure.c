@@ -6,6 +6,8 @@
  */
 
 #include "test_ansi_common.h"
+#include <sys/stat.h>
+#include <unistd.h>
 
 /*------------------------------------------------------------------------
  * Local helpers (only used in this file)
@@ -225,6 +227,101 @@ static int test_stat_missing(void)
 
     result = be->stat(ctx, filename, filename_len, stat_buf);
     TEST_ASSERT(result == -1, "stat on missing file should return -1");
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Test: opendir / readdir / closedir
+ *------------------------------------------------------------------------*/
+
+static int test_dir_enumeration(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char dirpath[512];
+    char filepath[512];
+    size_t dirlen;
+    int handle;
+    int result;
+    int fd;
+    uint8_t buf[SH_DIRENT_HDR_SIZE + 256];
+    int saw_marker = 0;
+    int saw_dot = 0;
+    int safety;
+
+    /* Use a subdirectory of the temp area we own. */
+    make_temp_path(dirpath, sizeof(dirpath), "zbc_test_dir_enum");
+#ifdef _WIN32
+    _mkdir(dirpath);
+#else
+    mkdir(dirpath, 0755);
+#endif
+
+    /* Drop one known file inside. */
+    snprintf(filepath, sizeof(filepath), "%s/marker.txt", dirpath);
+    fd = be->open(ctx, filepath, strlen(filepath), 4); /* SH_OPEN_W */
+    TEST_ASSERT(fd >= 0, "marker file open should succeed");
+    be->write(ctx, fd, "hello", 5);
+    be->close(ctx, fd);
+
+    /* Enumerate. */
+    TEST_ASSERT(be->opendir != NULL, "opendir slot must be populated");
+    TEST_ASSERT(be->readdir != NULL, "readdir slot must be populated");
+    TEST_ASSERT(be->closedir != NULL, "closedir slot must be populated");
+
+    dirlen = strlen(dirpath);
+    handle = be->opendir(ctx, dirpath, dirlen);
+    TEST_ASSERT(handle >= 0, "opendir on existing dir should succeed");
+
+    for (safety = 0; safety < 1024; safety++) {
+        result = be->readdir(ctx, handle, buf, sizeof(buf));
+        if (result == 0) {
+            break; /* end of directory */
+        }
+        TEST_ASSERT(result > 0, "readdir should not error on a real dir");
+
+        {
+            uint8_t namelen = buf[9];
+            const char *name = (const char *)(buf + 10);
+            if (namelen == 1 && name[0] == '.') {
+                saw_dot = 1;
+            } else if (namelen == 10 && strcmp(name, "marker.txt") == 0) {
+                saw_marker = 1;
+            }
+        }
+    }
+    TEST_ASSERT(safety < 1024, "readdir loop should terminate");
+    TEST_ASSERT(saw_dot, "enumeration should include '.'");
+    TEST_ASSERT(saw_marker, "enumeration should include marker.txt");
+
+    result = be->closedir(ctx, handle);
+    TEST_ASSERT(result == 0, "closedir should succeed");
+
+    /* readdir on a closed handle is an error. */
+    result = be->readdir(ctx, handle, buf, sizeof(buf));
+    TEST_ASSERT(result == -1, "readdir on closed handle should fail");
+
+    /* Cleanup. */
+    be->remove(ctx, filepath, strlen(filepath));
+#ifdef _WIN32
+    _rmdir(dirpath);
+#else
+    rmdir(dirpath);
+#endif
+    return 1;
+}
+
+static int test_dir_missing(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char dirpath[512];
+    int handle;
+
+    make_temp_path(dirpath, sizeof(dirpath),
+                   "zbc_test_dir_does_not_exist");
+    handle = be->opendir(ctx, dirpath, strlen(dirpath));
+    TEST_ASSERT(handle == -1, "opendir on missing dir should return -1");
     return 1;
 }
 
@@ -804,6 +901,8 @@ void run_ansi_insecure_tests(void)
     RUN_TEST(file_length);
     RUN_TEST(stat_metadata);
     RUN_TEST(stat_missing);
+    RUN_TEST(dir_enumeration);
+    RUN_TEST(dir_missing);
     RUN_TEST(seek);
     RUN_TEST(console_write);
     RUN_TEST(time_functions);
