@@ -28,7 +28,7 @@ if(NOT ZBC_RUNNER_MAME_FOUND AND NOT ZBC_RUNNER_QEMU_FOUND)
 endif()
 
 # Supported platforms
-set(ZBC_SUPPORTED_PLATFORMS i386 m6502)
+set(ZBC_SUPPORTED_PLATFORMS i386 m6502 riscv32)
 
 # Allow user to specify platforms, default to all
 if(NOT ZBC_TARGET_PLATFORMS)
@@ -93,6 +93,7 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
     set(CRT ${ZBC_PLATFORM_${platform}_CRT})
     set(LD ${ZBC_PLATFORM_${platform}_LD})
     set(PLATFORM_SOURCES ${ZBC_PLATFORM_${platform}_PLATFORM_SOURCES})
+    set(EXTRA_CLIENT_SOURCES ${ZBC_PLATFORM_${platform}_EXTRA_CLIENT_SOURCES})
     set(PLATFORM_DIR ${CMAKE_CURRENT_SOURCE_DIR}/platforms/${platform})
 
     # Build command
@@ -110,11 +111,13 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
             -o ${ELF_OUTPUT}
             ${ZBC_TARGET_TEST_SOURCE}
             ${ZBC_CLIENT_SOURCES}
+            ${EXTRA_CLIENT_SOURCES}
             ${PLATFORM_SOURCES}
             ${CRT}
         DEPENDS
             ${ZBC_TARGET_TEST_SOURCE}
             ${ZBC_CLIENT_SOURCES}
+            ${EXTRA_CLIENT_SOURCES}
             ${PLATFORM_SOURCES}
             ${CRT}
             ${LD}
@@ -150,6 +153,33 @@ foreach(platform ${ZBC_AVAILABLE_PLATFORMS})
             )
 
             set_tests_properties(zbc_target_${platform}_mame PROPERTIES
+                DEPENDS ${target_name}
+            )
+        elseif(runner STREQUAL "qemu")
+            if(NOT ZBC_RUNNER_QEMU_FOUND)
+                continue()
+            endif()
+            set(qemu_bin ${ZBC_PLATFORM_${platform}_QEMU_BIN})
+            set(qemu_machine ${ZBC_PLATFORM_${platform}_QEMU_MACHINE})
+            if(NOT qemu_bin OR NOT qemu_machine)
+                message(WARNING
+                    "Platform ${platform} declares qemu runner but "
+                    "ZBC_PLATFORM_${platform}_QEMU_BIN / _QEMU_MACHINE "
+                    "are unset")
+                continue()
+            endif()
+
+            add_qemu_test(
+                zbc_target_${platform}_qemu
+                ELF        ${ELF_OUTPUT}
+                QEMU_BIN   ${qemu_bin}
+                MACHINE    ${qemu_machine}
+                EXTRA_ARGS ${ZBC_PLATFORM_${platform}_QEMU_EXTRA_ARGS}
+                TIMEOUT    60
+                INPUT      "A"
+            )
+
+            set_tests_properties(zbc_target_${platform}_qemu PROPERTIES
                 DEPENDS ${target_name}
             )
         else()

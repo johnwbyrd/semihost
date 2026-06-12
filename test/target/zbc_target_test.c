@@ -60,9 +60,16 @@ static void test_device_detection(void)
     int result;
 
     TARGET_BEGIN_TEST("device_signature");
-    result = zbc_client_check_signature(&g_target_client);
-    TARGET_ASSERT_EQ(result, ZBC_OK);
-    TARGET_END_TEST();
+    if (g_target_client.transport != zbc_transport_riff()) {
+        /* Non-RIFF transports (e.g. virtio-9p + virtio-console on QEMU)
+         * have no ZBC SIGNATURE register to read; the signature check
+         * applies only to platforms whose host exposes the RIFF device. */
+        TARGET_SKIP("no RIFF device on this transport");
+    } else {
+        result = zbc_client_check_signature(&g_target_client);
+        TARGET_ASSERT_EQ(result, ZBC_OK);
+        TARGET_END_TEST();
+    }
 
     /*
      * Note: zbc_client_device_present() was removed.

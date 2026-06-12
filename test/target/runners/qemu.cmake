@@ -1,11 +1,91 @@
-# QEMU Runner for ZBC Target Tests (Stub)
+# QEMU Runner for ZBC Target Tests
 #
-# Placeholder for future QEMU support.
-# QEMU would need a ZBC machine implementation similar to MAME.
+# Each per-test invocation gets its own sandbox directory under
+# ${CMAKE_CURRENT_BINARY_DIR}/qemu-sandbox/<test-name> that is mounted
+# into the guest as 9p mount_tag "zbc". Console traffic rides
+# virtio-console wired to QEMU's stdio chardev so the test binary's
+# TARGET_PRINT output reaches ctest.
+#
+# A per-platform platform.cmake supplies the specific
+# qemu-system-<arch> binary, the QEMU machine name, and any extra
+# arguments via ZBC_PLATFORM_<p>_QEMU_BIN / _QEMU_MACHINE /
+# _QEMU_EXTRA_ARGS.
 
-set(ZBC_RUNNER_QEMU_FOUND FALSE)
-message(STATUS "QEMU runner: not implemented (future)")
+set(ZBC_RUNNER_QEMU_FOUND TRUE)
+message(STATUS "QEMU runner: enabled (per-platform binary detection)")
 
-function(add_qemu_test name elf_path machine)
-    message(STATUS "Skipping QEMU test ${name} - QEMU runner not implemented")
+#
+# add_qemu_test(name
+#               ELF      <path>
+#               QEMU_BIN <qemu-system-* path>
+#               MACHINE  <machine>
+#               [EXTRA_ARGS <list>]
+#               [TIMEOUT <seconds>]
+#               [INPUT   <stdin text>])
+#
+# Registers a CTest test that boots an ELF under qemu-system-<arch>
+# with a virtio-console + virtio-9p loadout. The per-test sandbox at
+# ${CMAKE_CURRENT_BINARY_DIR}/qemu-sandbox/<name> is created at
+# configure time and exposed as 9p mount_tag "zbc".
+#
+function(add_qemu_test name)
+    cmake_parse_arguments(ARG
+        ""                                          # options
+        "ELF;QEMU_BIN;MACHINE;TIMEOUT;INPUT"        # one-value
+        "EXTRA_ARGS"                                # multi-value
+        ${ARGN})
+
+    if(NOT ARG_ELF)
+        message(FATAL_ERROR "add_qemu_test(${name}) missing ELF")
+    endif()
+    if(NOT ARG_QEMU_BIN)
+        message(FATAL_ERROR "add_qemu_test(${name}) missing QEMU_BIN")
+    endif()
+    if(NOT ARG_MACHINE)
+        message(FATAL_ERROR "add_qemu_test(${name}) missing MACHINE")
+    endif()
+    if(NOT ARG_TIMEOUT)
+        set(ARG_TIMEOUT 30)
+    endif()
+
+    set(sandbox_dir ${CMAKE_CURRENT_BINARY_DIR}/qemu-sandbox/${name})
+    file(MAKE_DIRECTORY ${sandbox_dir})
+
+    # virtio-mmio devices must be exposed as "modern" (version 2);
+    # QEMU defaults to legacy v1 on riscv32 virt without this.
+    set(qemu_cmd
+        ${ARG_QEMU_BIN}
+        -machine ${ARG_MACHINE}
+        -bios none
+        -no-reboot
+        -display none
+        -monitor none
+        -serial none
+        -global virtio-mmio.force-legacy=false
+        -kernel ${ARG_ELF}
+        -fsdev local,id=fs0,path=${sandbox_dir},security_model=none
+        -device virtio-9p-device,fsdev=fs0,mount_tag=zbc
+        -device virtio-serial-device
+        -device virtconsole,chardev=c0
+        -chardev stdio,id=c0,signal=off
+        ${ARG_EXTRA_ARGS}
+    )
+
+    if(ARG_INPUT)
+        # Pipe stdin through sh so SYS_READC has something to read.
+        string(JOIN " " qemu_cmd_str ${qemu_cmd})
+        add_test(
+            NAME ${name}
+            COMMAND sh -c "echo '${ARG_INPUT}' | ${qemu_cmd_str}"
+        )
+    else()
+        add_test(NAME ${name} COMMAND ${qemu_cmd})
+    endif()
+
+    set_tests_properties(${name} PROPERTIES
+        LABELS "target;qemu;${ARG_MACHINE}"
+        TIMEOUT ${ARG_TIMEOUT}
+    )
+
+    message(STATUS "Registered QEMU test: ${name} (${ARG_MACHINE})")
 endfunction()
