@@ -7,11 +7,13 @@
  */
 
 #include "zbc_ansi_internal.h"
-#include <dirent.h>
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 
 /*========================================================================
  * FD State Helpers
@@ -485,6 +487,15 @@ static int ansi_insecure_stat(void *ctx, const char *path, size_t path_len,
 
 static int ansi_insecure_opendir(void *ctx, const char *path, size_t path_len) {
   zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+#ifdef _WIN32
+  (void)path;
+  (void)path_len;
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  state->last_errno = ENOSYS;
+  return -1;
+#else
   DIR *d;
   int slot;
 
@@ -515,6 +526,7 @@ static int ansi_insecure_opendir(void *ctx, const char *path, size_t path_len) {
   }
   state->dirs[slot] = d;
   return ZBC_ANSI_FIRST_DIR_HANDLE + slot;
+#endif
 }
 
 static int ansi_insecure_readdir(void *ctx, int handle, void *buf,
@@ -540,6 +552,14 @@ static int ansi_insecure_readdir(void *ctx, int handle, void *buf,
 
 static int ansi_insecure_closedir(void *ctx, int handle) {
   zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+#ifdef _WIN32
+  (void)handle;
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  state->last_errno = ENOSYS;
+  return -1;
+#else
   int slot = handle - ZBC_ANSI_FIRST_DIR_HANDLE;
   int rc;
 
@@ -558,6 +578,7 @@ static int ansi_insecure_closedir(void *ctx, int handle) {
     return -1;
   }
   return 0;
+#endif
 }
 
 /*========================================================================
@@ -619,12 +640,14 @@ void zbc_ansi_insecure_cleanup(zbc_ansi_insecure_state_t *state) {
     }
   }
 
+#ifndef _WIN32
   for (i = 0; i < ZBC_ANSI_MAX_DIRS; i++) {
     if (state->dirs[i] != NULL) {
       closedir((DIR *)state->dirs[i]);
       state->dirs[i] = NULL;
     }
   }
+#endif
 
   state->initialized = 0;
 }

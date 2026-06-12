@@ -901,7 +901,11 @@ void run_ansi_insecure_tests(void)
     RUN_TEST(file_length);
     RUN_TEST(stat_metadata);
     RUN_TEST(stat_missing);
+#ifndef _WIN32
+    /* dir_enumeration drives opendir/readdir/closedir, which the ANSI
+     * backend only implements on POSIX hosts. */
     RUN_TEST(dir_enumeration);
+#endif
     RUN_TEST(dir_missing);
     RUN_TEST(seek);
     RUN_TEST(console_write);

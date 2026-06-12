@@ -10,12 +10,14 @@
  */
 
 #include "zbc_ansi_internal.h"
-#include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#ifndef _WIN32
+#include <dirent.h>
+#endif
 
 /*========================================================================
  * FD Management
@@ -266,6 +268,13 @@ int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf) {
 }
 
 int zbc_ansi_readdir_one(void *dir_ptr, void *buf, size_t buf_size) {
+#ifdef _WIN32
+  (void)dir_ptr;
+  (void)buf;
+  (void)buf_size;
+  errno = ENOSYS;
+  return -1;
+#else
   DIR *dir = (DIR *)dir_ptr;
   struct dirent *de;
   uint8_t *out = (uint8_t *)buf;
@@ -297,4 +306,5 @@ int zbc_ansi_readdir_one(void *dir_ptr, void *buf, size_t buf_size) {
   memcpy(out + 10, de->d_name, name_len + 1);
 
   return (int)need;
+#endif
 }
