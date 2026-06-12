@@ -7,7 +7,9 @@
 
 #include "test_ansi_common.h"
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 
 /*------------------------------------------------------------------------
  * Local helpers (only used in this file)
@@ -231,15 +233,18 @@ static int test_stat_missing(void)
 }
 
 /*------------------------------------------------------------------------
- * Test: opendir / readdir / closedir
+ * Test: opendir / readdir / closedir (POSIX hosts only -- the Windows
+ * ANSI backend stubs these to ENOSYS, so the test driver below skips
+ * the registration on Windows.)
  *------------------------------------------------------------------------*/
 
+#ifndef _WIN32
 static int test_dir_enumeration(void)
 {
     const zbc_backend_t *be = zbc_backend_ansi_insecure();
     void *ctx = &g_ansi_state;
     char dirpath[512];
-    char filepath[512];
+    char filepath[600];  /* >= sizeof(dirpath) + strlen("/marker.txt") + 1 */
     size_t dirlen;
     int handle;
     int result;
@@ -251,11 +256,7 @@ static int test_dir_enumeration(void)
 
     /* Use a subdirectory of the temp area we own. */
     make_temp_path(dirpath, sizeof(dirpath), "zbc_test_dir_enum");
-#ifdef _WIN32
-    _mkdir(dirpath);
-#else
     mkdir(dirpath, 0755);
-#endif
 
     /* Drop one known file inside. */
     snprintf(filepath, sizeof(filepath), "%s/marker.txt", dirpath);
@@ -303,13 +304,10 @@ static int test_dir_enumeration(void)
 
     /* Cleanup. */
     be->remove(ctx, filepath, strlen(filepath));
-#ifdef _WIN32
-    _rmdir(dirpath);
-#else
     rmdir(dirpath);
-#endif
     return 1;
 }
+#endif /* !_WIN32 */
 
 static int test_dir_missing(void)
 {
