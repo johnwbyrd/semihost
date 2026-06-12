@@ -20,6 +20,36 @@ static void composite_fill_enosys(zbc_response_t *response) {
   response->proto_error = 0;
 }
 
+/*
+ * ADDING A NEW OPCODE? Read this first.
+ *
+ * The opcode -> {console, file, fallback} routing here is a closed
+ * switch, not a registration table. A SH_SYS_* opcode that doesn't
+ * appear in one of the case lists below falls through to the default
+ * arm and reaches the fallback transport, which on every QEMU
+ * virt-class platform returns -1 / ZBC_ERRNO_ENOSYS (38).
+ *
+ * That failure mode is silent: the guest just sees ENOSYS, the host
+ * never sees the call, and the 9p (or vcon) implementation you spent
+ * the morning writing never runs even though it's wired correctly.
+ * The SYS_STAT bringup hit exactly this wall -- end-to-end tests
+ * returned -1 from the composite path until "case SH_SYS_STAT:" was
+ * added to the file class below.
+ *
+ * Add new opcodes to the case list whose transport serves them:
+ *   - console class: vcon (virtio-console) handles writec / write0 /
+ *     readc and is the natural home for any future console-only ops
+ *   - file class:    9p (virtio-9p) handles open / close / read /
+ *     write / seek / flen / remove / rename / tmpnam / istty / stat
+ *     and the natural home for further Linux-extension file ops
+ *     (SYS_READDIR, SYS_FSTAT, SYS_MKDIR, SYS_FSYNC, ...)
+ *   - default arm:   meta opcodes (SYS_EXIT, SYS_CLOCK, ...) ride the
+ *     per-platform fallback transport from qemu_platform_init.c
+ *
+ * Don't forget the host-side dispatch and backend vtable too; see
+ * docs/source/linux-extensions-proposal.rst for the full per-opcode
+ * checklist.
+ */
 static int composite_select(int opcode, const zbc_composite_state_t *cc,
                             const zbc_transport_t **child_out,
                             void **ctx_out) {
