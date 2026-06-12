@@ -70,6 +70,7 @@ public:
   virtual void writeChar(char) {}
   virtual void writeString(std::string_view) {}
   virtual int readChar() { return -1; }
+  virtual int readCharPoll() { return -1; }
 
   // Queries.
   virtual bool isError(int Status) { return Status < 0; }
@@ -89,6 +90,31 @@ public:
   virtual void exit(unsigned Reason, unsigned Subcode) = 0;
   virtual OpResult timerConfig(unsigned) { return OpResult::error(ENOSYS); }
 
+  // Linux extensions: file/dir/symlink.
+  virtual OpResult stat(std::string_view) { return OpResult::error(ENOSYS); }
+  virtual OpResult fstat(int) { return OpResult::error(EBADF); }
+  virtual OpResult openDir(std::string_view) { return OpResult::error(ENOSYS); }
+  virtual OpResult readDir(int) { return OpResult::error(EBADF); }
+  virtual OpResult closeDir(int) { return OpResult::error(EBADF); }
+  virtual OpResult mkdir(std::string_view, int /*Mode*/) {
+    return OpResult::error(ENOSYS);
+  }
+  virtual OpResult rmdir(std::string_view) { return OpResult::error(ENOSYS); }
+  virtual OpResult ftruncate(int, uint64_t /*Length*/) {
+    return OpResult::error(EBADF);
+  }
+  virtual OpResult fsync(int) { return OpResult::error(EBADF); }
+  virtual OpResult link(std::string_view, std::string_view) {
+    return OpResult::error(ENOSYS);
+  }
+  virtual OpResult symlink(std::string_view, std::string_view) {
+    return OpResult::error(ENOSYS);
+  }
+  virtual OpResult readLink(std::string_view, std::size_t /*MaxLen*/) {
+    return OpResult::error(ENOSYS);
+  }
+  virtual OpResult lstat(std::string_view) { return OpResult::error(ENOSYS); }
+
 protected:
   int LastErrno = 0;
 };
@@ -102,6 +128,7 @@ public:
   void writeChar(char C) override;
   void writeString(std::string_view Str) override;
   int readChar() override;
+  int readCharPoll() override;
   OpResult read(int FD, std::size_t Count) override;
   OpResult write(int FD, ByteSpan Data) override;
   bool isTTY(int FD) override { return FD >= 0 && FD <= 2; }
@@ -121,8 +148,18 @@ private:
 /// Policy layer; this class performs no security checks of its own.
 class FileBackend : public ConsoleBackend {
 public:
+  /// Maximum simultaneously open directories.
+  static constexpr int MaxDirs = 8;
+  /// Directory handles start here, well above any FILE* fd.
+  static constexpr int FirstDirHandle = 256;
+
   FileBackend(ExitCallback OnExit, TimerCallback OnTimer = nullptr)
-      : ConsoleBackend(std::move(OnExit), std::move(OnTimer)) {}
+      : ConsoleBackend(std::move(OnExit), std::move(OnTimer)) {
+    for (int I = 0; I < MaxDirs; ++I)
+      Dirs[I] = nullptr;
+  }
+
+  ~FileBackend() override;
 
   OpResult open(std::string_view Path, OpenMode Mode) override;
   OpResult close(int FD) override;
@@ -135,9 +172,27 @@ public:
   OpResult tmpnam(int Id) override;
   bool isTTY(int FD) override;
 
+  // Linux extensions.
+  OpResult stat(std::string_view Path) override;
+  OpResult fstat(int FD) override;
+  OpResult openDir(std::string_view Path) override;
+  OpResult readDir(int Handle) override;
+  OpResult closeDir(int Handle) override;
+  OpResult mkdir(std::string_view Path, int Mode) override;
+  OpResult rmdir(std::string_view Path) override;
+  OpResult ftruncate(int FD, uint64_t Length) override;
+  OpResult fsync(int FD) override;
+  OpResult link(std::string_view OldPath, std::string_view NewPath) override;
+  OpResult symlink(std::string_view Target, std::string_view LinkPath) override;
+  OpResult readLink(std::string_view Path, std::size_t MaxLen) override;
+  OpResult lstat(std::string_view Path) override;
+
 private:
   FileDescTable FDTable;
   int TmpNameCounter = 0;
+  /// Opaque DIR* slots (stored as void* so the header avoids <dirent.h>,
+  /// which is POSIX-only).
+  void *Dirs[MaxDirs];
 };
 
 } // namespace zbc

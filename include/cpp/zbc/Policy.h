@@ -43,6 +43,7 @@ public:
 
   // Console operations.
   virtual bool allowReadChar() { return false; }
+  virtual bool allowReadCharPoll() { return false; }
   virtual bool allowWriteChar(char) { return false; }
   virtual bool allowWriteString(std::string_view) { return false; }
 
@@ -51,6 +52,21 @@ public:
   virtual bool allowGetCmdLine() { return false; }
   virtual bool allowHeapInfo() { return false; }
   virtual bool allowTimerConfig(unsigned) { return false; }
+
+  // Linux extensions: dir / stat / symlink.
+  virtual bool allowStat(std::string_view) { return false; }
+  virtual bool allowFStat(int) { return false; }
+  virtual bool allowOpenDir(std::string_view) { return false; }
+  virtual bool allowReadDir(int) { return false; }
+  virtual bool allowCloseDir(int) { return false; }
+  virtual bool allowMkDir(std::string_view, int) { return false; }
+  virtual bool allowRmDir(std::string_view) { return false; }
+  virtual bool allowFTruncate(int, uint64_t) { return false; }
+  virtual bool allowFSync(int) { return false; }
+  virtual bool allowLink(std::string_view, std::string_view) { return false; }
+  virtual bool allowSymlink(std::string_view, std::string_view) { return false; }
+  virtual bool allowReadLink(std::string_view) { return false; }
+  virtual bool allowLStat(std::string_view) { return false; }
 
   /// Resolve/authorize a path for path-based operations (after the allow*
   /// check). May rewrite the path (e.g. into the sandbox) or reject it.
@@ -66,6 +82,7 @@ public:
 class ConsoleOnlyPolicy : public Policy {
 public:
   bool allowReadChar() override { return true; }
+  bool allowReadCharPoll() override { return true; }
   bool allowWriteChar(char) override { return true; }
   bool allowWriteString(std::string_view) override { return true; }
   bool allowRead(int FD, std::size_t) override { return FD >= 0 && FD <= 2; }
@@ -84,12 +101,26 @@ public:
   bool allowRename(std::string_view, std::string_view) override { return true; }
   bool allowTmpnam(int) override { return true; }
   bool allowReadChar() override { return true; }
+  bool allowReadCharPoll() override { return true; }
   bool allowWriteChar(char) override { return true; }
   bool allowWriteString(std::string_view) override { return true; }
   bool allowSystem(std::string_view) override { return true; }
   bool allowGetCmdLine() override { return true; }
   bool allowHeapInfo() override { return true; }
   bool allowTimerConfig(unsigned) override { return true; }
+  bool allowStat(std::string_view) override { return true; }
+  bool allowFStat(int) override { return true; }
+  bool allowOpenDir(std::string_view) override { return true; }
+  bool allowReadDir(int) override { return true; }
+  bool allowCloseDir(int) override { return true; }
+  bool allowMkDir(std::string_view, int) override { return true; }
+  bool allowRmDir(std::string_view) override { return true; }
+  bool allowFTruncate(int, uint64_t) override { return true; }
+  bool allowFSync(int) override { return true; }
+  bool allowLink(std::string_view, std::string_view) override { return true; }
+  bool allowSymlink(std::string_view, std::string_view) override { return true; }
+  bool allowReadLink(std::string_view) override { return true; }
+  bool allowLStat(std::string_view) override { return true; }
 };
 
 /// Filesystem access sandboxed to a directory, plus console and timer.
@@ -106,9 +137,23 @@ public:
   bool allowRename(std::string_view, std::string_view) override { return true; }
   bool allowTmpnam(int) override { return true; }
   bool allowReadChar() override { return true; }
+  bool allowReadCharPoll() override { return true; }
   bool allowWriteChar(char) override { return true; }
   bool allowWriteString(std::string_view) override { return true; }
   bool allowTimerConfig(unsigned) override { return true; }
+  bool allowStat(std::string_view) override { return true; }
+  bool allowFStat(int) override { return true; }
+  bool allowOpenDir(std::string_view) override { return true; }
+  bool allowReadDir(int) override { return true; }
+  bool allowCloseDir(int) override { return true; }
+  bool allowMkDir(std::string_view, int) override { return true; }
+  bool allowRmDir(std::string_view) override { return true; }
+  bool allowFTruncate(int, uint64_t) override { return true; }
+  bool allowFSync(int) override { return true; }
+  bool allowLink(std::string_view, std::string_view) override { return true; }
+  bool allowSymlink(std::string_view, std::string_view) override { return true; }
+  bool allowReadLink(std::string_view) override { return true; }
+  bool allowLStat(std::string_view) override { return true; }
 
   Result<std::string> resolvePath(std::string_view Path, bool ForWrite) override;
   void addAllowedPath(std::string_view Prefix, bool AllowWrite) override;

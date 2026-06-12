@@ -57,7 +57,39 @@ enum class Opcode : uint8_t {
   Elapsed = SH_SYS_ELAPSED,
   TickFreq = SH_SYS_TICKFREQ,
   TimerConfig = SH_SYS_TIMER_CONFIG,
+
+  // Linux extensions.
+  OpenDir = SH_SYS_OPENDIR,
+  ReadDir = SH_SYS_READDIR,
+  CloseDir = SH_SYS_CLOSEDIR,
+  Stat = SH_SYS_STAT,
+  FStat = SH_SYS_FSTAT,
+  MkDir = SH_SYS_MKDIR,
+  RmDir = SH_SYS_RMDIR,
+  FTruncate = SH_SYS_FTRUNCATE,
+  FSync = SH_SYS_FSYNC,
+  ReadCPoll = SH_SYS_READC_POLL,
+  Link = SH_SYS_LINK,
+  Symlink = SH_SYS_SYMLINK,
+  ReadLink = SH_SYS_READLINK,
+  LStat = SH_SYS_LSTAT,
 };
+
+/// Linux-extension wire layout sizes (shared with the C header).
+constexpr std::size_t StatBufSize = SH_STAT_BUF_SIZE;     // 48
+constexpr std::size_t DirentHdrSize = SH_DIRENT_HDR_SIZE; // 10
+
+/// readdir d_type values (matching POSIX DT_*).
+namespace dt {
+constexpr uint8_t Unknown = SH_DT_UNKNOWN;
+constexpr uint8_t Fifo = SH_DT_FIFO;
+constexpr uint8_t Chr = SH_DT_CHR;
+constexpr uint8_t Dir = SH_DT_DIR;
+constexpr uint8_t Blk = SH_DT_BLK;
+constexpr uint8_t Reg = SH_DT_REG;
+constexpr uint8_t Lnk = SH_DT_LNK;
+constexpr uint8_t Sock = SH_DT_SOCK;
+} // namespace dt
 
 /// SYS_OPEN mode flags.
 enum class OpenMode : uint8_t {
