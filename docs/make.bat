@@ -25,8 +25,11 @@ if errorlevel 9009 (
 
 if "%1" == "" goto help
 
-REM Run Doxygen before html so Breathe has fresh XML.
+REM Run Doxygen before html so Breathe has fresh XML. The mkdir is
+REM needed because Doxygen will only create the leaf of OUTPUT_DIRECTORY,
+REM not its parents -- on a clean checkout this fails without it.
 if /I "%1" == "html" (
+	if not exist "build\doxygen" mkdir "build\doxygen"
 	doxygen Doxyfile
 	if errorlevel 1 exit /b 1
 )
