@@ -9,6 +9,10 @@
 set(ZBC_PLATFORM_NAME "riscv32")
 set(ZBC_PLATFORM_riscv32_RUNNERS qemu)
 set(ZBC_PLATFORM_riscv32_QEMU_MACHINE "virt")
+# Skip OpenSBI; load the ELF straight into RAM at 0x80000000 and start
+# the hart there. qemu-system-aarch64 does NOT accept this flag (it
+# reads "none" as a filename), which is why it lives per-platform.
+set(ZBC_PLATFORM_riscv32_QEMU_EXTRA_ARGS -bios none)
 
 find_program(CLANG_EXECUTABLE clang)
 find_program(LD_LLD_EXECUTABLE ld.lld)

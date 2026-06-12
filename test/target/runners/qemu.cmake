@@ -54,10 +54,14 @@ function(add_qemu_test name)
     # No -global virtio-mmio.force-legacy=false: the ZBC client now
     # handles both legacy (v1, the QEMU virt default) and modern (v2)
     # virtio-mmio, so a guest binary boots on stock QEMU as-is.
+    #
+    # -bios is per-platform: qemu-system-riscv32 needs "-bios none" to
+    # skip OpenSBI, but qemu-system-aarch64 treats "none" as a file
+    # path and fails. Each platform's QEMU_EXTRA_ARGS contributes what
+    # it needs.
     set(qemu_cmd
         ${ARG_QEMU_BIN}
         -machine ${ARG_MACHINE}
-        -bios none
         -no-reboot
         -display none
         -monitor none
