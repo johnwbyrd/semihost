@@ -216,6 +216,46 @@ static int dummy_readc_poll(void *ctx) {
   return -1; /* no character available */
 }
 
+static int dummy_fstat(void *ctx, int fd, void *stat_buf) {
+  size_t i;
+  uint8_t *out = (uint8_t *)stat_buf;
+  (void)ctx;
+  (void)fd;
+  for (i = 0; i < SH_STAT_BUF_SIZE; i++) {
+    out[i] = 0;
+  }
+  return 0;
+}
+
+static int dummy_mkdir(void *ctx, const char *path, size_t path_len,
+                       int mode) {
+  (void)ctx;
+  (void)path;
+  (void)path_len;
+  (void)mode;
+  return 0;
+}
+
+static int dummy_rmdir(void *ctx, const char *path, size_t path_len) {
+  (void)ctx;
+  (void)path;
+  (void)path_len;
+  return 0;
+}
+
+static int dummy_ftruncate(void *ctx, int fd, uint64_t length) {
+  (void)ctx;
+  (void)fd;
+  (void)length;
+  return 0;
+}
+
+static int dummy_fsync(void *ctx, int fd) {
+  (void)ctx;
+  (void)fd;
+  return 0;
+}
+
 static const zbc_backend_t dummy_backend = {
     dummy_open,        dummy_close,    dummy_read,        dummy_write,
     dummy_seek,        dummy_flen,     dummy_remove,      dummy_rename,
@@ -224,6 +264,7 @@ static const zbc_backend_t dummy_backend = {
     dummy_elapsed,     dummy_tickfreq, dummy_do_system,   dummy_get_cmdline,
     dummy_heapinfo,    dummy_do_exit,  dummy_get_errno,   dummy_timer_config,
     dummy_stat,        dummy_opendir,  dummy_readdir,     dummy_closedir,
-    dummy_readc_poll};
+    dummy_readc_poll,  dummy_fstat,    dummy_mkdir,       dummy_rmdir,
+    dummy_ftruncate,   dummy_fsync};
 
 const zbc_backend_t *zbc_backend_dummy(void) { return &dummy_backend; }

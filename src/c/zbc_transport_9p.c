@@ -2,15 +2,21 @@
  * ZBC virtio-9p Transport
  *
  * File semihosting opcodes over 9P2000.L on a virtio queue. Each
- * semihosting call maps to one or more synchronous 9p RPCs per the
- * normative table in docs/source/qemu-transports-proposal.rst:
+ * semihosting call maps to one or more synchronous 9p RPCs:
  *
- *   SYS_OPEN   -> Twalk + Tlopen (or Twalk-to-parent + Tlcreate)
- *   SYS_CLOSE  -> Tclunk
- *   SYS_READ   -> Tread loop          SYS_WRITE  -> Twrite loop
- *   SYS_SEEK   -> fd-table state      SYS_FLEN   -> Tgetattr
- *   SYS_REMOVE -> Twalk + Tremove     SYS_RENAME -> Twalk x2 + Trenameat
- *   SYS_TMPNAM -> guest-side name generation
+ *   SYS_OPEN      -> Twalk + Tlopen (or Twalk-to-parent + Tlcreate)
+ *   SYS_CLOSE     -> Tclunk
+ *   SYS_READ      -> Tread loop          SYS_WRITE     -> Twrite loop
+ *   SYS_SEEK      -> fd-table state      SYS_FLEN      -> Tgetattr
+ *   SYS_REMOVE    -> Twalk + Tremove     SYS_RENAME    -> Twalk x2 + Trenameat
+ *   SYS_TMPNAM    -> guest-side name generation
+ *   SYS_STAT      -> Twalk + Tgetattr    SYS_FSTAT     -> Tgetattr (open fid)
+ *   SYS_OPENDIR   -> Twalk + Tlopen      SYS_READDIR   -> Treaddir
+ *   SYS_CLOSEDIR  -> Tclunk
+ *   SYS_MKDIR     -> Twalk-to-parent + Tmkdir
+ *   SYS_RMDIR     -> Twalk + Tremove (same flow as SYS_REMOVE)
+ *   SYS_FTRUNCATE -> Tsetattr (SIZE mask only)
+ *   SYS_FSYNC     -> Tfsync
  *
  * Errors arrive as Rlerror carrying a Linux errno, which flows into
  * response->error_code unchanged.
@@ -323,8 +329,8 @@ static int p9_walk(zbc_9p_state_t *s, uint32_t base_fid, uint32_t newfid,
 }
 
 /* Little-endian writers for the 48-byte SYS_STAT response. The wire
- * layout is fixed (docs/source/linux-extensions-proposal.rst) so we
- * pack by hand rather than rely on host struct layout. */
+ * layout is fixed (SH_STAT_BUF_SIZE in zbc_protocol.h) so we pack by
+ * hand rather than rely on host struct layout. */
 static void stat_pack_u32(uint8_t *p, uint32_t v) {
   p[0] = (uint8_t)v;
   p[1] = (uint8_t)(v >> 8);
@@ -792,31 +798,59 @@ static int do_flen(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
   return ZBC_OK;
 }
 
-/* Pack a 9p Rgetattr reply into the 48-byte SYS_STAT response layout.
- * Wire format of Rgetattr payload (after the 7-byte header):
+/* Parse a 9p Rgetattr reply payload into the 48-byte SYS_STAT response
+ * layout. Rgetattr wire format (after the 7-byte header):
  *   valid[8] qid{type[1] version[4] path[8]} mode[4] uid[4] gid[4]
  *   nlink[8] rdev[8] size[8] blksize[8] blocks[8]
  *   atime{sec[8] nsec[8]} mtime{sec[8] nsec[8]} ctime{sec[8] nsec[8]}
  *   btime{...} gen[8] data_version[8]
- *
- * Output:
+ * Output (per SH_STAT_BUF_SIZE in zbc_protocol.h):
  *   ino[8] mode[4] nlink[4] size[8] mtime[8] atime[8] ctime[8]
- * (timestamps are seconds only; we drop the nsec halves.) */
+ * Timestamps are seconds only; we drop the nsec halves.
+ * Returns ZBC_OK on success, ZBC_ERR_PARSE_ERROR on a truncated reply. */
+static int parse_rgetattr(p9_rd_t *reply, uint8_t *out_buf) {
+  uint64_t ino, nlink_u64, size_u64;
+  uint32_t mode;
+  uint64_t atime_sec, mtime_sec, ctime_sec;
+
+  (void)rd_u64(reply); /* valid */
+  (void)rd_u8(reply);  /* qid.type */
+  (void)rd_u32(reply); /* qid.version */
+  ino = rd_u64(reply); /* qid.path */
+  mode = rd_u32(reply);
+  (void)rd_u32(reply); /* uid */
+  (void)rd_u32(reply); /* gid */
+  nlink_u64 = rd_u64(reply);
+  (void)rd_u64(reply); /* rdev */
+  size_u64 = rd_u64(reply);
+  (void)rd_u64(reply); /* blksize */
+  (void)rd_u64(reply); /* blocks */
+  atime_sec = rd_u64(reply);
+  (void)rd_u64(reply); /* atime_nsec */
+  mtime_sec = rd_u64(reply);
+  (void)rd_u64(reply); /* mtime_nsec */
+  ctime_sec = rd_u64(reply);
+  (void)rd_u64(reply); /* ctime_nsec */
+  if (reply->truncated) {
+    return ZBC_ERR_PARSE_ERROR;
+  }
+
+  stat_pack_u64(out_buf + 0, ino);
+  stat_pack_u32(out_buf + 8, mode);
+  stat_pack_u32(out_buf + 12, (uint32_t)nlink_u64);
+  stat_pack_u64(out_buf + 16, size_u64);
+  stat_pack_u64(out_buf + 24, mtime_sec);
+  stat_pack_u64(out_buf + 32, atime_sec);
+  stat_pack_u64(out_buf + 40, ctime_sec);
+  return ZBC_OK;
+}
+
 static int do_stat(zbc_9p_state_t *s, zbc_response_t *response,
                    const char *path, size_t path_len, uint8_t *out_buf) {
   p9_wr_t w;
   p9_rd_t reply;
   int p9err;
   int rc;
-  uint64_t ino, nlink_u64, size_u64;
-  uint32_t mode;
-  uint32_t uid, gid;
-  uint64_t rdev, blksize, blocks;
-  uint64_t atime_sec, mtime_sec, ctime_sec;
-  uint64_t atime_nsec, mtime_nsec, ctime_nsec;
-  uint64_t valid;
-  uint32_t qid_version;
-  uint8_t qid_type;
 
   rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, path, path_len, 0,
                (const char **)0, (size_t *)0, &p9err);
@@ -844,51 +878,158 @@ static int do_stat(zbc_9p_state_t *s, zbc_response_t *response,
     return ZBC_OK;
   }
 
-  /* Parse the 153-byte payload in declaration order. */
-  valid = rd_u64(&reply);
-  (void)valid;
-  qid_type = rd_u8(&reply);
-  (void)qid_type;
-  qid_version = rd_u32(&reply);
-  (void)qid_version;
-  ino = rd_u64(&reply);              /* qid.path */
-  mode = rd_u32(&reply);
-  uid = rd_u32(&reply);
-  (void)uid;
-  gid = rd_u32(&reply);
-  (void)gid;
-  nlink_u64 = rd_u64(&reply);
-  rdev = rd_u64(&reply);
-  (void)rdev;
-  size_u64 = rd_u64(&reply);
-  blksize = rd_u64(&reply);
-  (void)blksize;
-  blocks = rd_u64(&reply);
-  (void)blocks;
-  atime_sec = rd_u64(&reply);
-  atime_nsec = rd_u64(&reply);
-  (void)atime_nsec;
-  mtime_sec = rd_u64(&reply);
-  mtime_nsec = rd_u64(&reply);
-  (void)mtime_nsec;
-  ctime_sec = rd_u64(&reply);
-  ctime_nsec = rd_u64(&reply);
-  (void)ctime_nsec;
-  if (reply.truncated) {
-    return ZBC_ERR_PARSE_ERROR;
+  rc = parse_rgetattr(&reply, out_buf);
+  if (rc != ZBC_OK) {
+    return rc;
   }
-
-  stat_pack_u64(out_buf + 0, ino);
-  stat_pack_u32(out_buf + 8, mode);
-  stat_pack_u32(out_buf + 12, (uint32_t)nlink_u64);
-  stat_pack_u64(out_buf + 16, size_u64);
-  stat_pack_u64(out_buf + 24, mtime_sec);
-  stat_pack_u64(out_buf + 32, atime_sec);
-  stat_pack_u64(out_buf + 40, ctime_sec);
 
   p9_fill_response(response, 0, 0);
   response->data = out_buf;
   response->data_size = SH_STAT_BUF_SIZE;
+  return ZBC_OK;
+}
+
+static int do_fstat(zbc_9p_state_t *s, zbc_response_t *response, int fd,
+                    uint8_t *out_buf) {
+  int slot = fd_slot(s, fd);
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  if (slot < 0) {
+    fail_errno(s, response, ZBC_ERRNO_EBADF);
+    return ZBC_OK;
+  }
+
+  wr_begin(&w, s, ZBC_9P_TGETATTR, P9_TAG);
+  wr_u32(&w, P9_FID_FILE(slot));
+  wr_u64(&w, (uint64_t)ZBC_9P_GETATTR_BASIC);
+  rc = p9_rpc(s, &w, ZBC_9P_RGETATTR, &reply, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  rc = parse_rgetattr(&reply, out_buf);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  p9_fill_response(response, 0, 0);
+  response->data = out_buf;
+  response->data_size = SH_STAT_BUF_SIZE;
+  return ZBC_OK;
+}
+
+static int do_mkdir(zbc_9p_state_t *s, zbc_response_t *response,
+                    const char *path, size_t path_len, int mode) {
+  const char *leaf = (const char *)0;
+  size_t leaf_len = 0;
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  rc = p9_walk(s, P9_FID_ROOT, P9_FID_SCRATCH_A, path, path_len, 1,
+               &leaf, &leaf_len, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+
+  /* Tmkdir: fid[4] name[s] mode[4] gid[4].
+   * Rmkdir: qid[13] -- discard; mkdir doesn't establish a new fid. */
+  wr_begin(&w, s, ZBC_9P_TMKDIR, P9_TAG);
+  wr_u32(&w, P9_FID_SCRATCH_A);
+  wr_str(&w, leaf, leaf_len);
+  wr_u32(&w, (uint32_t)mode);
+  wr_u32(&w, 0); /* gid */
+  rc = p9_rpc(s, &w, ZBC_9P_RMKDIR, &reply, &p9err);
+
+  p9_clunk(s, P9_FID_SCRATCH_A);
+
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+  p9_fill_response(response, 0, 0);
+  return ZBC_OK;
+}
+
+static int do_ftruncate(zbc_9p_state_t *s, zbc_response_t *response, int fd,
+                        uint64_t length) {
+  int slot = fd_slot(s, fd);
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  if (slot < 0) {
+    fail_errno(s, response, ZBC_ERRNO_EBADF);
+    return ZBC_OK;
+  }
+
+  /* Tsetattr: fid[4] valid[4] mode[4] uid[4] gid[4] size[8]
+   *           atime{sec[8] nsec[8]} mtime{sec[8] nsec[8]}.
+   * Only the SIZE bit in valid is set; the other slots are zero. */
+  wr_begin(&w, s, ZBC_9P_TSETATTR, P9_TAG);
+  wr_u32(&w, P9_FID_FILE(slot));
+  wr_u32(&w, (uint32_t)ZBC_9P_SETATTR_SIZE);
+  wr_u32(&w, 0); /* mode */
+  wr_u32(&w, 0); /* uid */
+  wr_u32(&w, 0); /* gid */
+  wr_u64(&w, length);
+  wr_u64(&w, 0); /* atime_sec */
+  wr_u64(&w, 0); /* atime_nsec */
+  wr_u64(&w, 0); /* mtime_sec */
+  wr_u64(&w, 0); /* mtime_nsec */
+  rc = p9_rpc(s, &w, ZBC_9P_RSETATTR, &reply, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+  p9_fill_response(response, 0, 0);
+  return ZBC_OK;
+}
+
+static int do_fsync(zbc_9p_state_t *s, zbc_response_t *response, int fd) {
+  int slot = fd_slot(s, fd);
+  p9_wr_t w;
+  p9_rd_t reply;
+  int p9err;
+  int rc;
+
+  if (slot < 0) {
+    fail_errno(s, response, ZBC_ERRNO_EBADF);
+    return ZBC_OK;
+  }
+
+  /* Tfsync: fid[4] datasync[4]. We always request full sync (datasync=0)
+   * so guest writes are durable when the call returns. */
+  wr_begin(&w, s, ZBC_9P_TFSYNC, P9_TAG);
+  wr_u32(&w, P9_FID_FILE(slot));
+  wr_u32(&w, 0);
+  rc = p9_rpc(s, &w, ZBC_9P_RFSYNC, &reply, &p9err);
+  if (rc != ZBC_OK) {
+    return rc;
+  }
+  if (p9err != 0) {
+    fail_errno(s, response, p9err);
+    return ZBC_OK;
+  }
+  p9_fill_response(response, 0, 0);
   return ZBC_OK;
 }
 
@@ -1272,6 +1413,34 @@ static int p9_transport_call(zbc_response_t *response,
 
   case SH_SYS_CLOSEDIR:
     return do_closedir(s, response, (int)args[0]);
+
+  case SH_SYS_FSTAT:
+    return do_fstat(s, response, (int)args[0], (uint8_t *)args[1]);
+
+  case SH_SYS_MKDIR:
+    return do_mkdir(s, response, (const char *)args[0], (size_t)args[1],
+                    (int)args[2]);
+
+  case SH_SYS_RMDIR:
+    /* 9P Tremove works on any fid; identical wire flow to SYS_REMOVE. */
+    return do_remove(s, response, (const char *)args[0], (size_t)args[1]);
+
+  case SH_SYS_FTRUNCATE: {
+    const uint8_t *bytes = (const uint8_t *)args[1];
+    size_t n = (size_t)args[2];
+    uint64_t length = 0;
+    size_t i;
+    if (n > 8) {
+      n = 8;
+    }
+    for (i = 0; i < n; i++) {
+      length |= ((uint64_t)bytes[i]) << (i * 8);
+    }
+    return do_ftruncate(s, response, (int)args[0], length);
+  }
+
+  case SH_SYS_FSYNC:
+    return do_fsync(s, response, (int)args[0]);
 
   default:
     /* Console opcodes route to the console transport in a composite;

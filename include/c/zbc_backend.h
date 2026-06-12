@@ -132,6 +132,39 @@ typedef struct zbc_backend_s {
      * select()/poll() on stdin with a zero timeout.
      */
     int (*readc_poll)(void *ctx);
+
+    /**
+     * Stat an open file by descriptor. Writes the same 48-byte
+     * little-endian struct as stat(). Returns 0 on success, -1 on
+     * error.
+     */
+    int (*fstat)(void *ctx, int fd, void *stat_buf);
+
+    /**
+     * Create a directory at path. mode is passed through (may be
+     * filtered by host umask or ignored on platforms without POSIX
+     * permission bits). Returns 0 on success, -1 on error.
+     */
+    int (*mkdir)(void *ctx, const char *path, size_t path_len, int mode);
+
+    /**
+     * Remove an empty directory at path. Returns 0 on success, -1 on
+     * error (including ENOTEMPTY).
+     */
+    int (*rmdir)(void *ctx, const char *path, size_t path_len);
+
+    /**
+     * Truncate an open file to length bytes. Length is unsigned 64-bit
+     * so a 16-bit guest can still describe sizes beyond its address
+     * space. Returns 0 on success, -1 on error.
+     */
+    int (*ftruncate)(void *ctx, int fd, uint64_t length);
+
+    /**
+     * Flush dirty buffers for an open file to storage. Returns 0 on
+     * success, -1 on error.
+     */
+    int (*fsync)(void *ctx, int fd);
 } zbc_backend_t;
 
 /*========================================================================

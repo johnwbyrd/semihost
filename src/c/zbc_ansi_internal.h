@@ -108,12 +108,41 @@ int zbc_ansi_heapinfo(uintptr_t *heap_base, uintptr_t *heap_limit,
 
 /*
  * Stat the null-terminated path and pack its metadata into the
- * caller-provided 48-byte buffer (layout per docs/source/linux-
- * extensions-proposal.rst). Returns 0 on success, -1 on POSIX
+ * caller-provided 48-byte buffer (layout per the SH_SYS_STAT entry in
+ * include/shared/zbc_protocol.h). Returns 0 on success, -1 on POSIX
  * stat() failure; errno is preserved for the caller's last_errno
  * accumulator.
  */
 int zbc_ansi_stat_path(const char *resolved_path, void *stat_buf);
+
+/*
+ * Same as zbc_ansi_stat_path but for an already-open file descriptor.
+ * The caller is responsible for mapping its handle (e.g. FILE*) to a
+ * real POSIX fd via fileno() before calling.
+ */
+int zbc_ansi_fstat_fd(int fd, void *stat_buf);
+
+/*
+ * Create a directory at resolved_path with the given mode. On Windows
+ * the mode is ignored (the host has no POSIX permission bits).
+ */
+int zbc_ansi_mkdir_path(const char *resolved_path, int mode);
+
+/*
+ * Remove an empty directory at resolved_path.
+ */
+int zbc_ansi_rmdir_path(const char *resolved_path);
+
+/*
+ * Truncate an open file to length bytes. Length is 64-bit so a small
+ * guest can still request sizes beyond its native pointer width.
+ */
+int zbc_ansi_ftruncate_fd(int fd, uint64_t length);
+
+/*
+ * Flush a file descriptor's dirty buffers to storage.
+ */
+int zbc_ansi_fsync_fd(int fd);
 
 /*
  * Pack one POSIX readdir() result into the SYS_READDIR wire layout

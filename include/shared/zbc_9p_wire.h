@@ -27,8 +27,14 @@
 #define ZBC_9P_RLCREATE   15
 #define ZBC_9P_TGETATTR   24
 #define ZBC_9P_RGETATTR   25
+#define ZBC_9P_TSETATTR   26
+#define ZBC_9P_RSETATTR   27
 #define ZBC_9P_TREADDIR   40
 #define ZBC_9P_RREADDIR   41
+#define ZBC_9P_TFSYNC     50
+#define ZBC_9P_RFSYNC     51
+#define ZBC_9P_TMKDIR     72
+#define ZBC_9P_RMKDIR     73
 #define ZBC_9P_TRENAMEAT  74
 #define ZBC_9P_RRENAMEAT  75
 #define ZBC_9P_TVERSION   100
@@ -65,6 +71,10 @@
  * the SYS_STAT 48-byte response layout needs. */
 #define ZBC_9P_GETATTR_SIZE   0x00000200UL
 #define ZBC_9P_GETATTR_BASIC  0x000007FFUL
+
+/* Tsetattr request mask bits (subset). Only SIZE is used today, for
+ * the ftruncate path. */
+#define ZBC_9P_SETATTR_SIZE   0x00000008UL
 
 /*
  * Rgetattr payload layout (after the 7-byte header):

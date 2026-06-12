@@ -459,6 +459,157 @@ static void test_readc_poll(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: MKDIR / RMDIR
+ *
+ * Round-trip an empty directory. The path is rooted at the per-test
+ * sandbox so reruns don't interfere.
+ *------------------------------------------------------------------------*/
+
+static void test_mkdir_rmdir(void)
+{
+    uintptr_t args[3];
+    uintptr_t result;
+    static const char dirname[] = "zbc_target_mkdir_test";
+
+    /* Best-effort pre-clean. */
+    args[0] = (uintptr_t)dirname;
+    args[1] = zbc_strlen(dirname);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_RMDIR, (uintptr_t)args);
+
+    TARGET_BEGIN_TEST("sys_mkdir");
+    args[0] = (uintptr_t)dirname;
+    args[1] = zbc_strlen(dirname);
+    args[2] = 0755;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_MKDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    TARGET_BEGIN_TEST("sys_rmdir");
+    args[0] = (uintptr_t)dirname;
+    args[1] = zbc_strlen(dirname);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_RMDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    TARGET_BEGIN_TEST("sys_rmdir_missing");
+    args[0] = (uintptr_t)dirname;
+    args[1] = zbc_strlen(dirname);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_RMDIR,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, (uintptr_t)-1);
+    TARGET_END_TEST();
+}
+
+/*------------------------------------------------------------------------
+ * Test: FSTAT / FTRUNCATE / FSYNC
+ *
+ * Create a small file, fstat it, truncate it, fstat again to confirm
+ * the size changed, then fsync. All three opcodes round-trip on a
+ * single fd.
+ *------------------------------------------------------------------------*/
+
+static void test_fstat_ftruncate_fsync(void)
+{
+    static char fname[] = "zbc_target_fstat.txt";
+    static const char payload[] = "abcdefgh"; /* 8 bytes */
+    uintptr_t args[4];
+    uintptr_t fd;
+    uintptr_t result;
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    uint8_t len_bytes[8];
+    uint64_t size;
+    int i;
+
+    /* Setup: create + write 8 bytes. */
+    args[0] = (uintptr_t)fname;
+    args[1] = SH_OPEN_W;
+    args[2] = zbc_strlen(fname);
+    fd = zbc_semihost(&g_target_client, g_target_riff_buf,
+                      sizeof(g_target_riff_buf), SH_SYS_OPEN,
+                      (uintptr_t)args);
+    if (fd == (uintptr_t)-1) {
+        TARGET_PRINT("  (skipping fstat tests; open failed)\n");
+        return;
+    }
+
+    args[0] = fd;
+    args[1] = (uintptr_t)payload;
+    args[2] = sizeof(payload) - 1;
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_WRITE, (uintptr_t)args);
+
+    /* FSTAT round 1: expect size == 8. */
+    TARGET_BEGIN_TEST("sys_fstat");
+    args[0] = fd;
+    args[1] = (uintptr_t)stat_buf;
+    args[2] = SH_STAT_BUF_SIZE;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_FSTAT,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    size = ((uint64_t)stat_buf[16]) |
+           ((uint64_t)stat_buf[17] << 8) |
+           ((uint64_t)stat_buf[18] << 16) |
+           ((uint64_t)stat_buf[19] << 24);
+    TARGET_ASSERT_EQ(size, 8);
+    TARGET_END_TEST();
+
+    /* FTRUNCATE to 3 bytes; pack length as 8 LE bytes. */
+    TARGET_BEGIN_TEST("sys_ftruncate");
+    for (i = 0; i < 8; i++) {
+        len_bytes[i] = (i == 0) ? 3 : 0;
+    }
+    args[0] = fd;
+    args[1] = (uintptr_t)len_bytes;
+    args[2] = sizeof(len_bytes);
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_FTRUNCATE,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    /* FSTAT round 2: expect size == 3. */
+    TARGET_BEGIN_TEST("sys_fstat_after_truncate");
+    args[0] = fd;
+    args[1] = (uintptr_t)stat_buf;
+    args[2] = SH_STAT_BUF_SIZE;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_FSTAT,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    size = ((uint64_t)stat_buf[16]) |
+           ((uint64_t)stat_buf[17] << 8) |
+           ((uint64_t)stat_buf[18] << 16) |
+           ((uint64_t)stat_buf[19] << 24);
+    TARGET_ASSERT_EQ(size, 3);
+    TARGET_END_TEST();
+
+    /* FSYNC. */
+    TARGET_BEGIN_TEST("sys_fsync");
+    args[0] = fd;
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_FSYNC,
+                          (uintptr_t)args);
+    TARGET_ASSERT_EQ(result, 0);
+    TARGET_END_TEST();
+
+    /* Cleanup. */
+    args[0] = fd;
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_CLOSE, (uintptr_t)args);
+    args[0] = (uintptr_t)fname;
+    args[1] = zbc_strlen(fname);
+    zbc_semihost(&g_target_client, g_target_riff_buf,
+                 sizeof(g_target_riff_buf), SH_SYS_REMOVE, (uintptr_t)args);
+}
+
+/*------------------------------------------------------------------------
  * Test: File System (REMOVE, RENAME, TMPNAM)
  *------------------------------------------------------------------------*/
 
@@ -699,6 +850,8 @@ void _start(void)
     test_stat();
     test_dir_enum();
     test_readc_poll();
+    test_mkdir_rmdir();
+    test_fstat_ftruncate_fsync();
 
     TARGET_PRINT("\nTime:\n");
     test_time();

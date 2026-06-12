@@ -282,6 +282,101 @@ int zbc_api_closedir(zbc_api_t *api, int handle) {
     return (rc == ZBC_OK) ? response.result : -1;
 }
 
+int zbc_api_fstat(zbc_api_t *api, int fd, zbc_stat_t *out) {
+    zbc_response_t response;
+    uintptr_t args[3];
+    uint8_t raw[SH_STAT_BUF_SIZE];
+    int rc;
+
+    args[0] = (uintptr_t)fd;
+    args[1] = (uintptr_t)raw;
+    args[2] = (uintptr_t)SH_STAT_BUF_SIZE;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_FSTAT, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    if (rc != ZBC_OK || response.result != 0) {
+        return -1;
+    }
+
+    if (out) {
+        out->ino   = stat_unpack_u64(raw + 0);
+        out->mode  = stat_unpack_u32(raw + 8);
+        out->nlink = stat_unpack_u32(raw + 12);
+        out->size  = stat_unpack_u64(raw + 16);
+        out->mtime = (int64_t)stat_unpack_u64(raw + 24);
+        out->atime = (int64_t)stat_unpack_u64(raw + 32);
+        out->ctime = (int64_t)stat_unpack_u64(raw + 40);
+    }
+    return 0;
+}
+
+int zbc_api_mkdir(zbc_api_t *api, const char *path, int mode) {
+    zbc_response_t response;
+    uintptr_t args[3];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+    args[2] = (uintptr_t)mode;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_MKDIR, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_rmdir(zbc_api_t *api, const char *path) {
+    zbc_response_t response;
+    uintptr_t args[2];
+    int rc;
+    size_t path_len = zbc_strlen(path);
+
+    args[0] = (uintptr_t)path;
+    args[1] = (uintptr_t)path_len;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_RMDIR, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_ftruncate(zbc_api_t *api, int fd, uint64_t length) {
+    zbc_response_t response;
+    uintptr_t args[3];
+    uint8_t len_bytes[8];
+    int rc;
+    int i;
+
+    /* Pack the 64-bit length into 8 little-endian bytes so the wire
+     * carries the same value regardless of the guest's int width. */
+    for (i = 0; i < 8; i++) {
+        len_bytes[i] = (uint8_t)(length >> (i * 8));
+    }
+    args[0] = (uintptr_t)fd;
+    args[1] = (uintptr_t)len_bytes;
+    args[2] = (uintptr_t)sizeof(len_bytes);
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_FTRUNCATE, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
+int zbc_api_fsync(zbc_api_t *api, int fd) {
+    zbc_response_t response;
+    uintptr_t args[1];
+    int rc;
+
+    args[0] = (uintptr_t)fd;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_FSYNC, args);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

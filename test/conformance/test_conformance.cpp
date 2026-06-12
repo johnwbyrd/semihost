@@ -177,6 +177,28 @@ static int c_readc_poll(void *) {
   tracef("readc_poll()");
   return -1; /* no character available */
 }
+static int c_fstat(void *, int FD, void *Buf) {
+  tracef("fstat(%d)", FD);
+  for (size_t I = 0; I < SH_STAT_BUF_SIZE; ++I)
+    ((uint8_t *)Buf)[I] = (uint8_t)(0xB0 + I);
+  return 0;
+}
+static int c_mkdir(void *, const char *P, size_t L, int M) {
+  tracef("mkdir(%s,%d)", canon(P, L).c_str(), M);
+  return 0;
+}
+static int c_rmdir(void *, const char *P, size_t L) {
+  tracef("rmdir(%s)", canon(P, L).c_str());
+  return 0;
+}
+static int c_ftruncate(void *, int FD, uint64_t N) {
+  tracef("ftruncate(%d,%llu)", FD, (unsigned long long)N);
+  return 0;
+}
+static int c_fsync(void *, int FD) {
+  tracef("fsync(%d)", FD);
+  return 0;
+}
 }
 
 static const zbc_backend_t ScriptedC = {
@@ -186,7 +208,8 @@ static const zbc_backend_t ScriptedC = {
     c_clock,  c_time,   c_elapsed, c_tickfreq, nullptr,    nullptr, /* system, cmdline */
     nullptr, /* heapinfo */
     c_exit,   c_get_errno, c_timer, c_stat,
-    c_opendir, c_readdir, c_closedir, c_readc_poll};
+    c_opendir, c_readdir, c_closedir, c_readc_poll,
+    c_fstat,  c_mkdir,    c_rmdir,    c_ftruncate, c_fsync};
 
 // --- C++ side ---------------------------------------------------------------
 

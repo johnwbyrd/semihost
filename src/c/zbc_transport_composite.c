@@ -75,6 +75,11 @@ static int composite_select(int opcode, const zbc_composite_state_t *cc,
   case SH_SYS_OPENDIR:
   case SH_SYS_READDIR:
   case SH_SYS_CLOSEDIR:
+  case SH_SYS_FSTAT:
+  case SH_SYS_MKDIR:
+  case SH_SYS_RMDIR:
+  case SH_SYS_FTRUNCATE:
+  case SH_SYS_FSYNC:
     *child_out = cc->file;
     *ctx_out = cc->file_ctx;
     return 1;

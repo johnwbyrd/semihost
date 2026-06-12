@@ -350,6 +350,8 @@ typedef int (*fn_path_path_t)(void *, const char *, size_t, const char *, size_t
 typedef int (*fn_tmpnam_t)(void *, char *, size_t, int);
 typedef int (*fn_path_buf_t)(void *, const char *, size_t, void *);
 typedef int (*fn_fd_buf_sz_t)(void *, int, void *, size_t);
+typedef int (*fn_fd_stat_t)(void *, int, void *);
+typedef int (*fn_fd_len64_t)(void *, int, uint64_t);
 typedef void (*fn_writec_t)(void *, char);
 typedef void (*fn_write0_t)(void *, const char *);
 typedef int (*fn_uint_t)(void *, unsigned int);
@@ -374,6 +376,8 @@ typedef union {
   fn_tmpnam_t tmpnam;
   fn_path_buf_t path_buf;
   fn_fd_buf_sz_t fd_buf_sz;
+  fn_fd_stat_t fd_stat;
+  fn_fd_len64_t fd_len64;
   fn_writec_t writec;
   fn_write0_t write0;
   fn_uint_t uint;
@@ -523,6 +527,51 @@ static call_result_t call_fd_buf_sz(void *fn, void *ctx, const zbc_parsed_t *p,
     r.data = buf;
     r.data_len = (size_t)r.result;
   }
+  return r;
+}
+
+/* int fn(void *ctx, int fd, void *out_buf) - fstat */
+static call_result_t call_fd_stat(void *fn, void *ctx, const zbc_parsed_t *p,
+                                  uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  if (buf_size < SH_STAT_BUF_SIZE) {
+    r.result = -1;
+    return r;
+  }
+  u.ptr = fn;
+  r.result = u.fd_stat(ctx, (int)p->parms[0], buf);
+  if (r.result == 0) {
+    r.data = buf;
+    r.data_len = SH_STAT_BUF_SIZE;
+  }
+  return r;
+}
+
+/* int fn(void *ctx, int fd, uint64_t length) - ftruncate.
+ * Length arrives as an 8-byte little-endian value in DATA chunk 0.
+ * Shorter DATA payloads zero-extend (16-bit guest sending a 2-byte
+ * length is the canonical case for that). */
+static call_result_t call_fd_len64(void *fn, void *ctx, const zbc_parsed_t *p,
+                                   uint8_t *buf, size_t buf_size) {
+  call_result_t r = {0, NULL, 0};
+  fn_union_t u;
+  const uint8_t *bytes;
+  uint64_t length = 0;
+  size_t i;
+  size_t n;
+
+  (void)buf; (void)buf_size;
+  bytes = (const uint8_t *)p->data[0].ptr;
+  n = p->data[0].size;
+  if (n > 8) {
+    n = 8;
+  }
+  for (i = 0; i < n; i++) {
+    length |= ((uint64_t)bytes[i]) << (i * 8);
+  }
+  u.ptr = fn;
+  r.result = u.fd_len64(ctx, (int)p->parms[0], length);
   return r;
 }
 
@@ -717,6 +766,11 @@ static const dispatch_entry_t dispatch_table[] = {
     {SH_SYS_READDIR, OFF(readdir), 1, call_fd_buf_sz},
     {SH_SYS_CLOSEDIR, OFF(closedir), 1, call_fd},
     {SH_SYS_STAT, OFF(stat), 1, call_path_buf},
+    {SH_SYS_FSTAT, OFF(fstat), 1, call_fd_stat},
+    {SH_SYS_MKDIR, OFF(mkdir), 1, call_path_mode},
+    {SH_SYS_RMDIR, OFF(rmdir), 1, call_path},
+    {SH_SYS_FTRUNCATE, OFF(ftruncate), 1, call_fd_len64},
+    {SH_SYS_FSYNC, OFF(fsync), 1, call_fd},
     {SH_SYS_READC_POLL, OFF(readc_poll), 0, call_ctx},
 
     {0, 0, 0, NULL} /* end marker */

@@ -586,6 +586,115 @@ static int ansi_insecure_closedir(void *ctx, int handle) {
 #endif
 }
 
+static int ansi_insecure_fstat(void *ctx, int fd, void *stat_buf) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  fp = insecure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  /* Flush stdio first so st_size reflects everything the caller has
+   * written. Without this the underlying fd may still show 0 bytes
+   * while stdio is holding writes in its buffer. */
+  fflush(fp);
+  rc = zbc_ansi_fstat_fd(fileno(fp), stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_mkdir(void *ctx, const char *path, size_t path_len,
+                               int mode) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+  rc = zbc_ansi_mkdir_path(state->path_buf, mode);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_rmdir(void *ctx, const char *path, size_t path_len) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (path_len >= sizeof(state->path_buf)) {
+    state->last_errno = ENAMETOOLONG;
+    return -1;
+  }
+  memcpy(state->path_buf, path, path_len);
+  state->path_buf[path_len] = '\0';
+  rc = zbc_ansi_rmdir_path(state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_ftruncate(void *ctx, int fd, uint64_t length) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  fp = insecure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  /* Flush stdio's buffer so the truncation lines up with what the
+   * caller has written. */
+  fflush(fp);
+  rc = zbc_ansi_ftruncate_fd(fileno(fp), length);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_insecure_fsync(void *ctx, int fd) {
+  zbc_ansi_insecure_state_t *state = (zbc_ansi_insecure_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  fp = insecure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  fflush(fp);
+  rc = zbc_ansi_fsync_fd(fileno(fp));
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -605,7 +714,9 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_get_errno,   ansi_insecure_timer_config,
     ansi_insecure_stat,        ansi_insecure_opendir,
     ansi_insecure_readdir,     ansi_insecure_closedir,
-    ansi_insecure_readc_poll};
+    ansi_insecure_readc_poll,  ansi_insecure_fstat,
+    ansi_insecure_mkdir,       ansi_insecure_rmdir,
+    ansi_insecure_ftruncate,   ansi_insecure_fsync};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;

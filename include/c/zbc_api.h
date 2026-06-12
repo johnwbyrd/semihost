@@ -231,6 +231,58 @@ int zbc_api_readdir(zbc_api_t *api, int handle, zbc_dir_entry_t *out);
  */
 int zbc_api_closedir(zbc_api_t *api, int handle);
 
+/**
+ * Stat an open file by descriptor. Same fields as zbc_api_stat() but
+ * the call does not re-walk the path -- useful inside loops over an
+ * already-open fd.
+ *
+ * @param api   API state
+ * @param fd    File descriptor
+ * @param out   Destination for the decoded stat record
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_fstat(zbc_api_t *api, int fd, zbc_stat_t *out);
+
+/**
+ * Create a directory. mode is passed to the host; on platforms without
+ * POSIX permission bits the host may ignore it.
+ *
+ * @param api   API state
+ * @param path  Directory path (null-terminated)
+ * @param mode  Permission bits (e.g. 0755)
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_mkdir(zbc_api_t *api, const char *path, int mode);
+
+/**
+ * Remove an empty directory.
+ *
+ * @param api   API state
+ * @param path  Directory path (null-terminated)
+ * @return 0 on success, -1 on error (including ENOTEMPTY)
+ */
+int zbc_api_rmdir(zbc_api_t *api, const char *path);
+
+/**
+ * Truncate an open file to length bytes. Length is unsigned 64-bit so
+ * a 16-bit guest can still describe sizes beyond its address space.
+ *
+ * @param api    API state
+ * @param fd     File descriptor
+ * @param length New file length in bytes
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_ftruncate(zbc_api_t *api, int fd, uint64_t length);
+
+/**
+ * Flush dirty buffers for an open file to storage.
+ *
+ * @param api  API state
+ * @param fd   File descriptor
+ * @return 0 on success, -1 on error
+ */
+int zbc_api_fsync(zbc_api_t *api, int fd);
+
 /*========================================================================
  * Console Operations
  *========================================================================*/

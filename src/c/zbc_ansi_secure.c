@@ -911,6 +911,121 @@ static int ansi_closedir(void *ctx, int handle) {
 #endif
 }
 
+static int ansi_fstat(void *ctx, int fd, void *stat_buf) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  fp = secure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  /* Flush stdio first so st_size reflects everything the caller has
+   * written. */
+  fflush(fp);
+  rc = zbc_ansi_fstat_fd(fileno(fp), stat_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_mkdir(void *ctx, const char *path, size_t path_len, int mode) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  if (ansi_validate_path(state, path, path_len, 1, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_mkdir_path(state->path_buf, mode);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_rmdir(void *ctx, const char *path, size_t path_len) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  size_t resolved_len;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  if (ansi_validate_path(state, path, path_len, 1, &resolved_len) != 0) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  rc = zbc_ansi_rmdir_path(state->path_buf);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_ftruncate(void *ctx, int fd, uint64_t length) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  if (state->flags & ZBC_ANSI_FLAG_READ_ONLY) {
+    state->last_errno = EACCES;
+    return -1;
+  }
+  fp = secure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  fflush(fp);
+  rc = zbc_ansi_ftruncate_fd(fileno(fp), length);
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
+static int ansi_fsync(void *ctx, int fd) {
+  zbc_ansi_state_t *state = (zbc_ansi_state_t *)ctx;
+  FILE *fp;
+  int rc;
+
+  if (!state || !state->initialized) {
+    return -1;
+  }
+  fp = secure_get_file(state, fd);
+  if (!fp) {
+    state->last_errno = EBADF;
+    return -1;
+  }
+  fflush(fp);
+  rc = zbc_ansi_fsync_fd(fileno(fp));
+  if (rc != 0) {
+    state->last_errno = errno;
+  }
+  return rc;
+}
+
 /*========================================================================
  * Vtable and Public API
  *========================================================================*/
@@ -923,7 +1038,8 @@ static const zbc_backend_t ansi_secure_backend = {
     ansi_elapsed,     ansi_tickfreq,    ansi_do_system,   ansi_get_cmdline,
     ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config,
     ansi_stat,        ansi_opendir,     ansi_readdir,     ansi_closedir,
-    ansi_readc_poll};
+    ansi_readc_poll,  ansi_fstat,       ansi_mkdir,       ansi_rmdir,
+    ansi_ftruncate,   ansi_fsync};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 

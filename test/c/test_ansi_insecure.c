@@ -324,6 +324,94 @@ static int test_dir_missing(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: mkdir / rmdir
+ *------------------------------------------------------------------------*/
+
+static int test_mkdir_rmdir(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char dirpath[512];
+    size_t dirlen;
+    int rc;
+
+    make_temp_path(dirpath, sizeof(dirpath), "zbc_test_mkdir_rmdir");
+    dirlen = strlen(dirpath);
+
+    /* Best-effort pre-clean in case a previous run died mid-test. */
+    be->rmdir(ctx, dirpath, dirlen);
+
+    TEST_ASSERT(be->mkdir != NULL, "mkdir slot must be populated");
+    TEST_ASSERT(be->rmdir != NULL, "rmdir slot must be populated");
+
+    rc = be->mkdir(ctx, dirpath, dirlen, 0755);
+    TEST_ASSERT(rc == 0, "mkdir on a fresh path should succeed");
+
+    rc = be->rmdir(ctx, dirpath, dirlen);
+    TEST_ASSERT(rc == 0, "rmdir on the empty dir should succeed");
+
+    rc = be->rmdir(ctx, dirpath, dirlen);
+    TEST_ASSERT(rc == -1, "rmdir on a missing dir should fail");
+    return 1;
+}
+
+/*------------------------------------------------------------------------
+ * Test: fstat / ftruncate / fsync
+ *------------------------------------------------------------------------*/
+
+static int test_fstat_ftruncate_fsync(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi_insecure();
+    void *ctx = &g_ansi_state;
+    char filename[512];
+    size_t filename_len;
+    uint8_t stat_buf[SH_STAT_BUF_SIZE];
+    uint64_t size;
+    int fd;
+    int rc;
+
+    make_temp_path(filename, sizeof(filename), "zbc_test_fstat.txt");
+    filename_len = strlen(filename);
+
+    fd = be->open(ctx, filename, filename_len, 4); /* SH_OPEN_W */
+    TEST_ASSERT(fd >= 0, "open for fstat test should succeed");
+    rc = be->write(ctx, fd, "hello", 5);
+    TEST_ASSERT(rc == 0, "write should drain");
+
+    TEST_ASSERT(be->fstat != NULL, "fstat slot must be populated");
+    TEST_ASSERT(be->ftruncate != NULL, "ftruncate slot must be populated");
+    TEST_ASSERT(be->fsync != NULL, "fsync slot must be populated");
+
+    rc = be->fstat(ctx, fd, stat_buf);
+    TEST_ASSERT(rc == 0, "fstat on an open fd should succeed");
+
+    /* size field starts at byte 16 of the wire layout. */
+    size = ((uint64_t)stat_buf[16]) |
+           ((uint64_t)stat_buf[17] << 8) |
+           ((uint64_t)stat_buf[18] << 16) |
+           ((uint64_t)stat_buf[19] << 24);
+    TEST_ASSERT(size == 5, "fstat should report the bytes we just wrote");
+
+    rc = be->ftruncate(ctx, fd, 2);
+    TEST_ASSERT(rc == 0, "ftruncate to 2 bytes should succeed");
+
+    rc = be->fstat(ctx, fd, stat_buf);
+    TEST_ASSERT(rc == 0, "fstat after truncate should succeed");
+    size = ((uint64_t)stat_buf[16]) |
+           ((uint64_t)stat_buf[17] << 8) |
+           ((uint64_t)stat_buf[18] << 16) |
+           ((uint64_t)stat_buf[19] << 24);
+    TEST_ASSERT(size == 2, "post-truncate size should be 2");
+
+    rc = be->fsync(ctx, fd);
+    TEST_ASSERT(rc == 0, "fsync should succeed on a writable fd");
+
+    be->close(ctx, fd);
+    be->remove(ctx, filename, filename_len);
+    return 1;
+}
+
+/*------------------------------------------------------------------------
  * Test: Seek
  *------------------------------------------------------------------------*/
 
@@ -905,6 +993,8 @@ void run_ansi_insecure_tests(void)
     RUN_TEST(dir_enumeration);
 #endif
     RUN_TEST(dir_missing);
+    RUN_TEST(mkdir_rmdir);
+    RUN_TEST(fstat_ftruncate_fsync);
     RUN_TEST(seek);
     RUN_TEST(console_write);
     RUN_TEST(time_functions);
