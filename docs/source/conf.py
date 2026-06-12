@@ -14,20 +14,23 @@ release = '0.1.0'
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-# Set libclang path for sphinx-c-autodoc if specified via environment
-import os
-if 'LIBCLANG_PATH' in os.environ:
-    import clang.cindex
-    clang.cindex.Config.set_library_file(os.environ['LIBCLANG_PATH'])
-
 extensions = [
-    'sphinx_c_autodoc',
-    'sphinx_c_autodoc.napoleon',
+    'breathe',
 ]
 
-# -- Options for sphinx-c-autodoc --------------------------------------------
+# -- Options for Breathe -----------------------------------------------------
+#
+# Doxygen writes XML to docs/build/doxygen/xml (see docs/Doxyfile).
+# That directory is relative to docs/ (where `make html` runs), so from
+# docs/source/ it is one level up.
+breathe_projects = {
+    'zbc': '../build/doxygen/xml',
+}
+breathe_default_project = 'zbc'
 
-c_autodoc_roots = ['../../include/c', '../../include/shared']
+# Use :members: by default so doxygenclass/doxygenstruct emit members
+# without restating it on every directive.
+breathe_default_members = ('members',)
 
 templates_path = ['_templates']
 exclude_patterns = []
@@ -38,8 +41,10 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 
-# -- Options for C domain ----------------------------------------------------
+# -- Options for the C / C++ domains -----------------------------------------
 
-# Treat all unprefixed names as C
+# Most API pages document C symbols, so default unqualified references
+# to the C domain. cpp.rst sets ``.. default-domain:: cpp`` at the top
+# to override locally.
 primary_domain = 'c'
 highlight_language = 'c'

@@ -25,6 +25,12 @@ if errorlevel 9009 (
 
 if "%1" == "" goto help
 
+REM Run Doxygen before html so Breathe has fresh XML.
+if /I "%1" == "html" (
+	doxygen Doxyfile
+	if errorlevel 1 exit /b 1
+)
+
 %SPHINXBUILD% -M %1 %SOURCEDIR% %BUILDDIR% %SPHINXOPTS% %O%
 goto end
 

@@ -10,14 +10,14 @@ an emulator or virtual machine.
 Types
 -----
 
-.. autoctype:: zbc_host.h::zbc_host_mem_ops_t
+.. doxygenstruct:: zbc_host_mem_ops_t
 
-.. autoctype:: zbc_host.h::zbc_host_state_t
+.. doxygenstruct:: zbc_host_state_t
 
 Functions
 ---------
 
-.. autocfunction:: zbc_host.h::zbc_host_init
+.. doxygenfunction:: zbc_host_init
 
 **Example:**
 
@@ -40,7 +40,7 @@ Functions
                  zbc_backend_ansi_insecure(), &backend_state,
                  work_buf, sizeof(work_buf));
 
-.. autocfunction:: zbc_host.h::zbc_host_set_platform_config
+.. doxygenfunction:: zbc_host_set_platform_config
 
 **Example:**
 
@@ -50,7 +50,7 @@ Functions
    zbc_host_set_platform_config(&host, /*int_size=*/2, /*ptr_size=*/2,
                                 ZBC_ENDIAN_LITTLE);
 
-.. autocfunction:: zbc_host.h::zbc_host_set_proto_error_cb
+.. doxygenfunction:: zbc_host_set_proto_error_cb
 
 **Example:**
 
@@ -65,7 +65,7 @@ Functions
 
    zbc_host_set_proto_error_cb(&host, on_proto_error, &my_device);
 
-.. autocfunction:: zbc_host.h::zbc_host_process
+.. doxygenfunction:: zbc_host_process
 
 **Example:**
 
@@ -80,9 +80,9 @@ Functions
 Helper Functions
 ----------------
 
-.. autocfunction:: zbc_host.h::zbc_host_read_guest_int
+.. doxygenfunction:: zbc_host_read_guest_int
 
-.. autocfunction:: zbc_host.h::zbc_host_write_guest_int
+.. doxygenfunction:: zbc_host_write_guest_int
 
 Work Buffer Sizing
 ------------------

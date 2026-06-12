@@ -87,33 +87,33 @@ Device Register Offsets
 Structures
 ----------
 
-.. autoctype:: zbc_protocol.h::zbc_chunk_t
+.. doxygenstruct:: zbc_chunk_t
 
-.. autoctype:: zbc_protocol.h::zbc_riff_t
+.. doxygenstruct:: zbc_riff_t
 
-.. autoctype:: zbc_protocol.h::zbc_parsed_t
+.. doxygenstruct:: zbc_parsed_t
 
 Chunk Functions
 ---------------
 
-.. autocfunction:: zbc_protocol.h::zbc_chunk_validate
+.. doxygenfunction:: zbc_chunk_validate
 
-.. autocfunction:: zbc_protocol.h::zbc_chunk_next
+.. doxygenfunction:: zbc_chunk_next
 
-.. autocfunction:: zbc_protocol.h::zbc_chunk_first_sub
+.. doxygenfunction:: zbc_chunk_first_sub
 
-.. autocfunction:: zbc_protocol.h::zbc_chunk_end
+.. doxygenfunction:: zbc_chunk_end
 
-.. autocfunction:: zbc_protocol.h::zbc_chunk_find
+.. doxygenfunction:: zbc_chunk_find
 
 RIFF Functions
 --------------
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_validate
+.. doxygenfunction:: zbc_riff_validate
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_end
+.. doxygenfunction:: zbc_riff_end
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_parse_request
+.. doxygenfunction:: zbc_riff_parse_request
 
 **Example:**
 
@@ -133,42 +133,42 @@ RIFF Functions
 Helper Functions
 ----------------
 
-.. autocfunction:: zbc_protocol.h::zbc_strlen
+.. doxygenfunction:: zbc_strlen
 
-.. autocfunction:: zbc_protocol.h::zbc_write_native_uint
+.. doxygenfunction:: zbc_write_native_uint
 
-.. autocfunction:: zbc_protocol.h::zbc_read_native_int
+.. doxygenfunction:: zbc_read_native_int
 
-.. autocfunction:: zbc_protocol.h::zbc_read_native_uint
+.. doxygenfunction:: zbc_read_native_uint
 
 RIFF Writing Functions
 ----------------------
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_begin_chunk
+.. doxygenfunction:: zbc_riff_begin_chunk
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_patch_size
+.. doxygenfunction:: zbc_riff_patch_size
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_write_bytes
+.. doxygenfunction:: zbc_riff_write_bytes
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_pad
+.. doxygenfunction:: zbc_riff_pad
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_begin_container
+.. doxygenfunction:: zbc_riff_begin_container
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_validate_container
+.. doxygenfunction:: zbc_riff_validate_container
 
 RIFF Reading Functions
 ----------------------
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_read_header
+.. doxygenfunction:: zbc_riff_read_header
 
-.. autocfunction:: zbc_protocol.h::zbc_riff_skip_chunk
+.. doxygenfunction:: zbc_riff_skip_chunk
 
 Opcode Table
 ------------
 
-.. autocfunction:: zbc_protocol.h::zbc_opcode_lookup
+.. doxygenfunction:: zbc_opcode_lookup
 
-.. autocfunction:: zbc_protocol.h::zbc_opcode_count
+.. doxygenfunction:: zbc_opcode_count
 
 Byte Manipulation Macros
 ------------------------

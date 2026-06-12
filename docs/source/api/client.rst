@@ -9,23 +9,23 @@ semihosting calls to the host system.
 Types
 -----
 
-.. autoctype:: zbc_client.h::zbc_client_state_t
+.. doxygenstruct:: zbc_client_state_t
 
-.. autoctype:: zbc_client.h::zbc_response_t
+.. doxygenstruct:: zbc_response_t
 
 Initialization
 --------------
 
-.. autocfunction:: zbc_client.h::zbc_client_init
+.. doxygenfunction:: zbc_client_init
 
-.. autocfunction:: zbc_client.h::zbc_client_check_signature
+.. doxygenfunction:: zbc_client_check_signature
 
-.. autocfunction:: zbc_client.h::zbc_client_reset_cnfg
+.. doxygenfunction:: zbc_client_reset_cnfg
 
 Making Calls
 ------------
 
-.. autocfunction:: zbc_client.h::zbc_call
+.. doxygenfunction:: zbc_call
 
 **Example:**
 
@@ -41,7 +41,7 @@ Making Calls
        /* Protocol error */
    }
 
-.. autocfunction:: zbc_client.h::zbc_semihost
+.. doxygenfunction:: zbc_semihost
 
 Use this to implement ``sys_semihost()`` for libc integration:
 
@@ -55,9 +55,9 @@ Use this to implement ``sys_semihost()`` for libc integration:
 Low-Level Functions
 -------------------
 
-.. autocfunction:: zbc_client.h::zbc_client_submit
+.. doxygenfunction:: zbc_client_submit
 
-.. autocfunction:: zbc_client.h::zbc_parse_response
+.. doxygenfunction:: zbc_parse_response
 
 Configuration Macros
 --------------------

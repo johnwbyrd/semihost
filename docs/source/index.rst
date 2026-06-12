@@ -27,9 +27,25 @@ Documentation
 
 .. toctree::
    :maxdepth: 2
-   :caption: API Reference
+   :caption: Architecture
 
-   api/index
+   architecture
+
+.. toctree::
+   :maxdepth: 2
+   :caption: C++ API
+
+   api/cpp
+
+.. toctree::
+   :maxdepth: 2
+   :caption: C API
+
+   api/high-level
+   api/client
+   api/host
+   api/backend
+   api/protocol
 
 .. include:: ../../README.rst
    :start-after: Quick Start

@@ -10,7 +10,7 @@ a backend vtable.
 Backend Vtable
 --------------
 
-.. autoctype:: zbc_backend.h::zbc_backend_t
+.. doxygenstruct:: zbc_backend_t
 
 Return Value Conventions
 ^^^^^^^^^^^^^^^^^^^^^^^^
@@ -53,7 +53,7 @@ Built-in Backends
 Secure ANSI Backend
 ^^^^^^^^^^^^^^^^^^^
 
-.. autocfunction:: zbc_backend.h::zbc_backend_ansi
+.. doxygenfunction:: zbc_backend_ansi
 
 **State initialization** (from ``zbc_backend_ansi.h``):
 
@@ -90,7 +90,7 @@ Secure ANSI Backend
 Insecure ANSI Backend
 ^^^^^^^^^^^^^^^^^^^^^
 
-.. autocfunction:: zbc_backend.h::zbc_backend_ansi_insecure
+.. doxygenfunction:: zbc_backend_ansi_insecure
 
 **Use only for trusted code** (e.g., your own test programs).
 
@@ -113,7 +113,7 @@ Insecure ANSI Backend
 Dummy Backend
 ^^^^^^^^^^^^^
 
-.. autocfunction:: zbc_backend.h::zbc_backend_dummy
+.. doxygenfunction:: zbc_backend_dummy
 
 Implementing Custom Backends
 ----------------------------
@@ -166,28 +166,28 @@ Header: ``zbc_backend_ansi.h``
 Secure Backend State
 ^^^^^^^^^^^^^^^^^^^^
 
-.. autoctype:: zbc_backend_ansi.h::zbc_ansi_state_t
+.. doxygenstruct:: zbc_ansi_state_t
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_init
+.. doxygenfunction:: zbc_ansi_init
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_add_path
+.. doxygenfunction:: zbc_ansi_add_path
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_set_policy
+.. doxygenfunction:: zbc_ansi_set_policy
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_set_callbacks
+.. doxygenfunction:: zbc_ansi_set_callbacks
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_cleanup
+.. doxygenfunction:: zbc_ansi_cleanup
 
 Insecure Backend State
 ^^^^^^^^^^^^^^^^^^^^^^
 
-.. autoctype:: zbc_backend_ansi.h::zbc_ansi_insecure_state_t
+.. doxygenstruct:: zbc_ansi_insecure_state_t
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_insecure_init
+.. doxygenfunction:: zbc_ansi_insecure_init
 
-.. autocfunction:: zbc_backend_ansi.h::zbc_ansi_insecure_cleanup
+.. doxygenfunction:: zbc_ansi_insecure_cleanup
 
 Policy Vtable
 ^^^^^^^^^^^^^
 
-.. autoctype:: zbc_backend_ansi.h::zbc_ansi_policy_t
+.. doxygenstruct:: zbc_ansi_policy_t

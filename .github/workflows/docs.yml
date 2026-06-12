@@ -38,11 +38,10 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Install libclang
+      - name: Install Doxygen
         run: |
           sudo apt-get update
-          sudo apt-get install -y libclang-14-dev
-          echo "LIBCLANG_PATH=/usr/lib/llvm-14/lib/libclang.so" >> $GITHUB_ENV
+          sudo apt-get install -y doxygen
 
       - name: Install dependencies
         run: |

@@ -28,73 +28,73 @@ instead of manually packing argument arrays for ``zbc_call()``.
 Types
 -----
 
-.. autoctype:: zbc_api.h::zbc_api_t
+.. doxygenstruct:: zbc_api_t
 
 Initialization
 --------------
 
-.. autocfunction:: zbc_api.h::zbc_api_init
+.. doxygenfunction:: zbc_api_init
 
-.. autocfunction:: zbc_api.h::zbc_api_errno
+.. doxygenfunction:: zbc_api_errno
 
 File Operations
 ---------------
 
-.. autocfunction:: zbc_api.h::zbc_api_open
+.. doxygenfunction:: zbc_api_open
 
-.. autocfunction:: zbc_api.h::zbc_api_close
+.. doxygenfunction:: zbc_api_close
 
-.. autocfunction:: zbc_api.h::zbc_api_read
+.. doxygenfunction:: zbc_api_read
 
-.. autocfunction:: zbc_api.h::zbc_api_write
+.. doxygenfunction:: zbc_api_write
 
-.. autocfunction:: zbc_api.h::zbc_api_seek
+.. doxygenfunction:: zbc_api_seek
 
-.. autocfunction:: zbc_api.h::zbc_api_flen
+.. doxygenfunction:: zbc_api_flen
 
-.. autocfunction:: zbc_api.h::zbc_api_istty
+.. doxygenfunction:: zbc_api_istty
 
-.. autocfunction:: zbc_api.h::zbc_api_remove
+.. doxygenfunction:: zbc_api_remove
 
-.. autocfunction:: zbc_api.h::zbc_api_rename
+.. doxygenfunction:: zbc_api_rename
 
-.. autocfunction:: zbc_api.h::zbc_api_tmpnam
+.. doxygenfunction:: zbc_api_tmpnam
 
 Console Operations
 ------------------
 
-.. autocfunction:: zbc_api.h::zbc_api_writec
+.. doxygenfunction:: zbc_api_writec
 
-.. autocfunction:: zbc_api.h::zbc_api_write0
+.. doxygenfunction:: zbc_api_write0
 
-.. autocfunction:: zbc_api.h::zbc_api_readc
+.. doxygenfunction:: zbc_api_readc
 
 Time Operations
 ---------------
 
-.. autocfunction:: zbc_api.h::zbc_api_clock
+.. doxygenfunction:: zbc_api_clock
 
-.. autocfunction:: zbc_api.h::zbc_api_time
+.. doxygenfunction:: zbc_api_time
 
-.. autocfunction:: zbc_api.h::zbc_api_tickfreq
+.. doxygenfunction:: zbc_api_tickfreq
 
-.. autocfunction:: zbc_api.h::zbc_api_elapsed
+.. doxygenfunction:: zbc_api_elapsed
 
-.. autocfunction:: zbc_api.h::zbc_api_timer_config
+.. doxygenfunction:: zbc_api_timer_config
 
 System Operations
 -----------------
 
-.. autocfunction:: zbc_api.h::zbc_api_iserror
+.. doxygenfunction:: zbc_api_iserror
 
-.. autocfunction:: zbc_api.h::zbc_api_get_errno
+.. doxygenfunction:: zbc_api_get_errno
 
-.. autocfunction:: zbc_api.h::zbc_api_system
+.. doxygenfunction:: zbc_api_system
 
-.. autocfunction:: zbc_api.h::zbc_api_get_cmdline
+.. doxygenfunction:: zbc_api_get_cmdline
 
-.. autocfunction:: zbc_api.h::zbc_api_heapinfo
+.. doxygenfunction:: zbc_api_heapinfo
 
-.. autocfunction:: zbc_api.h::zbc_api_exit
+.. doxygenfunction:: zbc_api_exit
 
-.. autocfunction:: zbc_api.h::zbc_api_exit_extended
+.. doxygenfunction:: zbc_api_exit_extended

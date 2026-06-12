@@ -1,8 +1,12 @@
+:orphan:
+
 API Reference
 =============
 
 This section provides detailed API documentation for all public functions
-and types in the ZBC reference libraries.
+and types in the ZBC reference libraries. The pages themselves are
+linked from the sidebar under the **C++ API** and **C API** captions;
+this page is an orientation hub.
 
 Overview
 --------
@@ -74,15 +78,3 @@ All functions return ``ZBC_OK`` (0) on success or a negative error code:
    #define ZBC_ERR_PARSE_ERROR       (-14)
 
 Check for errors with ``if (rc < 0)``.
-
-
-.. toctree::
-   :maxdepth: 2
-   :caption: API Subsections
-
-   high-level
-   client
-   host
-   backend
-   protocol
-   cpp

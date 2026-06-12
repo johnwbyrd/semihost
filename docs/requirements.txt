@@ -1,5 +1,4 @@
 sphinx>=7.0
 sphinx-rtd-theme>=2.0
-sphinx-c-autodoc>=1.6.0
-clang>=14.0,<15.0
+breathe>=4.35
 beautifulsoup4

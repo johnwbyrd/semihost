@@ -1,0 +1,55 @@
+# Doxygen configuration for ZBC API documentation.
+#
+# Doxygen produces XML; Breathe ingests that XML and renders it through
+# Sphinx. HTML and LaTeX outputs are disabled because Sphinx is the
+# rendering engine.
+#
+# The Makefile runs `doxygen Doxyfile` as a prerequisite to `make html`,
+# so local builds and CI both use this file.
+
+PROJECT_NAME           = "Zero Board Computer"
+PROJECT_BRIEF          = "Architecture-agnostic semihosting peripheral"
+
+INPUT                  = ../include/c \
+                         ../include/shared \
+                         ../include/cpp/zbc
+RECURSIVE              = YES
+FILE_PATTERNS          = *.h
+
+OUTPUT_DIRECTORY       = build/doxygen
+GENERATE_XML           = YES
+GENERATE_HTML          = NO
+GENERATE_LATEX         = NO
+XML_OUTPUT             = xml
+XML_PROGRAMLISTING     = NO
+
+# The C headers use @-tags and the C++ headers use \-tags; Doxygen
+# accepts both. JAVADOC_AUTOBRIEF treats the first sentence of a
+# block comment as the brief description, which matches the style
+# used throughout the repository.
+JAVADOC_AUTOBRIEF      = YES
+QT_AUTOBRIEF           = NO
+MULTILINE_CPP_IS_BRIEF = NO
+
+# Extract everything, including symbols without explicit @brief. A
+# handful of helper macros in zbc_protocol.h fall in that bucket;
+# turning this on keeps them visible. Tightening to EXTRACT_ALL = NO
+# is a future cleanup once those symbols get explicit briefs.
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+# Typedef'd structs (e.g. typedef struct { ... } zbc_chunk_t;) are
+# the dominant pattern in C headers. This option ensures Doxygen
+# indexes them under the typedef name so doxygenstruct directives
+# can find them.
+TYPEDEF_HIDES_STRUCT   = YES
+
+# Quiet output for CI; warnings still print so we see broken references.
+QUIET                  = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = NO
+
+# C++ namespace scopes are surfaced verbatim (zbc::Device, etc.).
+SHOW_NAMESPACES        = YES
+SHOW_INCLUDE_FILES     = NO
