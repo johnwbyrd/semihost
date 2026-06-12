@@ -10,6 +10,12 @@
 set(ZBC_PLATFORM_NAME "arm")
 set(ZBC_PLATFORM_arm_RUNNERS qemu)
 set(ZBC_PLATFORM_arm_QEMU_MACHINE "virt")
+# The QEMU arm virt machine defaults to secure=off, which selects HVC
+# as the PSCI conduit; platform_init.c emits "hvc #0" accordingly.
+# If you ever add ,secure=on to the machine line (or move to a CPU
+# whose default conduit differs), flip the inline-asm mnemonic in
+# arm_psci_call() to "smc #0" -- otherwise SYS_EXIT decodes as UNDEF
+# and the VM hangs forever after the suite prints RESULT: PASS.
 set(ZBC_PLATFORM_arm_QEMU_EXTRA_ARGS -cpu cortex-a15)
 
 find_program(CLANG_EXECUTABLE clang)
