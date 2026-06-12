@@ -17,6 +17,8 @@
 #include <time.h>
 #ifndef _WIN32
 #include <dirent.h>
+#include <sys/select.h>
+#include <unistd.h>
 #endif
 
 /*========================================================================
@@ -172,6 +174,31 @@ int zbc_ansi_readc(void) {
     return -1;
   }
   return c;
+}
+
+int zbc_ansi_readc_poll(void) {
+#ifdef _WIN32
+  /* Windows console I/O has no select() equivalent. Always report
+   * "no character"; the guest can fall back to SYS_READC if it needs
+   * blocking input. */
+  return -1;
+#else
+  fd_set rfds;
+  struct timeval tv;
+  unsigned char c;
+
+  FD_ZERO(&rfds);
+  FD_SET(0, &rfds);
+  tv.tv_sec = 0;
+  tv.tv_usec = 0;
+  if (select(1, &rfds, (fd_set *)0, (fd_set *)0, &tv) <= 0) {
+    return -1;
+  }
+  if (read(0, &c, 1) != 1) {
+    return -1;
+  }
+  return (int)c;
+#endif
 }
 
 /*========================================================================

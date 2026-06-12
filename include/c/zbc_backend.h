@@ -91,10 +91,9 @@ typedef struct zbc_backend_s {
     int (*timer_config)(void *ctx, unsigned int rate_hz);
 
     /*
-     * Linux-extension operations (docs/source/linux-extensions-proposal.rst).
-     * Implemented incrementally as the passthrough story needs them; the
-     * vtable slots are added here once the opcode is defined and the
-     * dummy backend stubs them out so existing tests stay green.
+     * Linux-extension operations. Implemented incrementally as the
+     * passthrough story needs them; the wire format for each opcode
+     * lives in include/shared/zbc_protocol.h.
      */
 
     /**
@@ -125,6 +124,14 @@ typedef struct zbc_backend_s {
      * error (e.g. handle was never opened or already closed).
      */
     int (*closedir)(void *ctx, int dir_handle);
+
+    /**
+     * Non-blocking console char read. Returns 0-255 if a character is
+     * available, -1 if none. -1 is not an error -- it just means the
+     * caller should poll again later. Hosts implement this with
+     * select()/poll() on stdin with a zero timeout.
+     */
+    int (*readc_poll)(void *ctx);
 } zbc_backend_t;
 
 /*========================================================================

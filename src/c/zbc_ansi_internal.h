@@ -78,6 +78,7 @@ int zbc_ansi_mode_is_write(int mode);
 void zbc_ansi_writec(char c);
 void zbc_ansi_write0(const char *str);
 int zbc_ansi_readc(void);
+int zbc_ansi_readc_poll(void);
 
 /*========================================================================
  * Status Functions

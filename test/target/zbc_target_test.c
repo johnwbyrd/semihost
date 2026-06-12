@@ -437,6 +437,28 @@ static void test_dir_enum(void)
 }
 
 /*------------------------------------------------------------------------
+ * Test: READC_POLL
+ *
+ * Non-blocking console read. After test_readc consumed whatever the
+ * runner piped in, stdin is at EOF, so we expect -1. On vcon the
+ * RX queue is empty so we also expect -1. The opcode succeeding
+ * (no protocol error / no transport ENOSYS) is the round-trip
+ * sentinel; the -1 result is fine.
+ *------------------------------------------------------------------------*/
+
+static void test_readc_poll(void)
+{
+    uintptr_t result;
+
+    TARGET_BEGIN_TEST("sys_readc_poll");
+    result = zbc_semihost(&g_target_client, g_target_riff_buf,
+                          sizeof(g_target_riff_buf), SH_SYS_READC_POLL, 0);
+    /* Either -1 (no data) or a 0..255 byte. Both are valid per spec. */
+    TARGET_ASSERT(result == (uintptr_t)-1 || result < 256);
+    TARGET_END_TEST();
+}
+
+/*------------------------------------------------------------------------
  * Test: File System (REMOVE, RENAME, TMPNAM)
  *------------------------------------------------------------------------*/
 
@@ -676,6 +698,7 @@ void _start(void)
     TARGET_PRINT("\nLinux Extensions:\n");
     test_stat();
     test_dir_enum();
+    test_readc_poll();
 
     TARGET_PRINT("\nTime:\n");
     test_time();

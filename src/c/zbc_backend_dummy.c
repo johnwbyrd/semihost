@@ -211,6 +211,11 @@ static int dummy_closedir(void *ctx, int handle) {
   return 0;
 }
 
+static int dummy_readc_poll(void *ctx) {
+  (void)ctx;
+  return -1; /* no character available */
+}
+
 static const zbc_backend_t dummy_backend = {
     dummy_open,        dummy_close,    dummy_read,        dummy_write,
     dummy_seek,        dummy_flen,     dummy_remove,      dummy_rename,
@@ -218,6 +223,7 @@ static const zbc_backend_t dummy_backend = {
     dummy_iserror,     dummy_istty,    dummy_clock,       dummy_time,
     dummy_elapsed,     dummy_tickfreq, dummy_do_system,   dummy_get_cmdline,
     dummy_heapinfo,    dummy_do_exit,  dummy_get_errno,   dummy_timer_config,
-    dummy_stat,        dummy_opendir,  dummy_readdir,     dummy_closedir};
+    dummy_stat,        dummy_opendir,  dummy_readdir,     dummy_closedir,
+    dummy_readc_poll};
 
 const zbc_backend_t *zbc_backend_dummy(void) { return &dummy_backend; }

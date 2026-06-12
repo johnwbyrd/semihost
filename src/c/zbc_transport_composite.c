@@ -57,6 +57,7 @@ static int composite_select(int opcode, const zbc_composite_state_t *cc,
   case SH_SYS_WRITEC:
   case SH_SYS_WRITE0:
   case SH_SYS_READC:
+  case SH_SYS_READC_POLL:
     *child_out = cc->console;
     *ctx_out = cc->console_ctx;
     return 1;

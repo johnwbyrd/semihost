@@ -173,6 +173,10 @@ static int c_closedir(void *, int H) {
   tracef("closedir(%d)", H);
   return 0;
 }
+static int c_readc_poll(void *) {
+  tracef("readc_poll()");
+  return -1; /* no character available */
+}
 }
 
 static const zbc_backend_t ScriptedC = {
@@ -182,7 +186,7 @@ static const zbc_backend_t ScriptedC = {
     c_clock,  c_time,   c_elapsed, c_tickfreq, nullptr,    nullptr, /* system, cmdline */
     nullptr, /* heapinfo */
     c_exit,   c_get_errno, c_timer, c_stat,
-    c_opendir, c_readdir, c_closedir};
+    c_opendir, c_readdir, c_closedir, c_readc_poll};
 
 // --- C++ side ---------------------------------------------------------------
 

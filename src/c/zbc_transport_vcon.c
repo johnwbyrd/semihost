@@ -174,7 +174,11 @@ static int vcon_transport_call(zbc_response_t *response,
     return ZBC_OK;
   }
 
-  case SH_SYS_READC: {
+  case SH_SYS_READC:
+  case SH_SYS_READC_POLL: {
+    /* vcon_rx is non-blocking already (it pulls from the virtio-console
+     * RX queue and returns got=0 if no buffer is ready), so READC and
+     * READC_POLL collapse to the same code path on this transport. */
     uint8_t c = 0;
     size_t got;
 

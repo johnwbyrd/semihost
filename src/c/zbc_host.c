@@ -717,6 +717,7 @@ static const dispatch_entry_t dispatch_table[] = {
     {SH_SYS_READDIR, OFF(readdir), 1, call_fd_buf_sz},
     {SH_SYS_CLOSEDIR, OFF(closedir), 1, call_fd},
     {SH_SYS_STAT, OFF(stat), 1, call_path_buf},
+    {SH_SYS_READC_POLL, OFF(readc_poll), 0, call_ctx},
 
     {0, 0, 0, NULL} /* end marker */
 };

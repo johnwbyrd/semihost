@@ -353,6 +353,11 @@ static int ansi_insecure_readc(void *ctx) {
   return zbc_ansi_readc();
 }
 
+static int ansi_insecure_readc_poll(void *ctx) {
+  (void)ctx;
+  return zbc_ansi_readc_poll();
+}
+
 static int ansi_insecure_iserror(void *ctx, int status) {
   (void)ctx;
   return zbc_ansi_iserror(status);
@@ -599,7 +604,8 @@ static const zbc_backend_t ansi_insecure_backend = {
     ansi_insecure_heapinfo,    ansi_insecure_do_exit,
     ansi_insecure_get_errno,   ansi_insecure_timer_config,
     ansi_insecure_stat,        ansi_insecure_opendir,
-    ansi_insecure_readdir,     ansi_insecure_closedir};
+    ansi_insecure_readdir,     ansi_insecure_closedir,
+    ansi_insecure_readc_poll};
 
 const zbc_backend_t *zbc_backend_ansi_insecure(void) {
   return &ansi_insecure_backend;

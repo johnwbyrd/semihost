@@ -259,6 +259,16 @@ void zbc_api_write0(zbc_api_t *api, const char *str);
  */
 int zbc_api_readc(zbc_api_t *api);
 
+/**
+ * Non-blocking variant of zbc_api_readc. Returns 0-255 if a character
+ * is available, or -1 if none. The -1 is not an error -- it just
+ * means the caller should poll again later.
+ *
+ * @param api  API state
+ * @return Character read (0-255), or -1 if none available
+ */
+int zbc_api_readc_poll(zbc_api_t *api);
+
 /*========================================================================
  * Time Operations
  *========================================================================*/

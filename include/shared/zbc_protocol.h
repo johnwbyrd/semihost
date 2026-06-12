@@ -86,6 +86,7 @@ typedef uint32_t uintptr_t;
 #define SH_SYS_READDIR        0x81  /* Read one directory entry */
 #define SH_SYS_CLOSEDIR       0x82  /* Close a directory handle */
 #define SH_SYS_STAT           0x83  /* Get file metadata by path */
+#define SH_SYS_READC_POLL     0x89  /* Non-blocking console char read */
 
 /** Wire size of the fixed SYS_STAT response buffer (always 48 bytes). */
 #define SH_STAT_BUF_SIZE      48

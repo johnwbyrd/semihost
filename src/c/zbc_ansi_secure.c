@@ -619,6 +619,11 @@ static int ansi_readc(void *ctx) {
   return zbc_ansi_readc();
 }
 
+static int ansi_readc_poll(void *ctx) {
+  (void)ctx;
+  return zbc_ansi_readc_poll();
+}
+
 static int ansi_iserror(void *ctx, int status) {
   (void)ctx;
   return zbc_ansi_iserror(status);
@@ -917,7 +922,8 @@ static const zbc_backend_t ansi_secure_backend = {
     ansi_iserror,     ansi_istty,       ansi_clock_func,  ansi_time_func,
     ansi_elapsed,     ansi_tickfreq,    ansi_do_system,   ansi_get_cmdline,
     ansi_heapinfo,    ansi_do_exit,     ansi_get_errno,   ansi_timer_config,
-    ansi_stat,        ansi_opendir,     ansi_readdir,     ansi_closedir};
+    ansi_stat,        ansi_opendir,     ansi_readdir,     ansi_closedir,
+    ansi_readc_poll};
 
 const zbc_backend_t *zbc_backend_ansi(void) { return &ansi_secure_backend; }
 

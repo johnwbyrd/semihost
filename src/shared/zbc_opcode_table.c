@@ -510,6 +510,23 @@ static const zbc_opcode_entry_t zbc_opcode_table[] = {
         3  /* max len from args[3], must equal SH_STAT_BUF_SIZE */
     },
 
+    /*
+     * SH_SYS_READC_POLL (0x89) -- Linux extension
+     * Guest args: none
+     * Request: (no params)
+     * Response: int (0-255 char on success, -1 if no character available;
+     * the -1 is not an error, just an empty poll)
+     */
+    {SH_SYS_READC_POLL,
+     0,
+     {{ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0},
+      {ZBC_CHUNK_NONE, 0, 0}},
+     ZBC_RESP_INT,
+     0,
+     0},
+
     /* End marker */
     {0, 0, {{ZBC_CHUNK_NONE, 0, 0}}, ZBC_RESP_INT, 0, 0}};
 

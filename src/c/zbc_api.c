@@ -318,6 +318,16 @@ int zbc_api_readc(zbc_api_t *api) {
     return (rc == ZBC_OK) ? response.result : -1;
 }
 
+int zbc_api_readc_poll(zbc_api_t *api) {
+    zbc_response_t response;
+    int rc;
+
+    rc = zbc_call(&response, api->client, api->buf, api->buf_size,
+                  SH_SYS_READC_POLL, (uintptr_t *)0);
+    api->last_errno = (rc == ZBC_OK) ? response.error_code : 0;
+    return (rc == ZBC_OK) ? response.result : -1;
+}
+
 /*========================================================================
  * Time Operations
  *========================================================================*/
