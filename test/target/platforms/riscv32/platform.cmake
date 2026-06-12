@@ -82,6 +82,7 @@ set(ZBC_PLATFORM_riscv32_EXTRA_CLIENT_SOURCES
 
 set(ZBC_PLATFORM_riscv32_PLATFORM_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/platform_init.c
+    ${CMAKE_SOURCE_DIR}/test/target/common/qemu_platform_init.c
 )
 
 set(ZBC_PLATFORM_riscv32_LD

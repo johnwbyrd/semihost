@@ -79,6 +79,7 @@ set(ZBC_PLATFORM_aarch64_EXTRA_CLIENT_SOURCES
 
 set(ZBC_PLATFORM_aarch64_PLATFORM_SOURCES
     ${CMAKE_CURRENT_LIST_DIR}/platform_init.c
+    ${CMAKE_SOURCE_DIR}/test/target/common/qemu_platform_init.c
 )
 
 set(ZBC_PLATFORM_aarch64_LD
