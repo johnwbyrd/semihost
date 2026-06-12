@@ -327,6 +327,29 @@ static int test_secure_path_rules(void)
 }
 
 /*------------------------------------------------------------------------
+ * Regression test: opendir(".") against the sandbox root must succeed.
+ * Before the path-normalize-then-restore-trailing-slash fix, the path
+ * "." normalized to sandbox_dir without its mandatory trailing slash
+ * and tripped the sandbox boundary check, returning -1.
+ *------------------------------------------------------------------------*/
+
+#ifndef _WIN32
+static int test_secure_opendir_dot(void)
+{
+    const zbc_backend_t *be = zbc_backend_ansi();
+    void *ctx = &g_secure_state;
+    int handle;
+
+    TEST_ASSERT(be->opendir != NULL, "opendir slot must be populated");
+    handle = be->opendir(ctx, ".", 1);
+    TEST_ASSERT(handle >= 0,
+                "opendir(\".\") against sandbox root should succeed");
+    be->closedir(ctx, handle);
+    return 1;
+}
+#endif
+
+/*------------------------------------------------------------------------
  * Main
  *------------------------------------------------------------------------*/
 
@@ -349,6 +372,11 @@ void run_ansi_secure_tests(void)
     RUN_TEST(secure_timer_config_callback);
     RUN_TEST(secure_timer_config_rejected);
     RUN_TEST(secure_path_rules);
+#ifndef _WIN32
+    /* Regression: opendir(".") against the sandbox root. POSIX-only
+     * because the ANSI dir ops stub to ENOSYS on Windows. */
+    RUN_TEST(secure_opendir_dot);
+#endif
 
     zbc_ansi_cleanup(&g_secure_state);
 

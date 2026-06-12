@@ -214,6 +214,18 @@ static int ansi_validate_path(zbc_ansi_state_t *state, const char *path,
   /* Now normalize the combined path */
   norm_len = ansi_path_normalize(state->path_buf, norm_len);
 
+  /* sandbox_dir always carries a trailing slash, but normalization
+   * strips one from purely-self-referential inputs (e.g. opendir(".")
+   * resolves sandbox/. -> sandbox), leaving the result one byte
+   * shorter than sandbox_dir_len. Re-add the slash in that case so
+   * the boundary check below still treats sandbox itself as in-bounds. */
+  if (norm_len + 1 == state->sandbox_dir_len &&
+      state->sandbox_dir[norm_len] == '/' &&
+      memcmp(state->path_buf, state->sandbox_dir, norm_len) == 0) {
+    state->path_buf[norm_len++] = '/';
+    state->path_buf[norm_len] = '\0';
+  }
+
   /* Verify result is still in sandbox */
   if (norm_len < state->sandbox_dir_len ||
       memcmp(state->path_buf, state->sandbox_dir, state->sandbox_dir_len) !=
