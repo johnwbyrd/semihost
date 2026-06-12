@@ -603,6 +603,15 @@ static void test_platform_config_no_cnfg() {
   CHECK((H.Dev.read(ZBC_REG_STATUS) & ZBC_STATUS_PROTO_ERROR) == 0);
 }
 
+// Force-unbuffer stdout so a crash points at the failing test in CI logs.
+// Without this, Windows block-buffers stdout and the post-mortem only shows
+// the last fflush()ed line, which is misleading when the crash is in a
+// later test.
+struct UnbufferStdout {
+  UnbufferStdout() { std::setvbuf(stdout, nullptr, _IONBF, 0); }
+};
+static UnbufferStdout g_unbuffer_stdout;
+
 int main() {
   std::printf("=== C++ host library tests ===\n");
   test_write0_console();

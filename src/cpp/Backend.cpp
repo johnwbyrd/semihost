@@ -366,12 +366,12 @@ OpResult FileBackend::fstat(int FD) {
   }
   // Flush stdio so st_size reflects everything the caller has written.
   std::fflush(FP);
+  // Use plain fstat / struct stat on both platforms. MSVC aliases fstat
+  // to the size-matched _fstat32i64 / _fstat64i32 (matching struct stat),
+  // so we don't have to pick the variant ourselves; passing a struct
+  // stat to _fstat64 would write past the buffer and trip 0xC0000409.
   struct stat St;
-#ifdef _WIN32
-  if (::_fstat64(::_fileno(FP), (struct _stat64 *)&St) != 0) {
-#else
   if (::fstat(::fileno(FP), &St) != 0) {
-#endif
     LastErrno = errno;
     return OpResult::error(errno);
   }
