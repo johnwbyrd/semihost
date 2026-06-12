@@ -89,4 +89,4 @@ jobs:
         run: cmake --build build
 
       - name: Run all QEMU target tests
-        run: ctest --test-dir build -L qemu --output-on-failure
+        run: ctest --test-dir build -L qemu --output-on-failure -V
