@@ -59,3 +59,34 @@ jobs:
 
       - name: Test
         run: ctest --test-dir build --output-on-failure -V
+
+  # Cross-compile and run the on-target test suite under QEMU. Each
+  # platform's test/target/platforms/<arch>/platform.cmake decides at
+  # configure time whether its toolchain + emulator are available and
+  # silently skips itself if not, so adding a new QEMU platform never
+  # requires editing this job -- only the apt list, and only when a
+  # genuinely new ISA family enters the matrix.
+  qemu-target:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install QEMU + cross-compile toolchains
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            qemu-system-misc \
+            qemu-system-arm \
+            qemu-system-x86 \
+            clang \
+            lld
+
+      - name: Configure with target tests
+        run: cmake -B build -DZBC_TARGET_TESTS=ON
+
+      - name: Build all available target ELFs
+        run: cmake --build build
+
+      - name: Run all QEMU target tests
+        run: ctest --test-dir build -L qemu --output-on-failure
