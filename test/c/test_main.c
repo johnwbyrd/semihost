@@ -11,6 +11,7 @@
 /* Test suite runners */
 extern void run_client_builder_tests(void);
 extern void run_transport_tests(void);
+extern void run_composite_tests(void);
 extern void run_virtio_tests(void);
 extern void run_vcon_tests(void);
 extern void run_9p_tests(void);
@@ -29,6 +30,7 @@ int main(int argc, char **argv) {
       printf("\nFilters:\n");
       printf("  builder    - Run client builder tests only\n");
       printf("  transport  - Run transport seam tests only\n");
+      printf("  composite  - Run composite transport tests only\n");
       printf("  virtio     - Run virtio core tests only\n");
       printf("  vcon       - Run virtio-console transport tests only\n");
       printf("  9p         - Run virtio-9p transport tests only\n");
@@ -51,6 +53,10 @@ int main(int argc, char **argv) {
 
   if (!filter || strcmp(filter, "transport") == 0) {
     run_transport_tests();
+  }
+
+  if (!filter || strcmp(filter, "composite") == 0) {
+    run_composite_tests();
   }
 
   if (!filter || strcmp(filter, "virtio") == 0) {

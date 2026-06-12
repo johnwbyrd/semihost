@@ -9,6 +9,7 @@ add_executable(zbc_tests
     ${CMAKE_CURRENT_SOURCE_DIR}/../common/mock_9p.c
     test_client_builder.c
     test_transport.c
+    test_composite.c
     test_virtio.c
     test_vcon.c
     test_9p.c
