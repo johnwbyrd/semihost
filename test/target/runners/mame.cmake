@@ -77,10 +77,18 @@ function(add_mame_test name elf_path machine)
         COMMAND ${TEST_COMMAND}
     )
 
+    # Grade by stdout, mirroring the QEMU runner. MAME unconditionally
+    # exits 0 regardless of the guest's behavior (the share-directory
+    # sandbox keeps it alive even when guest tests fail), so without a
+    # stdout matcher MAME tests would always appear "passing" no matter
+    # how many sub-tests inside the harness reported FAIL. The harness
+    # always prints "RESULT: PASS" or "RESULT: FAIL" before SYS_EXIT.
     set_tests_properties(${name} PROPERTIES
         LABELS "target;mame;${machine}"
         TIMEOUT ${ARG_TIMEOUT}
         ENVIRONMENT "HOME=$ENV{HOME}"
+        PASS_REGULAR_EXPRESSION "RESULT: PASS"
+        FAIL_REGULAR_EXPRESSION "RESULT: FAIL"
     )
 
     message(STATUS "Registered MAME test: ${name} (${machine})")
