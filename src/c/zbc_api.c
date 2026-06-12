@@ -255,15 +255,13 @@ int zbc_api_readdir(zbc_api_t *api, int handle, zbc_dir_entry_t *out) {
         return 1; /* caller didn't want the decoded entry */
     }
 
-    /* Unpack the SH_SYS_READDIR wire layout into the native struct. */
+    /* Unpack the SH_SYS_READDIR wire layout into the native struct.
+     * name_len is uint8_t (max 255) and out->d_name is char[256], so
+     * the trailing NUL always fits without a runtime check. */
     out->d_ino = stat_unpack_u64(raw + 0);
     out->d_type = raw[8];
     name_len = raw[9];
     out->d_namlen = name_len;
-    /* Defensive: clamp to fit; the wire bound is 255 + NUL. */
-    if (name_len >= sizeof(out->d_name)) {
-        name_len = (uint8_t)(sizeof(out->d_name) - 1);
-    }
     for (i = 0; i < name_len; i++) {
         out->d_name[i] = (char)raw[10 + i];
     }
