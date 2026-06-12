@@ -28,7 +28,7 @@ if(NOT ZBC_RUNNER_MAME_FOUND AND NOT ZBC_RUNNER_QEMU_FOUND)
 endif()
 
 # Supported platforms
-set(ZBC_SUPPORTED_PLATFORMS i386 m6502 riscv32 riscv64 aarch64 microvm)
+set(ZBC_SUPPORTED_PLATFORMS i386 m6502 riscv32 riscv64 aarch64 arm microvm)
 
 # Allow user to specify platforms, default to all
 if(NOT ZBC_TARGET_PLATFORMS)
