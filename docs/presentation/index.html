@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Zero Board Computer &mdash; Semihosting for Any CPU</title>
+
+  <!-- reveal.js core + theme (CDN) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/theme/black.css" id="theme">
+  <!-- code highlighting -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/highlight/monokai.css">
+
+  <style>
+    :root {
+      --zbc-accent: #4fc3f7;
+      --zbc-warn:   #ffb74d;
+      --zbc-good:   #81c784;
+    }
+    .reveal h1, .reveal h2, .reveal h3 { letter-spacing: -0.01em; }
+    .reveal h2 { font-size: 1.5em; }
+    .reveal .accent { color: var(--zbc-accent); }
+    .reveal .warn   { color: var(--zbc-warn); }
+    .reveal .good   { color: var(--zbc-good); }
+    .reveal .muted  { color: #9aa7b1; }
+    .reveal .tagline { font-size: 1.05em; line-height: 1.35; }
+    .reveal .small  { font-size: 0.78em; }
+    .reveal .smaller{ font-size: 0.66em; }
+    .reveal table { font-size: 0.66em; }
+    .reveal table td, .reveal table th { padding: 0.18em 0.5em; }
+    .reveal pre { width: 100%; box-shadow: none; font-size: 0.52em; }
+    .reveal pre code { max-height: 480px; padding: 0.9em; border-radius: 6px; }
+    .reveal .cols { display: flex; gap: 1.1em; align-items: flex-start; }
+    .reveal .cols > div { flex: 1; }
+    .reveal .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px; padding: 0.6em 0.85em; text-align: left;
+    }
+    .reveal .card + .card { margin-top: 0.5em; }
+    .reveal .kicker {
+      text-transform: uppercase; letter-spacing: 0.18em;
+      font-size: 0.5em; color: var(--zbc-accent); margin-bottom: 0.3em;
+    }
+    .reveal section img { border: none; box-shadow: none; }
+    .reveal .footer {
+      position: fixed; bottom: 8px; left: 14px;
+      font-size: 13px; color: #62707a; z-index: 30;
+    }
+    .reveal ul.tight li, .reveal ol.tight li { margin: 0.18em 0; }
+    .reveal .big { font-size: 1.3em; line-height: 1.2; }
+    .reveal .lead { font-size: 1.15em; }
+  </style>
+</head>
+<body>
+<div class="footer">Zero Board Computer &middot; zeroboardcomputer.com</div>
+<div class="reveal">
+<div class="slides">
+
+<!-- ===================================================== 1. TITLE -->
+<section data-background-gradient="radial-gradient(circle at 30% 30%, #14313f, #0b0b0b)">
+  <div class="kicker">An introduction</div>
+  <h1 class="accent" style="font-size:1.9em;">Zero Board Computer</h1>
+  <p class="tagline">
+    Working <code>printf</code>, <code>fopen</code>, and a real filesystem<br>
+    on <strong>any CPU</strong> &mdash; real, emulated, or yet to be designed.
+  </p>
+  <p class="muted small">On day one. Before any hardware exists.</p>
+  <aside class="notes">
+    Thanks for coming. I want to make you a promise up front, and then spend the
+    next half hour earning it. The promise is this: a working printf, a real
+    fopen, an actual filesystem &mdash; on any processor you can name. Silicon on
+    your bench, a core inside an emulator, or a chip nobody has designed yet. And
+    you get all of it on day one, before you've written a single device driver.
+    The way that works is almost suspiciously simple: the processor talks to the
+    outside world through nothing but ordinary memory reads and writes. That's the
+    whole trick, and it's why I can say &mdash; and I'll keep coming back to this
+    line all talk &mdash; if the CPU can load and store, this works. Let's start
+    with the name, because the name tells you exactly what the thing is.
+  </aside>
+</section>
+
+<!-- ===================================================== 2. THE NAME -->
+<section>
+  <div class="kicker">First, the name</div>
+  <h2>Why &ldquo;<span class="accent">Zero</span> Board Computer&rdquo;?</h2>
+  <p class="lead">A <strong>Single</strong> Board Computer &mdash; Raspberry Pi, BeagleBone &mdash; is a whole computer on <em>one</em> circuit board.</p>
+  <p class="fragment lead">A <strong class="accent">Zero</strong> Board Computer needs <em>zero</em> boards.</p>
+  <aside class="notes">
+    So &mdash; why &ldquo;Zero Board Computer&rdquo;? The name is a play on a term
+    you already know. A Single Board Computer &mdash; a Raspberry Pi, a BeagleBone
+    &mdash; is a complete, working computer on one circuit board. That was the
+    whole selling point: take what used to be a backplane full of cards and
+    collapse it down to a single board. Now just follow that trend one more step.
+    If a single board is the goal, what's past it? Zero boards. That's the name.
+    It's what you get when you keep stripping support hardware away until there's
+    nothing left to strip. Which raises an obvious question &mdash; if there's no
+    board, then where do the peripherals actually live? The disk, the console, the
+    clock? Hold that thought for one slide.
+  </aside>
+</section>
+
+<!-- ===================================================== 3. THE NAME, PAYOFF -->
+<section>
+  <h2>The board is <span class="accent">nowhere</span></h2>
+  <ul class="tight lead">
+    <li class="fragment">The peripherals aren't on a board &mdash; they're <strong>borrowed from a host</strong>.</li>
+    <li class="fragment">The only &ldquo;hardware&rdquo; the guest sees is a tiny memory window.</li>
+    <li class="fragment">It's the working computer you have <strong>before any board exists</strong>.</li>
+  </ul>
+  <p class="fragment big good" style="margin-top:0.6em;">A console, a filesystem, a clock &mdash; and nothing to bring up.</p>
+  <aside class="notes">
+    Here's the answer. The peripherals aren't on a board at all &mdash; they're
+    borrowed from a host machine. Your laptop. The emulator. The workstation
+    driving your prototype. The guest doesn't own a disk; it borrows the host's
+    disk. It doesn't own a terminal; it borrows the host's terminal. From the
+    guest's side there is no peripheral hardware &mdash; just a small window of
+    memory it reads and writes, and everything real happens on the far side of
+    that window. So what you end up with is a fully usable computer &mdash;
+    storage, a console, a clock &mdash; with zero boards of support hardware for
+    you to design, fabricate, or debug. And that matters most precisely when you
+    don't have any of that hardware yet. Which is the situation I want to talk
+    about next, because every one of you has been stuck in it.
+  </aside>
+</section>
+
+<!-- ===================================================== 4. THE PAIN -->
+<section>
+  <h2>The six-week tax</h2>
+  <p class="tagline">Every new chip, board, or prototype starts the same way:</p>
+  <ul class="tight lead">
+    <li class="fragment">Can't debug firmware until the <span class="warn">serial port</span> works.</li>
+    <li class="fragment">Can't test the filesystem until the <span class="warn">flash driver</span> works.</li>
+    <li class="fragment">Can't validate the timer until you can <span class="warn">read the clock back</span>.</li>
+  </ul>
+  <aside class="notes">
+    Every new chip, every new board, every prototype starts in the same hole.
+    It's a chicken-and-egg problem. You want to debug your firmware &mdash; but the
+    only window you have into it is the serial port, and the serial-port driver is
+    itself unproven firmware you can't see into yet. You want to test your storage
+    &mdash; but that needs the flash driver, which needs the very debugging you
+    don't have. You want to trust your timer &mdash; but you can't even confirm
+    it's counting until you've built a way to read the clock back out, and that's
+    its own little project. Notice the pattern: nobody's product is &ldquo;bring up
+    a UART.&rdquo; That work ships nothing. It's pure scaffolding. And it's where
+    the first month of every hardware project quietly disappears.
+  </aside>
+</section>
+
+<!-- ===================================================== 5. THE PAIN, PUNCH -->
+<section data-background-gradient="radial-gradient(circle at 50% 40%, #3a2410, #0b0b0b)">
+  <p class="big accent">The first six weeks go to fighting your way to a working <code>printf</code>.</p>
+  <p class="fragment muted lead" style="margin-top:0.8em;">Not the product. Not the silicon. Just trying to <em>see</em> what your code is doing &mdash; redone by every team, on every project, for decades.</p>
+  <aside class="notes">
+    And it all collapses into one blunt sentence: the first six weeks go to
+    fighting your way to a working printf. &ldquo;A working printf&rdquo; is really
+    shorthand for the first moment the machine talks back &mdash; the first time
+    you can see what your code is doing. Until then you're flying completely blind.
+    And none of that six weeks is the product. It isn't validating your silicon,
+    it isn't exercising your design, it isn't testing your algorithm. Worse, it
+    doesn't get cheaper &mdash; it isn't a problem somebody solves once. It gets
+    re-paid, in full, by every team, on every chip, for decades. So the honest
+    question is: why are we all still paying this? What if printf, and fopen, and a
+    clock were simply there, on the first power-on? To explain how, I have to
+    introduce one old idea.
+  </aside>
+</section>
+
+<!-- ===================================================== 6. WHAT IS SEMIHOSTING -->
+<section>
+  <h2>What is <span class="accent">semihosting</span>?</h2>
+  <p class="lead">Borrow the host's I/O instead of building your own.</p>
+  <div class="card fragment lead">
+    The program on the target doesn't open files or print characters itself &mdash;
+    it asks a <strong>host machine</strong> (your laptop, the emulator, a debugger)
+    to do it on its behalf.
+  </div>
+  <aside class="notes">
+    That idea is semihosting. The definition is simple: instead of the target
+    doing its own input and output, it borrows the host's. The program on the chip
+    doesn't open the file itself, doesn't push characters to a screen itself
+    &mdash; it asks a host machine, one that already has a real filesystem and a
+    real console and a real clock, to do it on its behalf. The name tells you the
+    shape of it: &ldquo;semi,&rdquo; as in half a host. The target is only half a
+    computer. It runs the code, but it hands the I/O up to a full machine that
+    does the actual work. Concretely, that covers exactly what the bottom of a C
+    library needs: open, close, read, write, and seek a file; read and write the
+    console; ask the time; exit with a status. And I want to be clear &mdash; this
+    is not new or exotic. Semihosting is decades old and completely mainstream.
+    ZBC didn't invent it. ZBC fixes how it's delivered.
+  </aside>
+</section>
+
+<!-- ===================================================== 7. ARM'S VERSION -->
+<section>
+  <h2>ARM did this in <span class="accent">1993</span></h2>
+  <p class="lead">It works &mdash; but it assumes:</p>
+  <ul class="tight lead">
+    <li class="fragment">only <span class="warn">ARM</span> chips,</li>
+    <li class="fragment">only with a <span class="warn">hardware debug probe</span> attached,</li>
+    <li class="fragment">only via ARM-specific <span class="warn">trap instructions</span> a debugger intercepts.</li>
+  </ul>
+  <aside class="notes">
+    To see what needed fixing, look at the canonical version. ARM defined
+    semihosting in the early nineties, and it's genuinely good &mdash; it's still
+    carrying printf for Cortex-M developers today. But it makes three assumptions.
+    First, it only works on ARM chips, because the mechanism is defined in terms
+    of ARM's instruction set &mdash; it simply doesn't exist for a 6502 or a
+    RISC-V core. Second, it needs a hardware debug probe physically attached,
+    because the request gets caught by a debugger over JTAG. No probe, no
+    semihosting. And third, the way the chip signals the host is a special trap
+    instruction &mdash; a deliberate breakpoint that halts the CPU so the debugger
+    can step in. Now, in 1993, every one of those was free. Every target was ARM,
+    every engineer had a probe on the bench, and silicon came before simulation.
+    The design didn't get worse over thirty years. The world changed around it
+    &mdash; and every one of those three assumptions broke.
+  </aside>
+</section>
+
+<!-- ===================================================== 8. THE REFRAME -->
+<section data-background-gradient="radial-gradient(circle at 70% 30%, #14313f, #0b0b0b)">
+  <p class="tagline muted">All three constraints come from <em>how</em> the target signals the host: trap instructions.</p>
+  <p class="fragment big" style="margin:0.7em 0;">Replace the trap with a<br><span class="accent">32&#8209;byte memory&#8209;mapped device</span>.</p>
+  <p class="fragment lead">If the CPU can <strong>read and write memory</strong> &mdash; and every CPU can, by definition &mdash; it works.</p>
+  <aside class="notes">
+    So here's the insight that frees it. Look at where all three of ARM's
+    constraints come from. They don't come from the I/O services &mdash; those are
+    fine. They all come from one design choice: the signaling mechanism. The trap
+    instruction is what drags in the architecture dependence, the debugger, and
+    the privileged mode. So replace the trap. Instead of a special instruction,
+    put a small device on the bus &mdash; thirty-two bytes of registers, sitting
+    in the memory map like a UART or a clock chip. The chip signals the host by
+    writing to memory instead of by executing a magic instruction. And why is that
+    the right primitive? Because reading and writing memory is the one thing every
+    CPU can do, by definition. An eight-bit micro, a sixty-four-bit server chip, a
+    processor that won't tape out until next year &mdash; there is no CPU that runs
+    code but can't do a load and a store. That's how an idea that was ARM-only
+    becomes genuinely universal. This is the hinge of the whole talk.
+  </aside>
+</section>
+
+<!-- ===================================================== 9. THE REFRAME, GAINS -->
+<section>
+  <h2>What that buys you</h2>
+  <div class="card fragment lead">No special instructions to define.</div>
+  <div class="card fragment lead">No debug probe to attach.</div>
+  <div class="card fragment lead">No privileged execution mode required.</div>
+  <aside class="notes">
+    And look at what falls out of that one substitution &mdash; it's the exact
+    mirror of ARM's three constraints. There's nothing architecture-specific to
+    define, so the same device works for every CPU family, and porting to a new
+    architecture is zero protocol work. There's no debug probe, because the host
+    isn't a debugger catching a trap &mdash; it's a peripheral answering a memory
+    access, so it works in a plain software simulator with nothing attached, and
+    on real hardware with an empty JTAG header. And there's no privileged mode,
+    because loads and stores are just ordinary instructions &mdash; no supervisor
+    state, no exception handler to make a request. The mental model to hold onto is
+    this: the host is a device on the bus, not a debugger interrupting the CPU. The
+    processor stays in control the entire time. Which is exactly why a single
+    request is so simple &mdash; let me show you one.
+  </aside>
+</section>
+
+<!-- ===================================================== 10. THE HANDSHAKE -->
+<section>
+  <h2>The doorbell handshake</h2>
+  <ol class="tight small">
+    <li class="fragment">Guest builds a small <span class="accent">message</span> in its <em>own</em> RAM.</li>
+    <li class="fragment">Writes the buffer address into <code>RIFF_PTR</code>.</li>
+    <li class="fragment">Writes any value to <code>DOORBELL</code> &mdash; the signal.</li>
+    <li class="fragment">Host does the real I/O, writes the response <em>back into the same buffer</em>.</li>
+    <li class="fragment">Host sets <code>RESPONSE_READY</code>; guest polls, then reads its answer.</li>
+  </ol>
+  <aside class="notes">
+    This is the entire protocol &mdash; five steps, and then it repeats. First, the
+    guest builds a small message in its own RAM. That detail matters: the guest
+    owns the buffer, the device never allocates anything, and that's how the client
+    library can promise it never touches the heap. Second, it writes that buffer's
+    address into the RIFF_PTR register, so the host knows where to look. Third, it
+    writes any value at all to the DOORBELL register &mdash; that single write is
+    the &ldquo;go&rdquo; signal; the value doesn't matter, the act of writing does.
+    Fourth, the host reads the request out of guest memory, performs the real file
+    or console operation, and writes the answer back into that same buffer. And
+    fifth, the host sets a &ldquo;response ready&rdquo; bit in the status register;
+    the guest, which has been polling that bit, sees it and reads its result. The
+    thing to notice is that the host is completely passive. It does nothing until
+    the doorbell rings, and it never seizes the CPU. Compare that to ARM, where the
+    trap halts the processor. Here, the CPU is always driving.
+  </aside>
+</section>
+
+<!-- ===================================================== 11. THE REGISTER MAP -->
+<section>
+  <h2>The whole device: <span class="accent">32 bytes</span></h2>
+  <table>
+    <tr><th>Offset</th><th>Register</th><th>Meaning</th></tr>
+    <tr><td>0x00</td><td>SIGNATURE</td><td>ASCII <code>"SEMIHOST"</code> &mdash; how guests find it</td></tr>
+    <tr><td>0x08</td><td>RIFF_PTR</td><td>16 bytes: address of the message buffer</td></tr>
+    <tr><td>0x18</td><td>DOORBELL</td><td>write any value &rarr; trigger</td></tr>
+    <tr><td>0x19</td><td>STATUS</td><td>bitmask: TIMER / RESPONSE_READY / PROTO_ERROR</td></tr>
+    <tr><td>0x1A</td><td>ERROR_CODE</td><td>protocol errors, without touching guest RAM</td></tr>
+  </table>
+  <aside class="notes">
+    And here is that device in full. This table is the entire hardware surface
+    &mdash; thirty-two bytes. That's the whole thing a chip designer or an emulator
+    author has to build. Let me walk it. SIGNATURE is eight ASCII bytes spelling
+    &ldquo;SEMIHOST&rdquo; &mdash; it's how a guest discovers the device: read this
+    address, see the magic string, and you know ZBC is present. Remember that one;
+    it comes back later. RIFF_PTR is where the message lives, and it's a full
+    sixteen bytes wide on purpose &mdash; that's room for a 128-bit pointer. A 6502
+    just writes the low two bytes and ignores the rest. The register is sized for
+    the widest CPU imaginable, not for the machine the implementer happens to own.
+    DOORBELL is the trigger we just saw. STATUS is a bitmask, not one flag: a timer
+    bit, a response-ready bit, and a protocol-error bit. And ERROR_CODE is a small
+    safety feature &mdash; when a request is so broken the host can't even parse
+    it, the host reports that here, in its own register, instead of scribbling into
+    the guest's memory. A malformed request can't corrupt the guest. So that's the
+    hardware. Now &mdash; what's actually inside that buffer?
+  </aside>
+</section>
+
+<!-- ===================================================== 12. THE MESSAGE: RIFF -->
+<section>
+  <h2>The message is <span class="accent">RIFF</span></h2>
+  <p class="small muted">A tagged container &mdash; the same family as WAV and AVI files.</p>
+  <pre><code data-trim data-noescape class="language-text">
+RIFF  ....  SEMI                 &lt;- container, form type "SEMI"
+  CNFG  int_size ptr_size endian  &lt;- guest declares its architecture
+  CALL  opcode = 0x05 (SYS_WRITE) &lt;- the request
+    PARM  fd = 1
+    DATA  "Hello, world!\n"
+    PARM  length = 14
+  </code></pre>
+  <p class="fragment small">Host overwrites <code>CALL</code> with a <code>RETN</code> (result + errno), in place.</p>
+  <aside class="notes">
+    The message is RIFF &mdash; the same tagged container format behind WAV and AVI
+    files. I want to justify that choice for a second, because reusing a boring old
+    format is the point. RIFF is just a stream of chunks: each one has a
+    four-character tag, a length, and a payload. It's self-describing and trivially
+    extensible &mdash; add a new chunk type and old parsers simply skip what they
+    don't recognize. There's no clever new binary format to get subtly wrong. Read
+    the example top to bottom. The outer RIFF container is tagged &ldquo;SEMI,&rdquo;
+    for semihosting. The first chunk is always CNFG &mdash; that's the guest
+    announcing who it is: my integer size, my pointer size, my byte order.
+    Everything after gets interpreted through that declaration, and it's the setup
+    for the most important idea in this talk, two slides from now. Then CALL
+    carries the opcode &mdash; here, five, which is write. Inside it: a parameter
+    for the file descriptor, a data chunk with the actual bytes, and a parameter
+    for the length. When the host finishes, it overwrites that CALL chunk with a
+    RETN chunk &mdash; the result and an error number &mdash; right there in the
+    same buffer. Request in, response out, same memory, no allocation anywhere.
+  </aside>
+</section>
+
+<!-- ===================================================== 13. ENDIANNESS NOTE -->
+<section>
+  <h2>One subtlety: <span class="accent">endianness</span></h2>
+  <div class="cols">
+    <div class="card fragment">
+      <strong class="accent">RIFF headers</strong>
+      <p class="small">Always little-endian &mdash; that's RIFF's own rule.</p>
+    </div>
+    <div class="card fragment">
+      <strong class="warn">Payload values</strong>
+      <p class="small">The guest's <em>declared</em> endianness, from CNFG.</p>
+    </div>
+  </div>
+  <p class="fragment lead" style="margin-top:0.7em;">The container is fixed. The contents speak the guest's language.</p>
+  <aside class="notes">
+    One subtlety is worth thirty seconds, because it's exactly where a
+    cross-architecture protocol usually goes wrong: endianness. There are two
+    different rules here, on purpose. The RIFF frame itself &mdash; the chunk tags
+    and the length fields &mdash; is always little-endian. That's RIFF's own rule,
+    inherited from WAV and AVI, and ZBC keeps it unchanged, so the structural bytes
+    look the same no matter who's talking. But the values inside &mdash; the actual
+    integers and pointers, the return values &mdash; use the guest's own declared
+    endianness, the one it announced in CNFG. A big-endian 68000 encodes its file
+    descriptor big-endian; a little-endian 6502 encodes its little-endian. The
+    picture to hold is: the envelope is written in one fixed language so any host
+    can route it, but the letter inside is written in the guest's native language.
+    A big-endian guest byteswaps the envelope through shared helpers &mdash; it
+    never has to reformat its own data. Container fixed, contents native. That's
+    the whole rule.
+  </aside>
+</section>
+
+<!-- ===================================================== 14. WIDTH NEUTRALITY (thesis) -->
+<section data-background-gradient="radial-gradient(circle at 70% 30%, #1b2e14, #0b0b0b)">
+  <div class="kicker">The thesis</div>
+  <h2>Width neutrality <span class="muted">is</span> the product</h2>
+  <p class="big" style="margin-top:0.5em;">The guest <span class="accent">declares</span> its int size, pointer size, and byte order.</p>
+  <p class="fragment big good">The host honors what the guest says.</p>
+  <aside class="notes">
+    If you remember one slide from today, make it this one. Everything else &mdash;
+    the device, the RIFF format &mdash; is mechanism. This is the point. The
+    protocol never assumes a width. It doesn't bake in thirty-two bits, or
+    sixty-four, or any number at all. Instead the guest declares its parameters
+    &mdash; integer size, pointer size, byte order &mdash; and the host simply
+    honors whatever the guest said. Width is negotiated, never assumed. And that's
+    the reason this is a protocol and not just a library. A library you could fork
+    and tweak. But declared widths mean a guest written today and a host written by
+    someone else, years later, in another language, still interoperate &mdash;
+    because the width travels on the wire, from the guest, not from anyone's source
+    code. The project states this as a hard rule: any part of the system that
+    assumes a specific bit width is treated as a defect to be removed. The only
+    legitimate sources of a width are the wire format's own fields and the guest's
+    declaration. Never the implementer's habits. Never &ldquo;thirty-two bits is
+    plenty.&rdquo; Let me make that concrete.
+  </aside>
+</section>
+
+<!-- ===================================================== 15. WIDTH NEUTRALITY (example) -->
+<section>
+  <h2>Same protocol, different sizes</h2>
+  <div class="cols">
+    <div class="card fragment">
+      <strong class="accent">8-bit 6502</strong>
+      <p class="small">int = 2 &middot; ptr = 2 &middot; <span class="good">little-endian</span></p>
+    </div>
+    <div class="card fragment">
+      <strong class="accent">64-bit, big-endian</strong>
+      <p class="small">int = 4 &middot; ptr = 8 &middot; <span class="good">big-endian</span></p>
+    </div>
+  </div>
+  <p class="fragment lead" style="margin-top:0.7em;">They speak the <strong>same</strong> wire protocol. They just fill in different fields.</p>
+  <aside class="notes">
+    Take two machines that could hardly be more different. On the left, a 6502
+    &mdash; a 1975 eight-bit chip with sixteen-bit pointers, little-endian. Its
+    CNFG says: integer two bytes, pointer two bytes, little-endian. On the right, a
+    modern sixty-four-bit core that happens to be big-endian. Its CNFG says:
+    integer four bytes, pointer eight bytes, big-endian. And notice there that the
+    integer and the pointer are different sizes &mdash; the protocol handles that
+    fine, because every parameter knows whether it's an integer or a pointer and is
+    sized accordingly. Here's the payoff: those two machines &mdash; forty-some
+    years apart, a factor of eight in width, opposite byte orders &mdash; speak the
+    identical wire protocol. Not a small-chip dialect and a big-chip dialect. The
+    same protocol. They just write different numbers into the same CNFG fields, and
+    every host reads those fields and adapts. And this isn't hypothetical &mdash;
+    the project runs live on-target tests at both ends of that range, so the
+    interoperability is continuously proven, not just promised. And taking width
+    seriously buys you something you might not expect.
+  </aside>
+</section>
+
+<!-- ===================================================== 16. WIDTH NEUTRALITY (payoff) -->
+<section>
+  <h2>Why it matters, concretely</h2>
+  <p class="lead">A 16-bit guest can stream sequentially through a file <strong class="accent">larger than its own address space</strong>.</p>
+  <p class="fragment lead good" style="margin-top:0.7em;">That's a <em>core use case</em> &mdash; not an edge case.</p>
+  <aside class="notes">
+    Here's the surprise. Take a sixteen-bit machine. Its entire address space is
+    sixty-four kilobytes &mdash; it physically cannot form a pointer to byte one
+    hundred thousand. And yet it can open a multi-gigabyte file on the host and
+    stream sequentially all the way through it. How? Because the file offset isn't
+    a guest pointer &mdash; it's a value in the protocol, and the protocol carries
+    it at full sixty-four-bit width no matter how small the guest is. The guest
+    reads a chunk into its little buffer, processes it, asks for the next chunk at
+    the next offset. It never has to address the whole file &mdash; only to name
+    positions in it, and sixty-four-bit positions fit on the wire even when they
+    don't fit in the CPU. This is exactly why narrowing is forbidden. If some
+    implementer had stored that offset in a thirty-two-bit integer because
+    &ldquo;who has files that big,&rdquo; they'd have silently capped what every
+    guest can do &mdash; and the tiny guest, the one that needs streaming the most,
+    is the first one to break. So a small chip walking a huge file isn't a clever
+    edge case someone allowed. It's a core use case the design protects on purpose.
+  </aside>
+</section>
+
+<!-- ===================================================== 17. ARM COMPAT -->
+<section>
+  <h2>Standing on ARM's shoulders</h2>
+  <div class="cols">
+    <div>
+      <table>
+        <tr><th>Op</th><th>Name</th></tr>
+        <tr><td>0x01</td><td>SYS_OPEN</td></tr>
+        <tr><td>0x05</td><td>SYS_WRITE</td></tr>
+        <tr><td>0x06</td><td>SYS_READ</td></tr>
+        <tr><td>0x0A</td><td>SYS_SEEK</td></tr>
+        <tr><td>0x18</td><td>SYS_EXIT</td></tr>
+      </table>
+    </div>
+    <div>
+      <ul class="tight small">
+        <li class="fragment">ZBC keeps ARM semihosting's <span class="accent">operation numbers</span>.</li>
+        <li class="fragment"><span class="accent">picolibc</span> and <span class="accent">newlib</span> ports work <strong>nearly unchanged</strong>.</li>
+        <li class="fragment muted">Only the transport changed: traps &rarr; memory. The vocabulary is the same.</li>
+      </ul>
+    </div>
+  </div>
+  <aside class="notes">
+    Now, earlier I made ARM's trap the villain. But ARM got something else exactly
+    right, and ZBC keeps it: the vocabulary. ARM defined a numbering for the
+    operations &mdash; open is one, write is five, read is six, and so on. That
+    numbering is excellent, and ZBC uses it unchanged. And that's a strategic
+    choice, not a lazy one. The bottom layer of real C libraries &mdash; picolibc,
+    newlib &mdash; already knows how to speak these exact call numbers. So by
+    keeping them, ZBC lets that battle-tested library code work nearly unchanged.
+    You're not rewriting libc; you swap only the handful of instructions at the
+    very bottom that actually deliver the request. So the one-line summary is: only
+    the transport changed &mdash; traps became memory accesses &mdash; and the
+    vocabulary stayed the same. You get the universality of the new transport and
+    decades of accumulated library work, for free. And keep that opcode
+    compatibility in mind, because it pays off again in a few slides in a way you
+    won't see coming.
+  </aside>
+</section>
+
+<!-- ===================================================== 18. TRANSPORTS (invariant) -->
+<section data-background-gradient="radial-gradient(circle at 30% 30%, #1a1430, #0b0b0b)">
+  <div class="kicker">It's not one wire</div>
+  <h2>One binary, <span class="accent">many hosts</span></h2>
+  <p class="lead">The invariant is the <strong>guest-facing API</strong>, not the wire underneath it.</p>
+  <p class="fragment lead">Build once against <code>zbc_call()</code> &mdash; the <em>same</em> binary runs across very different machines, each with its own transport.</p>
+  <aside class="notes">
+    Okay &mdash; change of gear. Everything so far has been one device, one wire:
+    the RIFF doorbell peripheral. Now I want to widen the picture. The RIFF device
+    is still the canonical wire, but it turns out to be just one of several ways a
+    guest can reach a host. And here's the key idea: the thing that stays constant
+    isn't the wire &mdash; it's the guest-facing API. Your firmware calls the same
+    functions regardless. Underneath that call sits a swappable
+    &ldquo;transport&rdquo; that decides how the request actually gets to a host.
+    So the same compiled binary &mdash; not recompiled, the same bytes &mdash; can
+    run on machines that have nothing in common, because at startup the library
+    detects which transport is available and uses it. If you've ever written a
+    program that opens &ldquo;a file&rdquo; without caring whether it's a local
+    disk or a network share or a pipe &mdash; same call, different plumbing,
+    chosen at runtime &mdash; that's exactly the move here. So what are the
+    transports?
+  </aside>
+</section>
+
+<!-- ===================================================== 19. TRANSPORTS (the three) -->
+<section>
+  <h2>Three ways to reach the host</h2>
+  <div class="card fragment">
+    <strong class="accent">RIFF device</strong> &mdash; the 32-byte doorbell peripheral.
+    <span class="smaller muted">MAME, a patched QEMU, real silicon.</span>
+  </div>
+  <div class="card fragment">
+    <strong class="accent">virtio</strong> &mdash; the guest carries drivers.
+    <span class="smaller muted">Stock QEMU, unmodified. (next slides)</span>
+  </div>
+  <div class="card fragment">
+    <strong class="accent">native trap</strong> &mdash; ARM-style semihosting traps.
+    <span class="smaller muted">Build-time option, where the target supports it.</span>
+  </div>
+  <aside class="notes">
+    There are three, and each one is at home somewhere different. The first is the
+    RIFF device &mdash; the doorbell peripheral we just spent the whole talk on.
+    That's what you get on MAME, on a QEMU that's been patched to include the
+    device, and on real silicon. Whenever a native ZBC device exists, it wins. The
+    second is virtio. When a host has no ZBC device at all, the guest can instead
+    carry standard virtio drivers and talk to the host's existing virtio devices
+    &mdash; and that is what makes plain, unmodified QEMU work, which is the next
+    two slides. The third is native trap &mdash; on architectures that already have
+    trap-based semihosting, a build option just uses it, bringing us full circle
+    back to ARM. And one sign this is real engineering: the transports compose. A
+    composite can send console traffic over one and file traffic over another, with
+    a base layer underneath that safely reports &ldquo;not implemented.&rdquo; Now,
+    with multiple wires you'd reasonably worry they behave differently &mdash; so
+    there's an equivalence test suite. The same operation script runs over every
+    transport, and the results, the error numbers, the file-descriptor behavior all
+    have to match. It's the client-side twin of the host conformance test.
+  </aside>
+</section>
+
+<!-- ===================================================== 20. STOCK QEMU -->
+<section>
+  <h2>Runs on <span class="accent">stock QEMU</span> &mdash; today</h2>
+  <p class="lead">No ZBC device, no QEMU patch. The guest brings the drivers:</p>
+  <div class="cols">
+    <div class="card fragment">
+      <strong class="good">virtio-9p</strong>
+      <p class="small">File operations, via QEMU's built-in 9P file server. No external daemon.</p>
+    </div>
+    <div class="card fragment">
+      <strong class="good">virtio-console</strong>
+      <p class="small">Console I/O, on the same virtqueue core.</p>
+    </div>
+  </div>
+  <pre class="fragment"><code data-trim class="language-bash">
+-fsdev local,id=fs0,path=$SHARE,security_model=none \
+-device virtio-9p-device,fsdev=fs0,mount_tag=zbc
+  </code></pre>
+  <aside class="notes">
+    And this is the headline of the second half: it runs on the QEMU you already
+    have installed. No patched fork, no custom build, no kernel. Stock upstream
+    QEMU. Here's how. Stock QEMU has no ZBC device &mdash; so instead of the host
+    carrying the device, the guest carries small standard drivers and talks to
+    devices QEMU already ships. For files, that's virtio-9p. 9P is the Plan 9
+    filesystem protocol, and QEMU has a built-in 9P server, so the guest gets real
+    access to a host directory with no external daemon running. For the console,
+    virtio-console, riding the same underlying machinery. And the reason it's 9P
+    specifically: 9P is a strictly synchronous, one-request-one-reply protocol,
+    which maps almost perfectly onto ZBC's own synchronous call model &mdash; so the
+    translation layer stays tiny. Look at the bottom of the slide &mdash; that's
+    the entire host-side setup. One line to point at a directory, one line to
+    expose it as a device. You can paste those two lines and be running in about
+    two minutes.
+  </aside>
+</section>
+
+<!-- ===================================================== 21. SPEAKS VIRTIO -->
+<section>
+  <h2>If it speaks <span class="accent">virtio</span>, it works</h2>
+  <p class="small muted">Any machine exposing modern virtio-mmio &mdash; the library scans for it at startup.</p>
+  <table>
+    <tr><th>QEMU machine</th><th>Arch</th><th>virtio-mmio window</th></tr>
+    <tr><td><code>virt</code></td><td>ARM / AArch64</td><td>0x0a000000</td></tr>
+    <tr><td><code>virt</code></td><td>RISC-V (rv32 &amp; rv64)</td><td>0x10001000</td></tr>
+    <tr><td><code>microvm</code></td><td>x86</td><td>0xfeb00000</td></tr>
+  </table>
+  <aside class="notes">
+    Now let me say that more broadly, because I said &ldquo;QEMU&rdquo; but the real
+    claim is bigger: if a machine exposes a standard virtio device over
+    memory-mapped I/O, ZBC's guest drivers can use it. virtio is the de-facto
+    standard for paravirtual devices &mdash; so this is less a QEMU integration than
+    a virtio integration that QEMU happens to provide. The table is just &ldquo;the
+    major architectures, covered&rdquo;: ARM and AArch64 on the virt machine,
+    thirty-two and sixty-four-bit RISC-V on virt, and x86 on microvm. The hex
+    column is simply where each machine parks its virtio register window. And
+    discovery ties right back to that SIGNATURE register from earlier. At startup
+    the library probes in order: first it reads the device base and looks for the
+    &ldquo;SEMIHOST&rdquo; signature; if that's missing, it scans the virtio window
+    for a live console or filesystem device; and if it finds nothing at all, it
+    falls back to a transport where every call fails immediately and cleanly. It
+    never hangs, and it never guesses &mdash; the whole thing is signature-driven,
+    which is exactly what that register was for. One quick note in case you're
+    wondering why x86 says microvm and not the usual pc: virtio over PCI would drag
+    in bus enumeration, exactly the per-platform complexity this project refuses to
+    grow, so microvm &mdash; which exposes virtio over memory &mdash; is the
+    supported x86 machine.
+  </aside>
+</section>
+
+<!-- ===================================================== 22. TRAP TRANSPORT -->
+<section>
+  <h2>Or QEMU's own <span class="accent">trap</span> semihosting</h2>
+  <p class="lead">On ARM, AArch64, RISC-V, MIPS, m68k, Xtensa, a build-time shim routes everything through QEMU's <code>-semihosting</code>.</p>
+  <ul class="tight small">
+    <li class="fragment">Covers the <strong>entire</strong> operation set with zero guest driver code.</li>
+    <li class="fragment">~10 instructions per architecture &mdash; opcode + pointer in registers, then the trap.</li>
+    <li class="fragment muted">Build-time only: a trap on a non-semihosting host faults, so it's never auto-probed.</li>
+  </ul>
+  <aside class="notes">
+    And here's the full-circle moment I promised. We opened by treating ARM's trap
+    as the villain. But because ZBC kept ARM's opcode numbers, QEMU's own built-in
+    trap semihosting just becomes another transport we can plug in for free. The
+    very thing we replaced, we can also reuse wherever it's already there. It
+    applies to the architectures QEMU implements traps for &mdash; ARM, AArch64,
+    RISC-V, MIPS, m68k, Xtensa. On those, you start QEMU with one flag, and a tiny
+    per-architecture shim &mdash; about ten instructions &mdash; drops the opcode
+    and a pointer into the right registers, executes the trap, and reads the result
+    back. Its big advantage is coverage: it handles the entire operation set, files
+    and console and time and exit, with zero guest driver code and nothing to
+    configure beyond that flag. The one honest caveat: unlike the others, this
+    transport can't be safely auto-detected. To test whether trap semihosting is
+    present, you'd have to execute the trap &mdash; and if it isn't present, that
+    raises a CPU exception. Probing for it could crash you. So it's a deliberate
+    build-time choice, never part of the runtime probe.
+  </aside>
+</section>
+
+<!-- ===================================================== 23. PROOF (a) -->
+<section>
+  <h2>This is not a sketch</h2>
+  <div class="card fragment">
+    <strong class="good">Two reference hosts, proven equal</strong>
+    <p class="small">C90 (zero heap, statically verified) and C++17 &mdash; <strong>byte-for-byte conformance-tested</strong> against each other on every CI run.</p>
+  </div>
+  <div class="card fragment">
+    <strong class="good">200+ machines in MAME</strong>
+    <p class="small">Drop a binary into an emulated 6502, Z80, or 68000 and it reads files off your laptop. No driver work at all.</p>
+  </div>
+  <aside class="notes">
+    Let me switch from pitch to evidence, because you've heard the idea &mdash; now
+    I want to show it's not vaporware. There are two reference host libraries: one
+    in C90, one in C++17, written independently. And a conformance test feeds both
+    the same requests and checks that their responses are identical, byte for byte,
+    on every CI run. That's how you know the specification is real and unambiguous
+    &mdash; two separate implementations come out provably interchangeable. The C
+    one also allocates zero heap, statically verified, so it fits on an eight-bit
+    micro with a few kilobytes of RAM. And here's the detail that tends to make
+    people sit up: MAME already ships ZBC machines for over two hundred vintage
+    systems &mdash; home computers, arcade boards, classic minis. You can take a
+    cross-compiled binary, drop it into an emulated 6502 or Z80 or 68000, and that
+    1979 machine reads files off your 2026 laptop. No serial driver, no storage
+    driver, no filesystem code &mdash; none of the bring-up tax from the start of
+    this talk. And it's tested at both ends of the spectrum at once.
+  </aside>
+</section>
+
+<!-- ===================================================== 24. PROOF (b) -->
+<section>
+  <h2>Tested at both extremes</h2>
+  <div class="card fragment">
+    <strong class="good">One test binary, two emulators, many transports</strong>
+    <p class="small">The same program runs on MAME's 6502 &amp; i386 (RIFF) and QEMU's RISC-V, ARM, AArch64 &amp; x86 microvm (virtio) &mdash; live, every push.</p>
+  </div>
+  <div class="card fragment">
+    <strong class="good">Hardened</strong>
+    <p class="small">Continuous RIFF-parser fuzzing, ASan/UBSan, optional seccomp sandbox, directory-jail backends.</p>
+  </div>
+  <aside class="notes">
+    This is the slide that ties the whole talk together. One test program, written
+    once against the client API, runs unmodified across all of this: MAME's
+    eight-bit 6502 and thirty-two-bit i386 over the RIFF transport, and QEMU's
+    RISC-V, ARM, AArch64, and x86 microvm over the virtio transport. One binary,
+    two emulators, multiple transports, eight-bit through sixty-four-bit &mdash; and
+    it runs live on every push, not as a one-time demo. That matrix is the thesis
+    made executable: width neutrality and transport independence stop being slogans
+    the moment the same program keeps passing across that whole spread
+    automatically. Now I should address the obvious worry &mdash; security.
+    Semihosting is powerful by definition; guest code is reaching into host files.
+    So the project takes that seriously. The RIFF parser, which is the part that
+    eats untrusted input, is continuously fuzzed. The sanitizers gate every push.
+    There's an optional seccomp sandbox that strips the host process down to just
+    the syscalls semihosting needs. And the file backend can be jailed to a single
+    directory with path-traversal blocked. You pick a backend and a policy to match
+    your threat model &mdash; from &ldquo;trusted test code, full access&rdquo; all
+    the way to &ldquo;untrusted guest, locked box.&rdquo;
+  </aside>
+</section>
+
+<!-- ===================================================== 25. WHO (a) -->
+<section>
+  <h2>Is this for you?</h2>
+  <div class="card fragment">
+    <strong class="accent">Bringing up a new board</strong>
+    <p class="small">Add 32 bytes of decode to your bus. Your firmware has <code>printf</code>, <code>fopen</code>, <code>time()</code> before the board is back from the factory.</p>
+  </div>
+  <div class="card fragment">
+    <strong class="accent">Hobbyist with an old chip</strong>
+    <p class="small">Soldered a 6502 to perfboard? Give it a real filesystem this afternoon &mdash; the same binary runs on the physical board later.</p>
+  </div>
+  <aside class="notes">
+    So &mdash; is this for you? Let me get specific, because there are a few
+    different people in this room. If you're bringing up a new board, you're the
+    one dreading the first month. You don't have to write the serial driver, or the
+    flash driver, or the throwaway logging hack you always end up building. Add
+    thirty-two bytes of address decode to your bus &mdash; or just link the host
+    library into your emulator &mdash; and your firmware has printf and fopen and
+    time of day before the physical board is even back from fabrication. Silicon
+    stops blocking software. And if you're a hobbyist &mdash; you soldered a 6502 or
+    a Z80 onto perfboard and you want it to do something real today &mdash; run it
+    in MAME, give it a real filesystem this afternoon, and here's the part that
+    matters: when your physical board is ready, you point the client library at the
+    address you wired in, and the same binary just runs. There's no &ldquo;emulator
+    version&rdquo; and &ldquo;hardware version.&rdquo; One binary, emulator first,
+    hardware later, no divergence. But there's a third audience where the payoff is
+    measured in calendar quarters.
+  </aside>
+</section>
+
+<!-- ===================================================== 26. WHO (b) -->
+<section>
+  <h2>Especially: a new chip program</h2>
+  <div class="card lead fragment">
+    Firmware starts <strong>day one</strong> against the simulator. Silicon arrival becomes an <em>integration milestone</em>, not a starting gun.
+  </div>
+  <p class="fragment lead good" style="margin-top:0.7em;">A quarter of calendar time recovered. Nothing proprietary introduced.</p>
+  <aside class="notes">
+    And this is the one for whoever owns the schedule. On a new-chip program,
+    firmware is normally blocked on silicon for the first quarter. The team waits
+    for tape-out before they can really begin &mdash; that's a quarter of idle
+    calendar time baked right into the plan. ZBC changes that. Firmware development
+    starts on day one, against the simulator, with full file access and a real
+    console. Silicon arrival stops being the starting gun for firmware and becomes
+    just an integration milestone &mdash; the same firmware, the same tests, the
+    same logs you've already been running, now on real parts. And the reason that's
+    low-risk is the most important technical point here: the entire interface is
+    thirty-two bytes of memory-mapped I/O. The surface is so small that the
+    simulator and the manufactured chip can't meaningfully diverge across it.
+    You're not building an elaborate model that drifts from reality &mdash; you're
+    matching a thirty-two-byte contract. So the business case is simple: about a
+    quarter of calendar time recovered, and nothing proprietary introduced. It's
+    MIT-licensed, the client is tiny C90, there's no vendor SDK and nothing to sign.
+  </aside>
+</section>
+
+<!-- ===================================================== 27. THE CONTRACT -->
+<section>
+  <h2>The wire format <span class="accent">is</span> the contract</h2>
+  <ul class="tight small">
+    <li class="fragment">One spec file is the single source of truth, byte for byte.</li>
+    <li class="fragment">Future hosts &mdash; an <span class="accent">FPGA core</span>, a vendor's emulator &mdash; conform to the same format.</li>
+    <li class="fragment">A binary written today still runs <strong>twenty years from now</strong> against any conforming host.</li>
+  </ul>
+  <p class="fragment lead good" style="margin-top:0.5em;">Semihosting stops being a per-platform reinvention.</p>
+  <aside class="notes">
+    Let me zoom out to the deepest point, because it's the one that outlasts
+    everything else I've shown you. The C library, the C++ library, MAME, QEMU
+    &mdash; all of those are implementations. The actual product is the contract: a
+    single specification file that defines the wire format, byte for byte. The
+    libraries are reference implementations of that spec, not the other way around.
+    And that ordering is what makes this durable. Because the authority lives in a
+    wire format and not in any one codebase, anyone can write a new conforming host
+    &mdash; Rust bindings, an FPGA core burned into a prototype, a chip vendor's
+    clean-room emulator &mdash; and a guest written today just works against it.
+    Implementations come and go; the contract is the fixed point. Which lets me
+    make a claim I actually believe: a guest binary you compile today, against this
+    spec, will still run twenty years from now against whatever conforming host
+    exists then. That's the line between a tool and infrastructure. And it's the
+    real fix for the bring-up tax &mdash; the reason bring-up has been a perennial
+    cost is that semihosting kept getting reinvented per platform. Pin it to one
+    stable, width-neutral contract, and that reinvention stops.
+  </aside>
+</section>
+
+<!-- ===================================================== 28. CTA -->
+<section data-background-gradient="radial-gradient(circle at 50% 40%, #14313f, #0b0b0b)">
+  <h2 class="accent">Try it this afternoon</h2>
+  <div class="cols" style="margin-top:0.5em;">
+    <div class="card fragment">
+      <strong>Vintage chip, in MAME</strong>
+      <pre><code data-trim class="language-bash">
+mame -listfull zbc*
+mame zbcz80 -quik hello.bin
+      </code></pre>
+    </div>
+    <div class="card fragment">
+      <strong>Modern target, in stock QEMU</strong>
+      <pre><code data-trim class="language-bash">
+qemu-system-riscv32 -machine virt \
+  -device virtio-9p-device,...
+      </code></pre>
+    </div>
+  </div>
+  <ul class="tight small fragment" style="margin-top:0.5em;">
+    <li>Docs &amp; spec: <span class="accent">johnwbyrd.github.io/zbc</span> &middot; Wiki: <span class="accent">zeroboardcomputer.com</span></li>
+    <li>License: <span class="good">MIT</span> &middot; client is C90, never calls <code>malloc</code></li>
+  </ul>
+  <p class="fragment big" style="margin-top:0.4em;">If it can load and store, it can run ZBC.</p>
+  <aside class="notes">
+    So let me leave you with something you can actually do, because the barrier here
+    really is one afternoon. There are two on-ramps. If you have MAME, list the ZBC
+    machines with the first command there, pick one, and quickload a binary
+    &mdash; you'll have a Z80 or a 6502 doing real file I/O in minutes. If you have
+    QEMU, boot the virt or microvm machine with a virtio-9p device pointed at a
+    directory &mdash; same client API, different transport. And to clear away the
+    usual objections: it's MIT-licensed, about as permissive as it gets; the client
+    is small C90 that never calls malloc; you don't sign anything and you don't take
+    on a vendor SDK. The spec lives on the docs site, and the tutorials and
+    compatibility tables live on the wiki. And I'll close where I started, because
+    it's still the whole story in one line: if it can load and store, it can run
+    ZBC. Thank you &mdash; I'd love to take your questions.
+  </aside>
+</section>
+
+</div>
+</div>
+
+<!-- reveal.js runtime + plugins (CDN) -->
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/notes/notes.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/highlight/highlight.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@4.6.1/plugin/markdown/markdown.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'slide',
+    backgroundTransition: 'fade',
+    plugins: [ RevealHighlight, RevealNotes, RevealMarkdown ]
+  });
+</script>
+</body>
+</html>
