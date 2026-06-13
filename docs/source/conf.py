@@ -32,12 +32,21 @@ breathe_default_project = 'zbc'
 # without restating it on every directive.
 breathe_default_members = ('members',)
 
-exclude_patterns = []
+# README.md files inside _extra/ are dev-facing and must not ship to the
+# rendered site; html_extra_path runs files through exclude_patterns before
+# copying them.
+exclude_patterns = ['**/README.md']
 
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = 'sphinx_rtd_theme'
+
+# Standalone assets (e.g. the reveal.js intro deck) live under source/_extra/.
+# Sphinx copies the contents of each listed directory into the build root, so
+# the wrapper level here is what lets _extra/presentation-intro/ land at
+# /presentation-intro/ in the published site.
+html_extra_path = ['_extra']
 
 # -- Options for the C / C++ domains -----------------------------------------
 

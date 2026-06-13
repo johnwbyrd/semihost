@@ -14,10 +14,14 @@ HTTP (opening the `file://` URL directly works too, but a local server avoids
 browser restrictions):
 
 ```bash
-cd docs/presentation
+cd docs/source/_extra/presentation-intro
 python3 -m http.server 8000
 # then open http://localhost:8000/
 ```
+
+The deck is also published as part of the docs site at
+`<docs-base-url>/presentation-intro/` — Sphinx copies it through verbatim
+via `html_extra_path` in `docs/source/conf.py`.
 
 ## Presenting
 
