@@ -8,7 +8,7 @@ explains how to report a suspected vulnerability and what is in scope.
 Use **GitHub's Private Vulnerability Reporting** form on the
 [Security tab](https://github.com/johnwbyrd/zbc/security) so the
 report stays private until it is resolved. If that is not an option,
-email **johnwbyrd@gmail.com** with `[ZBC SECURITY]` in the subject.
+email **johnwbyrd at gmail dot com** with `[ZBC SECURITY]` in the subject.
 
 Please include enough detail to reproduce: target platform, build
 configuration, the input that triggers the issue, and (if known) the
