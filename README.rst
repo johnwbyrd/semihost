@@ -22,6 +22,8 @@ read and write memory.
 **Why this matters, who it's for, and how it works:**
 https://johnwbyrd.github.io/zbc/introduction.html
 
+**Five-minute slide intro:** https://johnwbyrd.github.io/zbc/presentation-intro/
+
 **Full documentation and reference:** https://johnwbyrd.github.io/zbc/
 
 **Wiki and community:** https://www.zeroboardcomputer.com/
