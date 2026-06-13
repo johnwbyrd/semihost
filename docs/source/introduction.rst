@@ -12,6 +12,12 @@ skip ahead to :doc:`client-library` (to call ZBC from your
 firmware) or :doc:`emulator-integration` (to add ZBC to your
 simulator).
 
+.. tip::
+
+   Prefer slides? The same material is available as a reveal.js
+   `intro deck <presentation-intro/>`_ -- one idea per slide, with
+   speaker notes (press ``S``).
+
 .. contents:: Table of Contents
    :local:
    :depth: 2
